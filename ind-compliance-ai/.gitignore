@@ -18,3 +18,9 @@ output/*.tmp
 .cache/
 model_cache/
 parser_artifacts/
+
+ui/frontend/node_modules/
+ui/frontend/dist/
+
+data/samples/uploaded/*
+!data/samples/uploaded/.gitkeep

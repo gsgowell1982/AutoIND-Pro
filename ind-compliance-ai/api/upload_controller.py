@@ -1,6 +1,6 @@
 from pathlib import Path
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xml"}
+ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xml"}
 
 
 def validate_upload(path: Path) -> None:

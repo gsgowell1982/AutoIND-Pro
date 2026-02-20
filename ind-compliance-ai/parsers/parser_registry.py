@@ -11,7 +11,9 @@ ParserFn = Callable[[Path], dict[str, Any]]
 PARSER_REGISTRY: dict[str, ParserFn] = {
     ".pdf": parse_pdf,
     ".docx": parse_docx,
+    ".doc": parse_docx,
     ".pptx": parse_pptx,
+    ".ppt": parse_pptx,
     ".xml": parse_xml,
 }
 

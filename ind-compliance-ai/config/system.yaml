@@ -4,4 +4,4 @@ system:
   enable_cross_module_check: true
   enable_rag_citation: true
   max_upload_size_mb: 200
-  allowed_extensions: [".pdf", ".docx", ".pptx", ".xml"]
+  allowed_extensions: [".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xml"]

@@ -3,10 +3,11 @@
 ## Included
 
 - China IND-oriented project skeleton and contracts
-- Parser interfaces and parser dispatch registry
+- Generic parser interfaces and dispatch registry (PDF/Word/PPT)
 - Rule engine skeleton with hard/soft separation
 - Cross-module atomic fact consistency scaffolding
-- API and agent orchestration placeholders
+- FastAPI + React (Ant Design Pro) interactive prototype
+- Upload progress view, audit workbench, and consistency board
 
 ## Excluded
 
@@ -14,6 +15,7 @@
 - Production-grade model training and tuning pipelines
 - Full eCTD lifecycle management
 - Jurisdiction-specific implementations beyond initial placeholders
+- AI rule check list execution (UI placeholder only in Phase 1)
 
 ## Guardrail
 

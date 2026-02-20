@@ -1,0 +1,48 @@
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  background: #f5f7fa;
+}
+
+.workbench-col {
+  min-height: 700px;
+}
+
+.pdf-viewer-shell {
+  overflow: auto;
+  max-height: 560px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.pdf-page-wrapper {
+  position: relative;
+}
+
+.bbox-overlay-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.bbox-rect {
+  position: absolute;
+  border: 1px solid #ff4d4f;
+  background-color: rgba(255, 77, 79, 0.12);
+  box-sizing: border-box;
+}
+
+.markdown-panel {
+  max-height: 640px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #ffffff;
+}

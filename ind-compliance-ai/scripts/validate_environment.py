@@ -13,6 +13,7 @@ REQUIRED_PATHS = [
     "agents",
     "rag",
     "api",
+    "ui/frontend",
     "tests",
 ]
 
