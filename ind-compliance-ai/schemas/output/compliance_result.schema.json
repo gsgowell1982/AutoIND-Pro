@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ComplianceResult",
+  "type": "object",
+  "required": ["submission_profile", "summary", "rules", "risks"],
+  "properties": {
+    "submission_profile": {"type": "string"},
+    "summary": {
+      "type": "object",
+      "required": ["hard_failures", "soft_risks"],
+      "properties": {
+        "hard_failures": {"type": "integer", "minimum": 0},
+        "soft_risks": {"type": "integer", "minimum": 0}
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rule_id", "status"],
+        "properties": {
+          "rule_id": {"type": "string"},
+          "status": {"type": "string", "enum": ["pass", "fail", "warn", "na"]},
+          "message": {"type": "string"},
+          "citation": {"type": "string"}
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["risk_id", "severity", "reason"],
+        "properties": {
+          "risk_id": {"type": "string"},
+          "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+          "reason": {"type": "string"}
+        }
+      }
+    }
+  }
+}

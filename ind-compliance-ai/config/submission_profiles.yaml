@@ -1,0 +1,10 @@
+profiles:
+  FIH:
+    enabled_rule_sets: ["core_hard", "cmc_soft", "cross_module"]
+    exemptions: ["EX-NA-002"]
+  Amendment:
+    enabled_rule_sets: ["core_hard", "delta_soft"]
+    exemptions: ["EX-NA-001"]
+  Supplement:
+    enabled_rule_sets: ["core_hard", "supplement_soft", "cross_module"]
+    exemptions: []

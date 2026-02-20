@@ -1,0 +1,21 @@
+version: 0.1.0
+description: Atomic facts used for cross-module consistency checks
+atomic_facts:
+  - id: drug_name
+    type: string
+    required: true
+  - id: dosage_form
+    type: string
+    required: true
+  - id: batch_number
+    type: string
+    required: false
+  - id: manufacturing_site
+    type: string
+    required: true
+  - id: strength
+    type: string
+    required: false
+  - id: storage_condition
+    type: string
+    required: false

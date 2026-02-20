@@ -1,0 +1,6 @@
+deployment:
+  mode: private
+  allow_external_network: false
+  encryption_at_rest: true
+  audit_log_enabled: true
+  vector_store_path: data/vector_store

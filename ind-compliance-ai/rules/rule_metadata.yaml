@@ -1,0 +1,12 @@
+version: 0.1.0
+rules:
+  - rule_id: HR-CTD-001
+    category: hard
+    title: Module 3 quality overview exists
+    source_regulation: NMPA_IND_guidance
+    source_version: 2024-01
+  - rule_id: SR-CMC-001
+    category: soft
+    title: Batch comparability narrative completeness
+    source_regulation: ICH_Q8_Q9_Q10
+    source_version: 2023-12

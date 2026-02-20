@@ -1,0 +1,10 @@
+version: 0.1.0
+exemptions:
+  - id: EX-NA-001
+    description: Allow N.A. when submission profile excludes nonclinical updates
+    applies_to_profiles: [Amendment]
+    condition: nonclinical_delta_absent
+  - id: EX-NA-002
+    description: Allow missing pilot batch details for early FIH where justified
+    applies_to_profiles: [FIH]
+    condition: pilot_batch_not_produced

@@ -1,0 +1,9 @@
+{
+  "run_id": "phase1-scaffold",
+  "events": [
+    {
+      "step": "init",
+      "message": "Scaffold initialized"
+    }
+  ]
+}
