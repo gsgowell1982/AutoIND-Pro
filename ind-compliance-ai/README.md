@@ -18,7 +18,8 @@ It provides compliance support signals, traceable evidence, and risk explanation
 
 ```bash
 cp .env.example .env
-python3 scripts/validate_environment.py
+poetry install
+poetry run python3 scripts/validate_environment.py
 ```
 
 ## Core processing flow
