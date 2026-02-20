@@ -27,10 +27,15 @@ export function UploadPreprocessPanel({
 }: UploadPreprocessPanelProps) {
   const [fileList, setFileList] = useState<UploadFile[]>([])
 
-  const selectedFiles = useMemo(
-    () => fileList.map((item) => item.originFileObj).filter((item): item is File => Boolean(item)),
-    [fileList],
-  )
+  const selectedFiles = useMemo(() => {
+    const files: File[] = []
+    fileList.forEach((item) => {
+      if (item.originFileObj) {
+        files.push(item.originFileObj as File)
+      }
+    })
+    return files
+  }, [fileList])
 
   const uploadProps: UploadProps = {
     multiple: true,
