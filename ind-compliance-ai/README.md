@@ -64,6 +64,12 @@ node --version
 npm --version
 ```
 
+If parser dependencies are missing in the selected interpreter, install:
+
+```bash
+pip install python-docx python-pptx pymupdf fastapi uvicorn python-multipart
+```
+
 ## Core processing flow
 
 Upload -> Parse -> Rule Evaluation -> Cross-Module Checks -> Risk Output

@@ -1,13 +1,18 @@
 from pathlib import Path
 from typing import Any
 
-import pymupdf
+try:
+    import pymupdf
+except ImportError:  # pragma: no cover - optional runtime dependency
+    pymupdf = None  # type: ignore[assignment]
 
 from parsers.common.atomic_fact_extractor import extract_atomic_facts
 
 
 def parse_pdf(path: Path) -> dict[str, Any]:
     """Parse PDF content into normalized material representation."""
+    if pymupdf is None:
+        raise RuntimeError("PyMuPDF is required for .pdf parsing. Install with: pip install pymupdf")
     document = pymupdf.open(path)
     pages: list[dict[str, Any]] = []
     bounding_boxes: list[dict[str, Any]] = []

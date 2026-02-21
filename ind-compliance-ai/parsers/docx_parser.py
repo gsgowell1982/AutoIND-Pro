@@ -1,7 +1,10 @@
 from pathlib import Path
 from typing import Any
 
-from docx import Document
+try:
+    from docx import Document
+except ImportError:  # pragma: no cover - optional runtime dependency
+    Document = None  # type: ignore[assignment]
 
 from parsers.common.atomic_fact_extractor import extract_atomic_facts
 
@@ -12,6 +15,8 @@ def parse_docx(path: Path) -> dict[str, Any]:
     extracted_text: list[str] = []
 
     if path.suffix.lower() == ".docx":
+        if Document is None:
+            raise RuntimeError("python-docx is required for .docx parsing. Install with: pip install python-docx")
         document = Document(path)
         for index, paragraph in enumerate(document.paragraphs):
             text = paragraph.text.strip()

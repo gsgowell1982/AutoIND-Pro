@@ -1,7 +1,10 @@
 from pathlib import Path
 from typing import Any
 
-from pptx import Presentation
+try:
+    from pptx import Presentation
+except ImportError:  # pragma: no cover - optional runtime dependency
+    Presentation = None  # type: ignore[assignment]
 
 from parsers.common.atomic_fact_extractor import extract_atomic_facts
 
@@ -13,6 +16,8 @@ def parse_pptx(path: Path) -> dict[str, Any]:
     extracted_text: list[str] = []
 
     if path.suffix.lower() == ".pptx":
+        if Presentation is None:
+            raise RuntimeError("python-pptx is required for .pptx parsing. Install with: pip install python-pptx")
         presentation = Presentation(path)
         for slide_index, slide in enumerate(presentation.slides):
             slide_text_runs: list[str] = []
