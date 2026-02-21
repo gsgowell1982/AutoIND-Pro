@@ -70,6 +70,12 @@ If parser dependencies are missing in the selected interpreter, install:
 pip install python-docx python-pptx pymupdf fastapi uvicorn python-multipart
 ```
 
+Legacy `.doc` notes:
+
+- Best quality: upload `.docx`.
+- For `.doc`, the parser tries Windows Word COM / LibreOffice / antiword when available.
+- If none is available, the API will return a clear error asking to convert `.doc` to `.docx`.
+
 ## Core processing flow
 
 Upload -> Parse -> Rule Evaluation -> Cross-Module Checks -> Risk Output

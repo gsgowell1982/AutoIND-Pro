@@ -63,6 +63,16 @@ def _build_markdown(parsed_documents: list[dict[str, Any]]) -> str:
         lines.append(f"## {filename} ({source_type})")
         lines.append("")
 
+        metadata = document.get("metadata", {})
+        page_count = metadata.get("page_count")
+        parser_hint = metadata.get("parser_hint")
+        if page_count:
+            lines.append(f"- Estimated pages: {page_count}")
+        if parser_hint:
+            lines.append(f"- Parser strategy: {parser_hint}")
+        if page_count or parser_hint:
+            lines.append("")
+
         facts = document.get("atomic_facts", {})
         if facts:
             lines.append("### Atomic Facts")
@@ -82,7 +92,7 @@ def _build_markdown(parsed_documents: list[dict[str, Any]]) -> str:
         if preview_text:
             lines.append("### Text Preview")
             lines.append("```text")
-            lines.append(preview_text[:2000])
+            lines.append(preview_text)
             lines.append("```")
             lines.append("")
 
