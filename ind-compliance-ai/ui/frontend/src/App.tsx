@@ -19,6 +19,9 @@ function App() {
   const unmountedRef = useRef(false)
 
   useEffect(() => {
+    // React StrictMode in dev runs effect cleanup/setup twice.
+    // Reset to false in setup to avoid stale "unmounted" flag.
+    unmountedRef.current = false
     return () => {
       unmountedRef.current = true
     }

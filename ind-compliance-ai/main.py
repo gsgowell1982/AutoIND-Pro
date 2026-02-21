@@ -34,6 +34,7 @@ def run_api_server(host: str, port: int) -> int:
         host,
         "--port",
         str(port),
+        "--no-access-log",
     ]
     return subprocess.call(command, cwd=PROJECT_ROOT)
 
@@ -71,6 +72,7 @@ def run_dev_stack(api_host: str, api_port: int, ui_port: int) -> int:
         "--port",
         str(api_port),
         "--reload",
+        "--no-access-log",
     ]
     frontend_cmd = [
         npm_executable,
