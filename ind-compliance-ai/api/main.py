@@ -66,41 +66,90 @@ def _normalize_text_preview(text: str, max_lines: int = 80) -> str:
     return "\n".join(filtered_lines[:max_lines]).strip()
 
 
-def _build_plain_first_page_preview(text: str, max_chars: int = 300) -> str:
-    # Remove XML/HTML tags and reduce to a compact plain-text preview.
-    text_without_tags = re.sub(r"<[^>]+>", " ", text)
+PREVIEW_NOISE_KEYWORDS = (
+    "author",
+    "lastauthor",
+    "revision",
+    "totaltime",
+    "created",
+    "lastsaved",
+    "generator",
+    "originator",
+    "documentproperties",
+    "progid",
+    "file-list",
+    "microsoft word",
+    "word.document",
+    "urn:schemas",
+    "schema",
+    "xmlns",
+    "w3.org/tr/rec-html40",
+)
+
+
+def _is_preview_noise_line(line: str) -> bool:
+    lowered = line.lower()
+    if any(keyword in lowered for keyword in PREVIEW_NOISE_KEYWORDS):
+        return True
+
+    iso_matches = re.findall(r"\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}z", lowered)
+    if len(iso_matches) >= 1 and sum(char.isdigit() for char in line) >= 10:
+        return True
+
+    if re.fullmatch(r"[\d\s:/\-tTzZ.]+", line):
+        return True
+
+    letters = sum(char.isalpha() for char in line)
+    cjk_chars = sum(1 for char in line if "\u4e00" <= char <= "\u9fff")
+    digit_chars = sum(char.isdigit() for char in line)
+    if digit_chars >= 8 and (letters + cjk_chars) <= 22 and len(line) < 220:
+        return True
+
+    return False
+
+
+def _sanitize_preview_lines(text: str) -> list[str]:
+    text_without_tags = re.sub(r"<[^>]+>", "\n", text)
     unescaped = html.unescape(text_without_tags)
-    normalized = re.sub(r"\s+", " ", unescaped.replace("\x00", " ")).strip()
-    if len(normalized) <= max_chars:
-        return normalized
-    return normalized[:max_chars].rstrip() + "..."
+    lines = []
+    for raw_line in unescaped.replace("\x00", " ").splitlines():
+        normalized = " ".join(raw_line.split())
+        if not normalized:
+            continue
+        if _is_preview_noise_line(normalized):
+            continue
+        lines.append(normalized)
+    return lines
+
+
+def _iter_preview_chunks(document: dict[str, Any]) -> list[str]:
+    source_type = str(document.get("source_type", "")).lower()
+    if source_type == "pdf":
+        return [str(page.get("text", "")) for page in document.get("pages", [])]
+    if source_type == "word":
+        paragraphs = [str(item.get("text", "")) for item in document.get("paragraphs", [])]
+        if paragraphs:
+            return paragraphs
+    if source_type == "presentation":
+        slides = [str(item.get("text", "")) for item in document.get("slides", [])]
+        if slides:
+            return slides
+    return [str(document.get("text", ""))]
+
+
+def _build_plain_preview(document: dict[str, Any], max_chars: int = 300) -> str:
+    merged = ""
+    for chunk in _iter_preview_chunks(document):
+        for line in _sanitize_preview_lines(chunk):
+            candidate = f"{merged} {line}".strip() if merged else line
+            if len(candidate) >= max_chars:
+                return candidate[:max_chars].rstrip() + "..."
+            merged = candidate
+    return merged
 
 
 def _estimate_first_page_text(document: dict[str, Any]) -> str:
-    source_type = str(document.get("source_type", "")).lower()
-    if source_type == "pdf":
-        pages = document.get("pages", [])
-        if pages:
-            return _build_plain_first_page_preview(str(pages[0].get("text", "")))
-    if source_type == "word":
-        paragraphs = document.get("paragraphs", [])
-        metadata = document.get("metadata", {})
-        paragraph_count = len(paragraphs)
-        page_count = metadata.get("page_count")
-        if paragraph_count == 0:
-            return ""
-        if isinstance(page_count, int) and page_count > 0:
-            per_page = max(1, round(paragraph_count / page_count))
-            preview_count = min(max(per_page, 8), 40)
-        else:
-            preview_count = min(paragraph_count, 24)
-        preview_text = "\n".join(str(item.get("text", "")) for item in paragraphs[:preview_count])
-        return _build_plain_first_page_preview(preview_text)
-    if source_type == "presentation":
-        slides = document.get("slides", [])
-        if slides:
-            return _build_plain_first_page_preview(str(slides[0].get("text", "")))
-    return _build_plain_first_page_preview(str(document.get("text", "")))
+    return _build_plain_preview(document, max_chars=300)
 
 
 def _count_tokens(text: str) -> int:
@@ -244,7 +293,7 @@ def _build_ui_markdown(
         extracted_chars = len(str(document.get("text", "")))
         lines.append(f"| {filename} | {source_type} | {page_count} | {extracted_chars} | {parser_hint} |")
 
-    lines.extend(["", "## First-Page Preview (Plain Text, First 300 Chars)", ""])
+    lines.extend(["", "## Content Alignment Preview (Plain Text, Up to 300 Chars)", ""])
     if parsed_documents:
         primary_doc = parsed_documents[0]
         filename = str(primary_doc.get("filename", "document-1"))

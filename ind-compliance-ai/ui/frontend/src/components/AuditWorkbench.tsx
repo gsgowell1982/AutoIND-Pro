@@ -127,7 +127,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
             <Alert
               type="info"
               showIcon
-              message="当前视图仅展示标准化摘要与第一页前 300 字纯文本预览，完整解析请下载 Markdown 文件。"
+              message="当前视图仅展示标准化摘要与纯文本 300 字内容对齐预览（若第一页不足将自动跨页补足），完整解析请下载 Markdown 文件。"
             />
             {workbench?.full_markdown_download_url ? (
               <Button
