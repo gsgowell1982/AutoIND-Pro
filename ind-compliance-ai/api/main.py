@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import html
 import logging
 from pathlib import Path
 import re
@@ -65,12 +66,22 @@ def _normalize_text_preview(text: str, max_lines: int = 80) -> str:
     return "\n".join(filtered_lines[:max_lines]).strip()
 
 
+def _build_plain_first_page_preview(text: str, max_chars: int = 300) -> str:
+    # Remove XML/HTML tags and reduce to a compact plain-text preview.
+    text_without_tags = re.sub(r"<[^>]+>", " ", text)
+    unescaped = html.unescape(text_without_tags)
+    normalized = re.sub(r"\s+", " ", unescaped.replace("\x00", " ")).strip()
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[:max_chars].rstrip() + "..."
+
+
 def _estimate_first_page_text(document: dict[str, Any]) -> str:
     source_type = str(document.get("source_type", "")).lower()
     if source_type == "pdf":
         pages = document.get("pages", [])
         if pages:
-            return _normalize_text_preview(str(pages[0].get("text", "")))
+            return _build_plain_first_page_preview(str(pages[0].get("text", "")))
     if source_type == "word":
         paragraphs = document.get("paragraphs", [])
         metadata = document.get("metadata", {})
@@ -84,12 +95,12 @@ def _estimate_first_page_text(document: dict[str, Any]) -> str:
         else:
             preview_count = min(paragraph_count, 24)
         preview_text = "\n".join(str(item.get("text", "")) for item in paragraphs[:preview_count])
-        return _normalize_text_preview(preview_text)
+        return _build_plain_first_page_preview(preview_text)
     if source_type == "presentation":
         slides = document.get("slides", [])
         if slides:
-            return _normalize_text_preview(str(slides[0].get("text", "")))
-    return _normalize_text_preview(str(document.get("text", "")))
+            return _build_plain_first_page_preview(str(slides[0].get("text", "")))
+    return _build_plain_first_page_preview(str(document.get("text", "")))
 
 
 def _count_tokens(text: str) -> int:
@@ -233,7 +244,7 @@ def _build_ui_markdown(
         extracted_chars = len(str(document.get("text", "")))
         lines.append(f"| {filename} | {source_type} | {page_count} | {extracted_chars} | {parser_hint} |")
 
-    lines.extend(["", "## First-Page Preview", ""])
+    lines.extend(["", "## First-Page Preview (Plain Text, First 300 Chars)", ""])
     if parsed_documents:
         primary_doc = parsed_documents[0]
         filename = str(primary_doc.get("filename", "document-1"))
