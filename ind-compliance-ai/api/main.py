@@ -93,7 +93,9 @@ def _estimate_first_page_text(document: dict[str, Any]) -> str:
 
 
 def _count_tokens(text: str) -> int:
-    return len(re.findall(r"\S+", text))
+    whitespace_tokens = len(re.findall(r"\S+", text))
+    cjk_char_tokens = len(re.findall(r"[\u4e00-\u9fff]", text))
+    return max(whitespace_tokens, 0) + cjk_char_tokens
 
 
 def _build_enterprise_metrics(

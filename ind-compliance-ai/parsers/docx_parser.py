@@ -33,6 +33,11 @@ def _to_paragraphs(text: str) -> list[dict[str, Any]]:
     return paragraphs
 
 
+def _is_legacy_ole_doc(path: Path) -> bool:
+    header = path.read_bytes()[:8]
+    return header == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
 def _read_docx_page_count(path: Path) -> int | None:
     try:
         with ZipFile(path) as archive:
@@ -77,6 +82,25 @@ def _score_text_quality(text: str) -> float:
     return (readable / total) * 0.45 + (informative / total) * 0.55 - (replacement / total) * 1.5
 
 
+def _looks_like_mojibake(text: str) -> bool:
+    if not text:
+        return True
+    normalized_lines = [line for line in text.splitlines() if line.strip()]
+    line_count = len(normalized_lines)
+    token_count = len(re.findall(r"\S+", text))
+    total = len(text)
+    cjk_chars = sum(1 for ch in text if _is_cjk(ch))
+    cjk_ratio = cjk_chars / total if total else 0.0
+    ascii_letters = sum(1 for ch in text if ("a" <= ch.lower() <= "z"))
+    # Typical mojibake from wrong UTF-16 decoding often shows as one giant line,
+    # with very low token count and very high random CJK ratio.
+    if total > 400 and line_count <= 3 and token_count <= 4 and cjk_ratio > 0.65:
+        return True
+    if ascii_letters == 0 and token_count <= 2 and cjk_ratio > 0.85:
+        return True
+    return False
+
+
 def _extract_plain_text_candidate(path: Path) -> str | None:
     raw_bytes = path.read_bytes()
     best_text = ""
@@ -86,6 +110,8 @@ def _extract_plain_text_candidate(path: Path) -> str | None:
         normalized_lines = [line for line in (" ".join(item.split()) for item in decoded.splitlines()) if line]
         candidate = "\n".join(normalized_lines)
         score = _score_text_quality(candidate)
+        if _looks_like_mojibake(candidate):
+            continue
         if score > best_score:
             best_score = score
             best_text = candidate
@@ -198,6 +224,12 @@ def _extract_doc(path: Path) -> tuple[list[dict[str, Any]], str, int | None, str
     text_from_antiword = _extract_doc_with_antiword(path)
     if text_from_antiword:
         return _to_paragraphs(text_from_antiword), text_from_antiword, None, "doc-via-antiword"
+
+    if _is_legacy_ole_doc(path):
+        raise RuntimeError(
+            "Legacy .doc binary requires a converter. "
+            "Please install Microsoft Word or LibreOffice, or convert the file to .docx."
+        )
 
     plain_text = _extract_plain_text_candidate(path)
     if plain_text:
