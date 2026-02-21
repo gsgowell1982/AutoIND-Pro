@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
+import re
 from threading import Lock
 from typing import Any
 from uuid import uuid4
@@ -18,6 +19,8 @@ from parsers.parser_registry import parse_file
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UPLOAD_DIR = PROJECT_ROOT / "data" / "samples" / "uploaded"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+PARSED_MARKDOWN_DIR = PROJECT_ROOT / "output" / "parsed_markdown"
+PARSED_MARKDOWN_DIR.mkdir(parents=True, exist_ok=True)
 
 logger = logging.getLogger("ind_compliance.api")
 
@@ -50,9 +53,204 @@ def _module_label(filename: str, index: int) -> str:
     return f"DOC-{index + 1}"
 
 
-def _build_markdown(parsed_documents: list[dict[str, Any]]) -> str:
+def _safe_ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return numerator / denominator
+
+
+def _normalize_text_preview(text: str, max_lines: int = 80) -> str:
+    cleaned_lines = [" ".join(line.split()) for line in text.replace("\x00", "").splitlines()]
+    filtered_lines = [line for line in cleaned_lines if line]
+    return "\n".join(filtered_lines[:max_lines]).strip()
+
+
+def _estimate_first_page_text(document: dict[str, Any]) -> str:
+    source_type = str(document.get("source_type", "")).lower()
+    if source_type == "pdf":
+        pages = document.get("pages", [])
+        if pages:
+            return _normalize_text_preview(str(pages[0].get("text", "")))
+    if source_type == "word":
+        paragraphs = document.get("paragraphs", [])
+        metadata = document.get("metadata", {})
+        paragraph_count = len(paragraphs)
+        page_count = metadata.get("page_count")
+        if paragraph_count == 0:
+            return ""
+        if isinstance(page_count, int) and page_count > 0:
+            per_page = max(1, round(paragraph_count / page_count))
+            preview_count = min(max(per_page, 8), 40)
+        else:
+            preview_count = min(paragraph_count, 24)
+        preview_text = "\n".join(str(item.get("text", "")) for item in paragraphs[:preview_count])
+        return _normalize_text_preview(preview_text)
+    if source_type == "presentation":
+        slides = document.get("slides", [])
+        if slides:
+            return _normalize_text_preview(str(slides[0].get("text", "")))
+    return _normalize_text_preview(str(document.get("text", "")))
+
+
+def _count_tokens(text: str) -> int:
+    return len(re.findall(r"\S+", text))
+
+
+def _build_enterprise_metrics(
+    parsed_documents: list[dict[str, Any]],
+    file_records: list[dict[str, Any]],
+    consistency_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    total_files = len(file_records)
+    parsed_count = len(parsed_documents)
+    total_chars = sum(len(str(item.get("text", ""))) for item in parsed_documents)
+    total_tokens = sum(_count_tokens(str(item.get("text", ""))) for item in parsed_documents)
+
+    estimated_pages = 0
+    for document in parsed_documents:
+        metadata = document.get("metadata", {})
+        source_type = str(document.get("source_type", "")).lower()
+        page_count = metadata.get("page_count")
+        if isinstance(page_count, int) and page_count > 0:
+            estimated_pages += page_count
+        elif source_type == "pdf":
+            estimated_pages += len(document.get("pages", []))
+        elif source_type == "presentation":
+            estimated_pages += len(document.get("slides", []))
+        elif source_type == "word":
+            paragraph_count = len(document.get("paragraphs", []))
+            estimated_pages += max(1, round(paragraph_count / 24)) if paragraph_count else 0
+
+    expected_fact_keys = {"drug_name", "dosage_form", "batch_number", "manufacturing_site", "strength"}
+    captured_facts = sum(
+        len({key for key in document.get("atomic_facts", {}) if key in expected_fact_keys})
+        for document in parsed_documents
+    )
+    expected_total_facts = len(expected_fact_keys) * max(parsed_count, 1)
+
+    consistent_rows = sum(1 for row in consistency_rows if row.get("is_consistent"))
+    consistency_total = len(consistency_rows)
+
+    parser_strategy_counter: dict[str, int] = {}
+    for document in parsed_documents:
+        parser_hint = str(document.get("metadata", {}).get("parser_hint", "unknown"))
+        parser_strategy_counter[parser_hint] = parser_strategy_counter.get(parser_hint, 0) + 1
+
+    parse_success_rate = _safe_ratio(parsed_count, total_files) * 100
+    extraction_quality_score = (
+        _safe_ratio(total_chars, max(parsed_count, 1) * 5000) * 40
+        + _safe_ratio(captured_facts, expected_total_facts) * 35
+        + _safe_ratio(consistent_rows, max(consistency_total, 1)) * 25
+    )
+    extraction_quality_score = min(extraction_quality_score, 100.0)
+
+    return {
+        "total_files": total_files,
+        "parsed_count": parsed_count,
+        "parse_success_rate": parse_success_rate,
+        "estimated_pages": estimated_pages,
+        "total_characters": total_chars,
+        "total_tokens": total_tokens,
+        "captured_facts": captured_facts,
+        "expected_total_facts": expected_total_facts,
+        "fact_capture_rate": _safe_ratio(captured_facts, expected_total_facts) * 100,
+        "consistency_passed": consistent_rows,
+        "consistency_total": consistency_total,
+        "consistency_rate": _safe_ratio(consistent_rows, max(consistency_total, 1)) * 100,
+        "quality_score": extraction_quality_score,
+        "parser_distribution": parser_strategy_counter,
+    }
+
+
+def _build_ui_markdown(
+    parsed_documents: list[dict[str, Any]],
+    file_records: list[dict[str, Any]],
+    consistency_rows: list[dict[str, Any]],
+) -> str:
+    metrics = _build_enterprise_metrics(parsed_documents, file_records, consistency_rows)
+
     lines = [
-        "# IND Parse Snapshot",
+        "# Enterprise Parsing Executive Summary",
+        "",
+        f"- Generated at: {_utc_now()}",
+        f"- Job scope: {metrics['total_files']} file(s), {metrics['parsed_count']} parsed successfully",
+        "",
+        "## Quantitative KPI Overview",
+        "",
+        "| Metric | Value | Interpretation |",
+        "| --- | --- | --- |",
+        (
+            f"| Parse success rate | {metrics['parse_success_rate']:.1f}% "
+            f"({metrics['parsed_count']}/{metrics['total_files']}) | Parser execution completeness |"
+        ),
+        f"| Estimated pages/slides | {metrics['estimated_pages']} | Approximate payload scale |",
+        f"| Extracted text volume | {metrics['total_characters']} chars / {metrics['total_tokens']} tokens | Text capture throughput |",
+        (
+            f"| Atomic fact capture rate | {metrics['fact_capture_rate']:.1f}% "
+            f"({metrics['captured_facts']}/{metrics['expected_total_facts']}) | Cross-module key-field readiness |"
+        ),
+        (
+            f"| Consistency pass rate | {metrics['consistency_rate']:.1f}% "
+            f"({metrics['consistency_passed']}/{metrics['consistency_total']}) | Cross-document alignment quality |"
+        ),
+        f"| Enterprise quality score | {metrics['quality_score']:.1f}/100 | Composite extraction reliability indicator |",
+        "",
+        "## Parser Distribution",
+        "",
+    ]
+    for parser_name, count in sorted(metrics["parser_distribution"].items()):
+        lines.append(f"- {parser_name}: {count} file(s)")
+    if not metrics["parser_distribution"]:
+        lines.append("- No parser output")
+
+    lines.extend(
+        [
+            "",
+            "## Document Inventory",
+            "",
+            "| File | Type | Estimated pages/slides | Extracted chars | Parser strategy |",
+            "| --- | --- | ---: | ---: | --- |",
+        ]
+    )
+    for index, document in enumerate(parsed_documents):
+        filename = str(document.get("filename", f"document-{index + 1}"))
+        source_type = str(document.get("source_type", "unknown")).upper()
+        metadata = document.get("metadata", {})
+        parser_hint = str(metadata.get("parser_hint", "unknown"))
+        page_count = metadata.get("page_count")
+        if not isinstance(page_count, int) or page_count <= 0:
+            if source_type == "PDF":
+                page_count = len(document.get("pages", []))
+            elif source_type == "PRESENTATION":
+                page_count = len(document.get("slides", []))
+            elif source_type == "WORD":
+                paragraph_count = len(document.get("paragraphs", []))
+                page_count = max(1, round(paragraph_count / 24)) if paragraph_count else 0
+            else:
+                page_count = 0
+        extracted_chars = len(str(document.get("text", "")))
+        lines.append(f"| {filename} | {source_type} | {page_count} | {extracted_chars} | {parser_hint} |")
+
+    lines.extend(["", "## First-Page Preview", ""])
+    if parsed_documents:
+        primary_doc = parsed_documents[0]
+        filename = str(primary_doc.get("filename", "document-1"))
+        source_type = str(primary_doc.get("source_type", "unknown")).upper()
+        first_page_preview = _estimate_first_page_text(primary_doc)
+        lines.append(f"### {filename} ({source_type})")
+        lines.append("")
+        lines.append("```text")
+        lines.append(first_page_preview or "No preview text available.")
+        lines.append("```")
+    else:
+        lines.append("No parsed document available.")
+
+    return "\n".join(lines).strip()
+
+
+def _build_full_markdown(parsed_documents: list[dict[str, Any]]) -> str:
+    lines = [
+        "# IND Parse Snapshot (Full)",
         "",
         f"Generated at: {_utc_now()}",
         "",
@@ -130,7 +328,12 @@ def _build_consistency_rows(parsed_documents: list[dict[str, Any]]) -> list[dict
     return rows
 
 
-def _build_workbench(parsed_documents: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_workbench(
+    parsed_documents: list[dict[str, Any]],
+    file_records: list[dict[str, Any]],
+    consistency_rows: list[dict[str, Any]],
+    markdown_download_url: str | None,
+) -> dict[str, Any]:
     pdf_document: dict[str, Any] | None = None
     for document in parsed_documents:
         if document.get("source_type") == "pdf":
@@ -145,7 +348,8 @@ def _build_workbench(parsed_documents: list[dict[str, Any]]) -> dict[str, Any]:
 
     return {
         "pdf_document": pdf_document,
-        "markdown": _build_markdown(parsed_documents),
+        "markdown": _build_ui_markdown(parsed_documents, file_records, consistency_rows),
+        "full_markdown_download_url": markdown_download_url,
         "rule_checks": {
             "enabled": False,
             "items": [],
@@ -214,13 +418,24 @@ def _process_job(job_id: str) -> None:
             job["updated_at"] = _utc_now()
 
     consistency_rows = _build_consistency_rows(parsed_documents)
-    workbench = _build_workbench(parsed_documents)
+    full_markdown_text = _build_full_markdown(parsed_documents)
+    markdown_file_path = PARSED_MARKDOWN_DIR / f"{job_id}_parse_full.md"
+    markdown_file_path.write_text(full_markdown_text, encoding="utf-8")
+    markdown_download_url = f"/api/v1/jobs/{job_id}/markdown/download"
 
     with STORE_LOCK:
         job = JOB_STORE[job_id]
+        final_file_records = [dict(item) for item in job["files"]]
+        workbench = _build_workbench(
+            parsed_documents=parsed_documents,
+            file_records=final_file_records,
+            consistency_rows=consistency_rows,
+            markdown_download_url=markdown_download_url,
+        )
         job["parsed_documents"] = parsed_documents
         job["consistency_rows"] = consistency_rows
         job["workbench"] = workbench
+        job["full_markdown_path"] = str(markdown_file_path)
         job["progress"] = 100
         job["updated_at"] = _utc_now()
         if failed_files == len(file_records):
@@ -368,6 +583,25 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=409, detail="Job is still processing")
             logger.info("Consistency board requested for job %s", job_id)
             return {"rows": job["consistency_rows"]}
+
+    @app.get("/api/v1/jobs/{job_id}/markdown/download")
+    def download_full_markdown(job_id: str) -> FileResponse:
+        with STORE_LOCK:
+            job = JOB_STORE.get(job_id)
+            if job is None:
+                raise HTTPException(status_code=404, detail="Job not found")
+            markdown_path_str = str(job.get("full_markdown_path", "")).strip()
+        if not markdown_path_str:
+            raise HTTPException(status_code=404, detail="Full markdown file not found")
+        markdown_path = Path(markdown_path_str)
+        if not markdown_path.exists():
+            raise HTTPException(status_code=404, detail="Full markdown file not found")
+        logger.info("Full markdown download requested for job %s", job_id)
+        return FileResponse(
+            markdown_path,
+            media_type="text/markdown; charset=utf-8",
+            filename=f"{job_id}_full_parse.md",
+        )
 
     @app.get("/api/v1/files/{file_id}")
     def get_file(file_id: str) -> FileResponse:

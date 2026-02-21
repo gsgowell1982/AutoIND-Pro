@@ -50,6 +50,7 @@ export interface WorkbenchPayload {
     bounding_boxes: BoundingBox[]
   } | null
   markdown: string
+  full_markdown_download_url?: string
   rule_checks: {
     enabled: boolean
     items: Array<{ id: string; message: string }>

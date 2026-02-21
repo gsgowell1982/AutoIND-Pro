@@ -21,7 +21,8 @@ It provides compliance support signals, traceable evidence, and risk explanation
    - 展示任务级与文件级解析进度
 2. **智能审核工作台 (Audit Workbench)**
    - 左区：PDF 阅读 + Bounding Box 高亮展示
-   - 中区：结构化 Markdown 视图（由解析 JSON 转化）
+   - 中区：标准化 Markdown 视图（企业级量化指标总结 + 第一页预览）
+   - 提供完整解析 Markdown 下载（全量内容用于审阅留档）
    - 右区：AI 规则检查列表占位（Phase 1 仅保留 UI 位置）
 3. **一致性检查看板**
    - 展示跨模块原子事实比对

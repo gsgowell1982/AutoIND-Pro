@@ -1,5 +1,6 @@
+import { DownloadOutlined } from '@ant-design/icons'
 import { ProCard } from '@ant-design/pro-components'
-import { Alert, Empty, List, Select, Space, Tag, Typography } from 'antd'
+import { Alert, Button, Empty, List, Select, Space, Tag, Typography } from 'antd'
 import ReactMarkdown from 'react-markdown'
 import { useEffect, useMemo, useState } from 'react'
 import { Document, Page } from 'react-pdf'
@@ -121,6 +122,22 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
         </ProCard>
 
         <ProCard title="结构化 Markdown 视图" colSpan="34%" className="workbench-col">
+          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            <Alert
+              type="info"
+              showIcon
+              message="当前视图仅展示标准化摘要与第一页预览，完整解析请下载 Markdown 文件。"
+            />
+            {workbench?.full_markdown_download_url ? (
+              <Button
+                icon={<DownloadOutlined />}
+                href={buildAssetUrl(workbench.full_markdown_download_url)}
+                target="_blank"
+              >
+                下载完整解析 Markdown
+              </Button>
+            ) : null}
+          </Space>
           {workbench?.markdown ? (
             <div className="markdown-panel">
               <ReactMarkdown>{workbench.markdown}</ReactMarkdown>
