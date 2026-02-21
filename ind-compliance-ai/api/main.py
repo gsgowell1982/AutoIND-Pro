@@ -107,6 +107,8 @@ PREVIEW_INLINE_NOISE_PATTERNS = (
     r"\b(?:true|false)\b",
     r"\S+\.files/\S+",
     r"\S+\.xml\b",
+    r"标题\s*\d+\s*(?:字符)?",
+    r"普通表格",
 )
 
 
@@ -120,6 +122,7 @@ def _strip_inline_noise(text: str) -> str:
     for pattern in PREVIEW_INLINE_NOISE_PATTERNS:
         cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"[<>]+", " ", cleaned)
+    cleaned = re.sub(r"[\"'“”‘’]+\s*[;；,，]?", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
@@ -130,7 +133,23 @@ def _polish_plain_text(text: str) -> str:
     polished = re.sub(r"\s+([，。！？；：、])", r"\1", polished)
     polished = re.sub(r"([（《“【])\s+", r"\1", polished)
     polished = re.sub(r"\s+([）》”】])", r"\1", polished)
+    polished = re.sub(r"[;；,，]\s*(?=[;；,，])", "", polished)
+    polished = re.sub(r"^[;；,，.。:：\\s]+", "", polished)
     return polished
+
+
+def _trim_to_body_anchor(text: str) -> str:
+    anchors = ("中华人民共和国", "第一章", "第一条", "总则")
+    anchor_positions = [text.find(anchor) for anchor in anchors if text.find(anchor) >= 0]
+    if not anchor_positions:
+        return text
+    first_anchor = min(anchor_positions)
+    if first_anchor <= 0:
+        return text
+    prefix = text[:first_anchor]
+    if "标题" in prefix or "表格" in prefix or len(prefix) < 140:
+        return text[first_anchor:].strip()
+    return text
 
 
 def _is_preview_noise_line(line: str) -> bool:
@@ -173,6 +192,9 @@ def _sanitize_preview_lines(text: str) -> list[str]:
     lines = []
     for raw_line in text.splitlines():
         normalized = _strip_inline_noise(raw_line)
+        if not normalized:
+            continue
+        normalized = _trim_to_body_anchor(normalized)
         if not normalized:
             continue
 
@@ -242,13 +264,24 @@ def _build_plain_preview(document: dict[str, Any], max_chars: int = 500) -> str:
         candidate = f"{merged} {line}".strip() if merged else line
         candidate = _polish_plain_text(candidate)
         if len(candidate) >= max_chars:
-            return candidate[:max_chars].rstrip() + "..."
+            return _polish_plain_text(candidate[:max_chars].rstrip()) + "..."
         merged = candidate
     return _polish_plain_text(merged)
 
 
 def _estimate_first_page_text(document: dict[str, Any]) -> str:
     return _build_plain_preview(document, max_chars=500)
+
+
+def _format_preview_for_display(text: str) -> str:
+    polished = _polish_plain_text(text)
+    if not polished:
+        return ""
+    # Split by Chinese punctuation for readable automatic line breaks.
+    segments = [segment.strip() for segment in re.split(r"(?<=[。！？；])", polished) if segment.strip()]
+    if segments:
+        return "\n".join(segments)
+    return polished
 
 
 def _count_tokens(text: str) -> int:
@@ -398,11 +431,10 @@ def _build_ui_markdown(
         filename = str(primary_doc.get("filename", "document-1"))
         source_type = str(primary_doc.get("source_type", "unknown")).upper()
         first_page_preview = _estimate_first_page_text(primary_doc)
+        formatted_preview = _format_preview_for_display(first_page_preview)
         lines.append(f"### {filename} ({source_type})")
         lines.append("")
-        lines.append("```text")
-        lines.append(first_page_preview or "No preview text available.")
-        lines.append("```")
+        lines.append(formatted_preview or "No preview text available.")
     else:
         lines.append("No parsed document available.")
 
