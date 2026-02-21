@@ -24,6 +24,23 @@ def _resolve_npm_executable() -> str | None:
     return shutil.which("npm")
 
 
+def _frontend_needs_install(frontend_dir: Path) -> bool:
+    """Install frontend deps when lock/package changed or node_modules missing."""
+    node_modules_dir = frontend_dir / "node_modules"
+    if not node_modules_dir.exists():
+        return True
+
+    node_modules_mtime = node_modules_dir.stat().st_mtime
+    package_json = frontend_dir / "package.json"
+    package_lock = frontend_dir / "package-lock.json"
+
+    if package_json.exists() and package_json.stat().st_mtime > node_modules_mtime:
+        return True
+    if package_lock.exists() and package_lock.stat().st_mtime > node_modules_mtime:
+        return True
+    return False
+
+
 def run_api_server(host: str, port: int) -> int:
     command = [
         sys.executable,
@@ -52,8 +69,8 @@ def run_dev_stack(api_host: str, api_port: int, ui_port: int) -> int:
         )
         return 1
 
-    if not (FRONTEND_DIR / "node_modules").exists():
-        print("Installing frontend dependencies in ui/frontend ...")
+    if _frontend_needs_install(FRONTEND_DIR):
+        print("Syncing frontend dependencies (npm install) ...")
         install_code = subprocess.call([npm_executable, "install"], cwd=FRONTEND_DIR)
         if install_code != 0:
             return install_code
