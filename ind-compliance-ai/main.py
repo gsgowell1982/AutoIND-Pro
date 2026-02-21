@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -10,6 +11,17 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 FRONTEND_DIR = PROJECT_ROOT / "ui" / "frontend"
+
+
+def _resolve_npm_executable() -> str | None:
+    """Resolve npm command across POSIX and Windows environments."""
+    if os.name == "nt":
+        for candidate in ("npm.cmd", "npm.exe", "npm"):
+            resolved = shutil.which(candidate)
+            if resolved:
+                return resolved
+        return None
+    return shutil.which("npm")
 
 
 def run_api_server(host: str, port: int) -> int:
@@ -30,10 +42,18 @@ def run_dev_stack(api_host: str, api_port: int, ui_port: int) -> int:
     if not (FRONTEND_DIR / "package.json").exists():
         print("Frontend package.json is missing in ui/frontend.", file=sys.stderr)
         return 1
+    npm_executable = _resolve_npm_executable()
+    if npm_executable is None:
+        print(
+            "npm executable was not found. Install Node.js and ensure npm is in PATH.\n"
+            "Conda example: `conda install -c conda-forge nodejs=22`",
+            file=sys.stderr,
+        )
+        return 1
 
     if not (FRONTEND_DIR / "node_modules").exists():
         print("Installing frontend dependencies in ui/frontend ...")
-        install_code = subprocess.call(["npm", "install"], cwd=FRONTEND_DIR)
+        install_code = subprocess.call([npm_executable, "install"], cwd=FRONTEND_DIR)
         if install_code != 0:
             return install_code
 
@@ -52,7 +72,16 @@ def run_dev_stack(api_host: str, api_port: int, ui_port: int) -> int:
         str(api_port),
         "--reload",
     ]
-    frontend_cmd = ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", str(ui_port)]
+    frontend_cmd = [
+        npm_executable,
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        str(ui_port),
+    ]
 
     backend = subprocess.Popen(backend_cmd, cwd=PROJECT_ROOT)
     frontend = subprocess.Popen(frontend_cmd, cwd=FRONTEND_DIR, env=env)

@@ -46,6 +46,24 @@ After startup in default `dev` mode:
 python3 main.py --mode api
 ```
 
+## Windows + PyCharm + Conda notes
+
+If `python main.py` fails with `FileNotFoundError` when launching frontend,
+the Python environment cannot find `npm`.
+
+Install Node.js into the same conda environment (or ensure npm is in PATH):
+
+```bash
+conda install -c conda-forge nodejs=22
+```
+
+Then verify:
+
+```bash
+node --version
+npm --version
+```
+
 ## Core processing flow
 
 Upload -> Parse -> Rule Evaluation -> Cross-Module Checks -> Risk Output
