@@ -2,6 +2,7 @@ import { DownloadOutlined } from '@ant-design/icons'
 import { ProCard } from '@ant-design/pro-components'
 import { Alert, Button, Empty, List, Select, Space, Tag, Typography } from 'antd'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useEffect, useMemo, useState } from 'react'
 import { Document, Page } from 'react-pdf'
 
@@ -140,7 +141,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
           </Space>
           {workbench?.markdown ? (
             <div className="markdown-panel">
-              <ReactMarkdown>{workbench.markdown}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{workbench.markdown}</ReactMarkdown>
             </div>
           ) : (
             <Empty description="等待解析结果" />

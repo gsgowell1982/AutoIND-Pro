@@ -46,3 +46,22 @@ body,
   border-radius: 8px;
   background: #ffffff;
 }
+
+.markdown-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.markdown-panel th,
+.markdown-panel td {
+  border: 1px solid #d9d9d9;
+  padding: 8px;
+  vertical-align: top;
+}
+
+.markdown-panel th {
+  background: #fafafa;
+  font-weight: 600;
+}
