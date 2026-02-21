@@ -84,6 +84,15 @@ PREVIEW_NOISE_KEYWORDS = (
     "schema",
     "xmlns",
     "w3.org/tr/rec-html40",
+    "colorschememapping",
+    "latentstyles",
+    "deflockedstate",
+    "defunhidewhenused",
+    "defsemihidden",
+    "defqformat",
+    "defpriority",
+    "latentstylecount",
+    "mso-",
 )
 
 
@@ -99,6 +108,18 @@ def _is_preview_noise_line(line: str) -> bool:
     if re.fullmatch(r"[\d\s:/\-tTzZ.]+", line):
         return True
 
+    if len(re.findall(r"\b(?:true|false)\b", lowered)) >= 2:
+        return True
+
+    if re.search(r"\b[a-z]{2}-[a-z]{2}\b", lowered) and sum(char.isdigit() for char in line) >= 2:
+        return True
+
+    if lowered.count(".xml") >= 1 or ".files/" in lowered:
+        return True
+
+    if len(re.findall(r"\b\w+:\w+\b", lowered)) >= 2:
+        return True
+
     letters = sum(char.isalpha() for char in line)
     cjk_chars = sum(1 for char in line if "\u4e00" <= char <= "\u9fff")
     digit_chars = sum(char.isdigit() for char in line)
@@ -109,10 +130,11 @@ def _is_preview_noise_line(line: str) -> bool:
 
 
 def _sanitize_preview_lines(text: str) -> list[str]:
-    text_without_tags = re.sub(r"<[^>]+>", "\n", text)
-    unescaped = html.unescape(text_without_tags)
+    # Decode entities first, then remove tags to avoid &lt;tag&gt; bypass.
+    unescaped = html.unescape(text.replace("\x00", " "))
+    text_without_tags = re.sub(r"<[^>]+>", "\n", unescaped)
     lines = []
-    for raw_line in unescaped.replace("\x00", " ").splitlines():
+    for raw_line in text_without_tags.splitlines():
         normalized = " ".join(raw_line.split())
         if not normalized:
             continue
@@ -137,14 +159,37 @@ def _iter_preview_chunks(document: dict[str, Any]) -> list[str]:
     return [str(document.get("text", ""))]
 
 
+def _cjk_count(text: str) -> int:
+    return sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
+
+
 def _build_plain_preview(document: dict[str, Any], max_chars: int = 300) -> str:
-    merged = ""
+    clean_lines: list[str] = []
     for chunk in _iter_preview_chunks(document):
-        for line in _sanitize_preview_lines(chunk):
-            candidate = f"{merged} {line}".strip() if merged else line
-            if len(candidate) >= max_chars:
-                return candidate[:max_chars].rstrip() + "..."
-            merged = candidate
+        clean_lines.extend(_sanitize_preview_lines(chunk))
+
+    if not clean_lines:
+        return ""
+
+    # For Chinese-dominant docs, drop short Latin-only metadata tails like author names.
+    if any(_cjk_count(line) >= 4 for line in clean_lines):
+        filtered_lines: list[str] = []
+        for line in clean_lines:
+            cjk_chars = _cjk_count(line)
+            if cjk_chars >= 2:
+                filtered_lines.append(line)
+                continue
+            if len(line) >= 45 and not _is_preview_noise_line(line):
+                filtered_lines.append(line)
+        if filtered_lines:
+            clean_lines = filtered_lines
+
+    merged = ""
+    for line in clean_lines:
+        candidate = f"{merged} {line}".strip() if merged else line
+        if len(candidate) >= max_chars:
+            return candidate[:max_chars].rstrip() + "..."
+        merged = candidate
     return merged
 
 
