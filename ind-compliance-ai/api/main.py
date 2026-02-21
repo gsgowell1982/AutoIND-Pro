@@ -96,6 +96,43 @@ PREVIEW_NOISE_KEYWORDS = (
 )
 
 
+PREVIEW_INLINE_NOISE_PATTERNS = (
+    r"&lt;/?[a-zA-Z][^&]*&gt;",
+    r"</?[a-zA-Z][^>]*>",
+    r"</?[a-zA-Z][a-zA-Z0-9:-]*",
+    r"\{[^{}]{0,260}\}",
+    r"font-family\s*:[^;{}]+;?",
+    r"\b(?:unhidewhenused|name|id|qformat|semihidden|priority|latentstylecount|deflockedstate|defunhidewhenused|defsemihidden|defqformat|defpriority)\s*=\s*\"[^\"]*\"",
+    r"\b(?:en-us|zh-cn|x-none)\b",
+    r"\b(?:true|false)\b",
+    r"\S+\.files/\S+",
+    r"\S+\.xml\b",
+)
+
+
+def _cjk_count(text: str) -> int:
+    return sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
+
+
+def _strip_inline_noise(text: str) -> str:
+    cleaned = html.unescape(text.replace("\x00", " "))
+    cleaned = html.unescape(cleaned)
+    for pattern in PREVIEW_INLINE_NOISE_PATTERNS:
+        cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[<>]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _polish_plain_text(text: str) -> str:
+    polished = re.sub(r"\s+", " ", text).strip()
+    polished = re.sub(r"([\u4e00-\u9fff])\s+([\u4e00-\u9fff])", r"\1\2", polished)
+    polished = re.sub(r"\s+([，。！？；：、])", r"\1", polished)
+    polished = re.sub(r"([（《“【])\s+", r"\1", polished)
+    polished = re.sub(r"\s+([）》”】])", r"\1", polished)
+    return polished
+
+
 def _is_preview_noise_line(line: str) -> bool:
     lowered = line.lower()
     if any(keyword in lowered for keyword in PREVIEW_NOISE_KEYWORDS):
@@ -120,8 +157,11 @@ def _is_preview_noise_line(line: str) -> bool:
     if len(re.findall(r"\b\w+:\w+\b", lowered)) >= 2:
         return True
 
+    if _cjk_count(line) == 0 and len(re.findall(r"[a-zA-Z]{2,}", line)) >= 8 and sum(char.isdigit() for char in line) >= 2:
+        return True
+
     letters = sum(char.isalpha() for char in line)
-    cjk_chars = sum(1 for char in line if "\u4e00" <= char <= "\u9fff")
+    cjk_chars = _cjk_count(line)
     digit_chars = sum(char.isdigit() for char in line)
     if digit_chars >= 8 and (letters + cjk_chars) <= 22 and len(line) < 220:
         return True
@@ -130,14 +170,28 @@ def _is_preview_noise_line(line: str) -> bool:
 
 
 def _sanitize_preview_lines(text: str) -> list[str]:
-    # Decode entities first, then remove tags to avoid &lt;tag&gt; bypass.
-    unescaped = html.unescape(text.replace("\x00", " "))
-    text_without_tags = re.sub(r"<[^>]+>", "\n", unescaped)
     lines = []
-    for raw_line in text_without_tags.splitlines():
-        normalized = " ".join(raw_line.split())
+    for raw_line in text.splitlines():
+        normalized = _strip_inline_noise(raw_line)
         if not normalized:
             continue
+
+        cjk_chars = _cjk_count(normalized)
+        if cjk_chars >= 2:
+            first_cjk_index = next(
+                (index for index, char in enumerate(normalized) if "\u4e00" <= char <= "\u9fff"),
+                -1,
+            )
+            if first_cjk_index > 0:
+                leading = normalized[:first_cjk_index].strip()
+                leading_letters = sum(char.isalpha() for char in leading)
+                leading_digits = sum(char.isdigit() for char in leading)
+                if leading_letters >= 4 or leading_digits >= 2:
+                    normalized = normalized[first_cjk_index:].strip()
+
+            normalized = re.sub(r"\b[a-zA-Z][a-zA-Z0-9._-]{4,}\b", " ", normalized)
+            normalized = _polish_plain_text(normalized)
+
         if _is_preview_noise_line(normalized):
             continue
         lines.append(normalized)
@@ -159,11 +213,7 @@ def _iter_preview_chunks(document: dict[str, Any]) -> list[str]:
     return [str(document.get("text", ""))]
 
 
-def _cjk_count(text: str) -> int:
-    return sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
-
-
-def _build_plain_preview(document: dict[str, Any], max_chars: int = 300) -> str:
+def _build_plain_preview(document: dict[str, Any], max_chars: int = 500) -> str:
     clean_lines: list[str] = []
     for chunk in _iter_preview_chunks(document):
         clean_lines.extend(_sanitize_preview_lines(chunk))
@@ -171,30 +221,34 @@ def _build_plain_preview(document: dict[str, Any], max_chars: int = 300) -> str:
     if not clean_lines:
         return ""
 
-    # For Chinese-dominant docs, drop short Latin-only metadata tails like author names.
+    # For Chinese-dominant docs, keep Chinese-bearing lines only.
     if any(_cjk_count(line) >= 4 for line in clean_lines):
         filtered_lines: list[str] = []
         for line in clean_lines:
             cjk_chars = _cjk_count(line)
             if cjk_chars >= 2:
                 filtered_lines.append(line)
-                continue
-            if len(line) >= 45 and not _is_preview_noise_line(line):
-                filtered_lines.append(line)
         if filtered_lines:
             clean_lines = filtered_lines
+
+    deduped_lines: list[str] = []
+    for line in clean_lines:
+        if not deduped_lines or line != deduped_lines[-1]:
+            deduped_lines.append(line)
+    clean_lines = deduped_lines
 
     merged = ""
     for line in clean_lines:
         candidate = f"{merged} {line}".strip() if merged else line
+        candidate = _polish_plain_text(candidate)
         if len(candidate) >= max_chars:
             return candidate[:max_chars].rstrip() + "..."
         merged = candidate
-    return merged
+    return _polish_plain_text(merged)
 
 
 def _estimate_first_page_text(document: dict[str, Any]) -> str:
-    return _build_plain_preview(document, max_chars=300)
+    return _build_plain_preview(document, max_chars=500)
 
 
 def _count_tokens(text: str) -> int:
@@ -338,7 +392,7 @@ def _build_ui_markdown(
         extracted_chars = len(str(document.get("text", "")))
         lines.append(f"| {filename} | {source_type} | {page_count} | {extracted_chars} | {parser_hint} |")
 
-    lines.extend(["", "## Content Alignment Preview (Plain Text, Up to 300 Chars)", ""])
+    lines.extend(["", "## Content Alignment Preview (Plain Text, Up to 500 Chars)", ""])
     if parsed_documents:
         primary_doc = parsed_documents[0]
         filename = str(primary_doc.get("filename", "document-1"))
