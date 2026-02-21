@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -17,6 +18,8 @@ from parsers.parser_registry import parse_file
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UPLOAD_DIR = PROJECT_ROOT / "data" / "samples" / "uploaded"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+logger = logging.getLogger("ind_compliance.api")
 
 JOB_STORE: dict[str, dict[str, Any]] = {}
 FILE_STORE: dict[str, Path] = {}
@@ -149,6 +152,8 @@ def _process_job(job_id: str) -> None:
         job["status"] = "processing"
         job["progress"] = 5
         job["updated_at"] = _utc_now()
+        file_count = len(job["files"])
+    logger.info("Job %s started processing (%s files)", job_id, file_count)
 
     parsed_documents: list[dict[str, Any]] = []
     failed_files = 0
@@ -174,11 +179,18 @@ def _process_job(job_id: str) -> None:
             file_status = "completed"
             file_message = "Parsed successfully"
             file_progress = 100
+            logger.info(
+                "Job %s parsed file %s (%s)",
+                job_id,
+                file_record["filename"],
+                file_record["suffix"],
+            )
         except Exception as exc:  # pragma: no cover - defensive surface for parser errors
             failed_files += 1
             file_status = "failed"
             file_message = f"Parse failed: {exc}"
             file_progress = 100
+            logger.exception("Job %s failed parsing file %s", job_id, file_record["filename"])
 
         processed_ratio = (index + 1) / total_files
         with STORE_LOCK:
@@ -207,9 +219,17 @@ def _process_job(job_id: str) -> None:
             job["status"] = "completed_with_warnings"
         else:
             job["status"] = "completed"
+        final_status = job["status"]
+    logger.info("Job %s finished with status=%s", job_id, final_status)
 
 
 def create_app() -> FastAPI:
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        )
+
     app = FastAPI(title="IND Compliance AI", version="0.2.0")
     app.add_middleware(
         CORSMiddleware,
@@ -233,6 +253,7 @@ def create_app() -> FastAPI:
 
         job_id = uuid4().hex
         file_records: list[dict[str, Any]] = []
+        logger.info("Upload request received. job_id=%s, files=%s", job_id, len(files))
 
         for incoming_file in files:
             filename = incoming_file.filename or "uploaded_file"
@@ -277,6 +298,7 @@ def create_app() -> FastAPI:
             JOB_STORE[job_id] = job_record
 
         background_tasks.add_task(_process_job, job_id)
+        logger.info("Job %s queued", job_id)
         return {
             "job_id": job_id,
             "status": "queued",
@@ -323,6 +345,7 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=404, detail="Job not found")
             if job["status"] in {"queued", "processing"}:
                 raise HTTPException(status_code=409, detail="Job is still processing")
+            logger.info("Workbench requested for job %s", job_id)
             return job["workbench"] or {}
 
     @app.get("/api/v1/jobs/{job_id}/consistency")
@@ -333,6 +356,7 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=404, detail="Job not found")
             if job["status"] in {"queued", "processing"}:
                 raise HTTPException(status_code=409, detail="Job is still processing")
+            logger.info("Consistency board requested for job %s", job_id)
             return {"rows": job["consistency_rows"]}
 
     @app.get("/api/v1/files/{file_id}")

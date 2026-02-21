@@ -1,7 +1,7 @@
 import { PageContainer, ProCard, ProConfigProvider } from '@ant-design/pro-components'
 import { Alert, Space, Spin, Typography, message } from 'antd'
 import axios from 'axios'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { fetchConsistency, fetchJobStatus, fetchWorkbench, uploadFiles } from './api'
 import { AuditWorkbench } from './components/AuditWorkbench'
@@ -16,6 +16,13 @@ function App() {
   const [consistencyRows, setConsistencyRows] = useState<ConsistencyRow[]>([])
   const [polling, setPolling] = useState(false)
   const [loadingWorkbench, setLoadingWorkbench] = useState(false)
+  const unmountedRef = useRef(false)
+
+  useEffect(() => {
+    return () => {
+      unmountedRef.current = true
+    }
+  }, [])
 
   const handleUpload = async (files: File[]) => {
     try {
@@ -42,38 +49,55 @@ function App() {
     if (!jobId || !polling) {
       return
     }
+    let timer: number | undefined
+    let requesting = false
 
-    let disposed = false
+    const loadWorkbench = async (targetJobId: string) => {
+      setLoadingWorkbench(true)
+      try {
+        const [workbenchPayload, consistencyPayload] = await Promise.all([
+          fetchWorkbench(targetJobId),
+          fetchConsistency(targetJobId),
+        ])
+        if (unmountedRef.current) {
+          return
+        }
+        setWorkbench(workbenchPayload)
+        setConsistencyRows(consistencyPayload.rows)
+      } catch (error) {
+        console.error(error)
+        if (axios.isAxiosError(error)) {
+          const backendDetail =
+            (error.response?.data as { detail?: string } | undefined)?.detail ?? error.message
+          message.error(`加载工作台失败：${backendDetail}`)
+        } else {
+          message.error('解析完成，但加载工作台数据失败')
+        }
+      } finally {
+        if (!unmountedRef.current) {
+          setLoadingWorkbench(false)
+        }
+      }
+    }
 
     const poll = async () => {
+      if (requesting) {
+        return
+      }
+      requesting = true
       try {
         const status = await fetchJobStatus(jobId)
-        if (disposed) {
+        if (unmountedRef.current) {
           return
         }
         setJobStatus(status)
 
         if (!['queued', 'processing'].includes(status.status)) {
           setPolling(false)
-          setLoadingWorkbench(true)
-          try {
-            const [workbenchPayload, consistencyPayload] = await Promise.all([
-              fetchWorkbench(jobId),
-              fetchConsistency(jobId),
-            ])
-            if (disposed) {
-              return
-            }
-            setWorkbench(workbenchPayload)
-            setConsistencyRows(consistencyPayload.rows)
-          } catch (error) {
-            console.error(error)
-            message.error('解析完成，但加载工作台数据失败')
-          } finally {
-            if (!disposed) {
-              setLoadingWorkbench(false)
-            }
+          if (timer !== undefined) {
+            window.clearInterval(timer)
           }
+          await loadWorkbench(jobId)
         }
       } catch (error) {
         console.error(error)
@@ -85,17 +109,20 @@ function App() {
         } else {
           message.error('轮询任务状态失败，请稍后重试')
         }
+      } finally {
+        requesting = false
       }
     }
 
     void poll()
-    const timer = window.setInterval(() => {
+    timer = window.setInterval(() => {
       void poll()
     }, 1500)
 
     return () => {
-      disposed = true
-      window.clearInterval(timer)
+      if (timer !== undefined) {
+        window.clearInterval(timer)
+      }
     }
   }, [jobId, polling])
 
