@@ -1,5 +1,6 @@
 import { PageContainer, ProCard, ProConfigProvider } from '@ant-design/pro-components'
 import { Alert, Space, Spin, Typography, message } from 'antd'
+import axios from 'axios'
 import { useEffect, useState } from 'react'
 
 import { fetchConsistency, fetchJobStatus, fetchWorkbench, uploadFiles } from './api'
@@ -27,7 +28,13 @@ function App() {
       message.success('上传成功，开始预处理与通用解析')
     } catch (error) {
       console.error(error)
-      message.error('上传失败，请检查文件格式或后端服务状态')
+      if (axios.isAxiosError(error)) {
+        const backendDetail =
+          (error.response?.data as { detail?: string } | undefined)?.detail ?? error.message
+        message.error(`上传失败：${backendDetail}`)
+      } else {
+        message.error('上传失败，请检查文件格式或后端服务状态')
+      }
     }
   }
 
@@ -71,7 +78,13 @@ function App() {
       } catch (error) {
         console.error(error)
         setPolling(false)
-        message.error('轮询任务状态失败，请稍后重试')
+        if (axios.isAxiosError(error)) {
+          const backendDetail =
+            (error.response?.data as { detail?: string } | undefined)?.detail ?? error.message
+          message.error(`轮询失败：${backendDetail}`)
+        } else {
+          message.error('轮询任务状态失败，请稍后重试')
+        }
       }
     }
 

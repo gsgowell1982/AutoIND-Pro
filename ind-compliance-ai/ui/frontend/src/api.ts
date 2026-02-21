@@ -17,9 +17,8 @@ const client = axios.create({
 export async function uploadFiles(files: File[]): Promise<UploadJobResponse> {
   const formData = new FormData()
   files.forEach((file) => formData.append('files', file))
-  const { data } = await client.post<UploadJobResponse>('/api/v1/uploads', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  // Let browser set multipart boundary automatically.
+  const { data } = await client.post<UploadJobResponse>('/api/v1/uploads', formData)
   return data
 }
 
