@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import io
 from pathlib import Path
+import re
 import statistics
 from typing import Any
 
@@ -11,15 +13,38 @@ try:
 except ImportError:  # pragma: no cover - optional runtime dependency
     pymupdf = None  # type: ignore[assignment]
 
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - optional runtime dependency
+    Image = None  # type: ignore[assignment]
+
+try:
+    import pytesseract
+except ImportError:  # pragma: no cover - optional runtime dependency
+    pytesseract = None  # type: ignore[assignment]
+
 from parsers.common.atomic_fact_extractor import extract_atomic_facts
+
+TABLE_TITLE_PATTERN = re.compile(
+    r"^\s*(?:附?表\s*[0-9一二三四五六七八九十]+|table\s*\d+)\s*(?:[.:：、\-]|\s+)",
+    re.IGNORECASE,
+)
 
 
 def _clean_text(value: str) -> str:
-    return " ".join(str(value).split())
+    return " ".join(str(value).replace("\x00", " ").split())
+
+
+def _has_cjk(text: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
 
 
 def _bbox_to_list(bbox: tuple[float, float, float, float]) -> list[float]:
     return [round(float(item), 2) for item in bbox]
+
+
+def _bbox_area(bbox: tuple[float, float, float, float]) -> float:
+    return max(0.0, bbox[2] - bbox[0]) * max(0.0, bbox[3] - bbox[1])
 
 
 def _bbox_union(bboxes: list[tuple[float, float, float, float]]) -> tuple[float, float, float, float]:
@@ -30,6 +55,19 @@ def _bbox_union(bboxes: list[tuple[float, float, float, float]]) -> tuple[float,
     x1 = max(item[2] for item in bboxes)
     y1 = max(item[3] for item in bboxes)
     return (x0, y0, x1, y1)
+
+
+def _bbox_intersection_ratio(
+    a_bbox: tuple[float, float, float, float],
+    b_bbox: tuple[float, float, float, float],
+) -> float:
+    x0 = max(a_bbox[0], b_bbox[0])
+    y0 = max(a_bbox[1], b_bbox[1])
+    x1 = min(a_bbox[2], b_bbox[2])
+    y1 = min(a_bbox[3], b_bbox[3])
+    intersection = _bbox_area((x0, y0, x1, y1))
+    min_area = max(1.0, min(_bbox_area(a_bbox), _bbox_area(b_bbox)))
+    return intersection / min_area
 
 
 def _horizontal_overlap_ratio(
@@ -53,11 +91,18 @@ def _extract_page_text_and_images(
 
     for block_index, block in enumerate(page_dict.get("blocks", [])):
         block_type = int(block.get("type", 0))
-        bbox = tuple(block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+        bbox = tuple(float(item) for item in block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
         if block_type == 0:
             line_texts: list[str] = []
+            font_sizes: list[float] = []
             for line in block.get("lines", []):
-                span_text = "".join(str(span.get("text", "")) for span in line.get("spans", []))
+                span_text = ""
+                for span in line.get("spans", []):
+                    span_text += str(span.get("text", ""))
+                    try:
+                        font_sizes.append(float(span.get("size", 0.0)))
+                    except (TypeError, ValueError):
+                        continue
                 cleaned = _clean_text(span_text)
                 if cleaned:
                     line_texts.append(cleaned)
@@ -71,6 +116,7 @@ def _extract_page_text_and_images(
                     "page": page_number,
                     "bbox": _bbox_to_list(bbox),
                     "text": text,
+                    "font_size": statistics.median(font_sizes) if font_sizes else 0.0,
                     "source_block_index": block_index,
                 }
             )
@@ -87,6 +133,365 @@ def _extract_page_text_and_images(
                 }
             )
     return text_blocks, image_blocks
+
+
+def _text_starts_with_break_marker(text: str) -> bool:
+    return bool(re.match(r"^[•\-·●◆\(\)（）\[\]]", text.strip()))
+
+
+def _text_ends_with_break_marker(text: str) -> bool:
+    return bool(re.search(r"[。！？；:：]\s*$", text.strip()))
+
+
+def _join_text_fragments(left: str, right: str) -> str:
+    if not left:
+        return right
+    if not right:
+        return left
+    if _has_cjk(left[-1]) and _has_cjk(right[0]):
+        return left + right
+    if left.endswith("-") or right.startswith((")", "）", "]", "】", "%", "％")):
+        return left + right
+    if left.endswith(("(", "（", "/", "／")):
+        return left + right
+    return f"{left} {right}"
+
+
+def _should_merge_text_blocks(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    page_width: float,
+    row_tolerance: float,
+) -> bool:
+    left_bbox = tuple(left["bbox"])
+    right_bbox = tuple(right["bbox"])
+    left_height = max(1.0, left_bbox[3] - left_bbox[1])
+    right_height = max(1.0, right_bbox[3] - right_bbox[1])
+    left_center = (left_bbox[1] + left_bbox[3]) / 2
+    right_center = (right_bbox[1] + right_bbox[3]) / 2
+    if abs(left_center - right_center) > row_tolerance:
+        return False
+
+    gap = right_bbox[0] - left_bbox[2]
+    if gap < -2.5:
+        return False
+    max_gap = max(24.0, page_width * 0.045, min(left_height, right_height) * 2.4)
+    if gap > max_gap:
+        return False
+
+    left_text = _clean_text(left.get("text", ""))
+    right_text = _clean_text(right.get("text", ""))
+    if not left_text or not right_text:
+        return False
+    if _text_ends_with_break_marker(left_text):
+        return False
+    if _text_starts_with_break_marker(right_text):
+        return False
+
+    left_font = float(left.get("font_size", 0.0) or 0.0)
+    right_font = float(right.get("font_size", 0.0) or 0.0)
+    if left_font > 0 and right_font > 0:
+        ratio = max(left_font, right_font) / max(0.1, min(left_font, right_font))
+        if ratio > 1.45:
+            return False
+
+    if _has_cjk(left_text) or _has_cjk(right_text):
+        return True
+    return len(left_text) <= 64 and len(right_text) <= 64
+
+
+def _merge_semantic_text_blocks(
+    text_blocks: list[dict[str, Any]],
+    page_number: int,
+    page_width: float,
+) -> tuple[list[dict[str, Any]], int]:
+    if not text_blocks:
+        return [], 0
+    ordered = sorted(text_blocks, key=lambda item: (item["bbox"][1], item["bbox"][0]))
+    heights = [max(1.0, block["bbox"][3] - block["bbox"][1]) for block in ordered]
+    row_tolerance = max(2.5, statistics.median(heights) * 0.45)
+
+    merged: list[dict[str, Any]] = []
+    merge_count = 0
+    for block in ordered:
+        normalized = {
+            "block_type": "text",
+            "page": page_number,
+            "bbox": [float(item) for item in block["bbox"]],
+            "text": _clean_text(block.get("text", "")),
+            "font_size": float(block.get("font_size", 0.0) or 0.0),
+            "source_block_indices": [block.get("source_block_index")],
+            "source": block.get("source", "text-layer"),
+        }
+        if not normalized["text"]:
+            continue
+        if not merged:
+            merged.append(normalized)
+            continue
+        previous = merged[-1]
+        if _should_merge_text_blocks(previous, normalized, page_width, row_tolerance):
+            previous_bbox = tuple(previous["bbox"])
+            normalized_bbox = tuple(normalized["bbox"])
+            previous["bbox"] = _bbox_to_list(_bbox_union([previous_bbox, normalized_bbox]))
+            previous["text"] = _join_text_fragments(previous["text"], normalized["text"])
+            if normalized["source"] == "image-text-recovery":
+                previous["source"] = "semantic-merged-image-text"
+            previous["source_block_indices"].extend(normalized["source_block_indices"])
+            font_sizes = [float(previous.get("font_size", 0.0) or 0.0), float(normalized.get("font_size", 0.0) or 0.0)]
+            font_sizes = [item for item in font_sizes if item > 0]
+            previous["font_size"] = statistics.median(font_sizes) if font_sizes else 0.0
+            merge_count += 1
+            continue
+        merged.append(normalized)
+
+    for index, block in enumerate(merged, start=1):
+        block["block_id"] = f"txt_p{page_number}_{index:03d}"
+    return merged, merge_count
+
+
+@dataclass(slots=True)
+class _Word:
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    text: str
+
+    @property
+    def xc(self) -> float:
+        return (self.x0 + self.x1) / 2
+
+    @property
+    def yc(self) -> float:
+        return (self.y0 + self.y1) / 2
+
+    @property
+    def width(self) -> float:
+        return max(0.0, self.x1 - self.x0)
+
+    @property
+    def height(self) -> float:
+        return max(0.0, self.y1 - self.y0)
+
+
+def _extract_words(page: "pymupdf.Page") -> list[_Word]:
+    words: list[_Word] = []
+    for item in page.get_text("words", sort=True):
+        if len(item) < 5:
+            continue
+        x0, y0, x1, y1, raw_text = item[:5]
+        text = _clean_text(str(raw_text))
+        if not text:
+            continue
+        words.append(_Word(float(x0), float(y0), float(x1), float(y1), text))
+    return words
+
+
+def _words_in_bbox(
+    page_words: list[_Word],
+    bbox: tuple[float, float, float, float],
+    margin: float = 1.6,
+) -> list[_Word]:
+    expanded = (bbox[0] - margin, bbox[1] - margin, bbox[2] + margin, bbox[3] + margin)
+    hits: list[_Word] = []
+    for word in page_words:
+        overlap = _bbox_intersection_ratio((word.x0, word.y0, word.x1, word.y1), expanded)
+        if overlap >= 0.25:
+            hits.append(word)
+    return hits
+
+
+def _words_to_text(words: list[_Word]) -> str:
+    if not words:
+        return ""
+    ordered = sorted(words, key=lambda item: (item.yc, item.x0))
+    median_height = statistics.median([word.height for word in words]) if words else 8.0
+    row_tol = max(2.2, median_height * 0.48)
+    lines: list[list[_Word]] = []
+    for word in ordered:
+        if not lines:
+            lines.append([word])
+            continue
+        previous = lines[-1][-1]
+        if abs(word.yc - previous.yc) <= row_tol:
+            lines[-1].append(word)
+        else:
+            lines.append([word])
+    joined_lines: list[str] = []
+    for line_words in lines:
+        line_text = _clean_text(" ".join(item.text for item in sorted(line_words, key=lambda item: item.x0)))
+        if line_text:
+            joined_lines.append(line_text)
+    return "\n".join(joined_lines).strip()
+
+
+def _drawing_rect_to_tuple(drawing: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    rect = drawing.get("rect")
+    if rect is None:
+        return None
+    if hasattr(rect, "x0"):
+        return (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1))
+    if isinstance(rect, (list, tuple)) and len(rect) >= 4:
+        return (float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3]))
+    return None
+
+
+def _bbox_contains_path(
+    drawings: list[dict[str, Any]],
+    bbox: tuple[float, float, float, float],
+) -> bool:
+    for drawing in drawings:
+        rect = _drawing_rect_to_tuple(drawing)
+        if rect is None:
+            continue
+        if _bbox_intersection_ratio(rect, bbox) >= 0.2:
+            return True
+    return False
+
+
+def _ocr_text_from_clip(
+    page: "pymupdf.Page",
+    bbox: tuple[float, float, float, float],
+) -> tuple[str, float]:
+    if pytesseract is None or Image is None:
+        return "", 0.0
+    rect = pymupdf.Rect(*bbox)
+    if rect.width < 8 or rect.height < 8:
+        return "", 0.0
+    try:
+        pixmap = page.get_pixmap(clip=rect, dpi=220, alpha=False)
+        image = Image.open(io.BytesIO(pixmap.tobytes("png")))
+        try:
+            data = pytesseract.image_to_data(
+                image,
+                output_type=pytesseract.Output.DICT,
+                lang="chi_sim+eng",
+            )
+        except Exception:
+            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+    except Exception:
+        return "", 0.0
+
+    words: list[str] = []
+    confidences: list[float] = []
+    total = len(data.get("text", []))
+    for index in range(total):
+        text = _clean_text(str(data["text"][index]))
+        if not text:
+            continue
+        conf_value = str(data.get("conf", ["-1"] * total)[index]).strip()
+        try:
+            confidence = float(conf_value)
+        except ValueError:
+            confidence = -1.0
+        if confidence >= 0:
+            confidences.append(confidence / 100.0)
+        words.append(text)
+    if not words:
+        return "", 0.0
+    joined = _clean_text(" ".join(words))
+    average_conf = sum(confidences) / len(confidences) if confidences else 0.0
+    return joined, average_conf
+
+
+def _recover_text_from_image_region(
+    page: "pymupdf.Page",
+    image_bbox: tuple[float, float, float, float],
+    page_words: list[_Word],
+    page_drawings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    text_layer_candidate = _clean_text(page.get_textbox(pymupdf.Rect(*image_bbox)))
+    has_path = _bbox_contains_path(page_drawings, image_bbox)
+    if len(text_layer_candidate) >= 2:
+        return {
+            "text": text_layer_candidate,
+            "confidence": 0.98,
+            "source": "text-layer",
+            "has_path": has_path,
+        }
+
+    in_bbox_words = _words_in_bbox(page_words, image_bbox)
+    word_text = _words_to_text(in_bbox_words)
+    if len(word_text) >= 2:
+        return {
+            "text": word_text,
+            "confidence": 0.9,
+            "source": "word-cluster",
+            "has_path": has_path,
+        }
+
+    ocr_text, ocr_confidence = _ocr_text_from_clip(page, image_bbox)
+    if len(ocr_text) >= 2:
+        return {
+            "text": ocr_text,
+            "confidence": max(ocr_confidence, 0.7 if has_path else 0.6),
+            "source": "ocr",
+            "has_path": has_path,
+        }
+    return {"text": "", "confidence": 0.0, "source": "none", "has_path": has_path}
+
+
+def _demote_textual_image_blocks(
+    page: "pymupdf.Page",
+    page_number: int,
+    page_rect: "pymupdf.Rect",
+    image_blocks: list[dict[str, Any]],
+    text_blocks: list[dict[str, Any]],
+    page_words: list[_Word],
+    page_drawings: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+    page_area = max(1.0, float(page_rect.width) * float(page_rect.height))
+    merged_text_blocks = list(text_blocks)
+    kept_images: list[dict[str, Any]] = []
+    converted_count = 0
+
+    for image_block in image_blocks:
+        bbox = tuple(float(item) for item in image_block["bbox"])
+        recovered = _recover_text_from_image_region(page, bbox, page_words, page_drawings)
+        recovered_text = _clean_text(recovered["text"])
+        confidence = float(recovered["confidence"])
+        has_path = bool(recovered.get("has_path", False))
+        image_area = _bbox_area(bbox)
+        area_ratio = image_area / page_area
+
+        image_block["text_recovery"] = {
+            "text": recovered_text,
+            "confidence": round(confidence, 3),
+            "source": recovered.get("source", "none"),
+            "has_path": has_path,
+        }
+
+        has_overlapping_text = any(
+            _bbox_intersection_ratio(tuple(block["bbox"]), bbox) >= 0.62
+            and _clean_text(block.get("text", "")) == recovered_text
+            for block in merged_text_blocks
+        )
+        should_convert = (
+            len(recovered_text) >= 2
+            and not has_overlapping_text
+            and (
+                (confidence >= 0.92 and area_ratio <= 0.2)
+                or (has_path and confidence >= 0.78 and area_ratio <= 0.28)
+            )
+        )
+        if should_convert:
+            merged_text_blocks.append(
+                {
+                    "block_type": "text",
+                    "block_id": f"txt_img_recover_p{page_number}_{converted_count + 1:03d}",
+                    "page": page_number,
+                    "bbox": _bbox_to_list(bbox),
+                    "text": recovered_text,
+                    "font_size": 0.0,
+                    "source": "image-text-recovery",
+                    "source_image_id": image_block["image_id"],
+                }
+            )
+            converted_count += 1
+            continue
+        kept_images.append(image_block)
+
+    return merged_text_blocks, kept_images, converted_count
 
 
 def _assign_figure_titles(
@@ -136,46 +541,7 @@ def _assign_figure_titles(
             }
         )
         figure_index += 1
-
     return figure_nodes, figure_index
-
-
-@dataclass(slots=True)
-class _Word:
-    x0: float
-    y0: float
-    x1: float
-    y1: float
-    text: str
-
-    @property
-    def xc(self) -> float:
-        return (self.x0 + self.x1) / 2
-
-    @property
-    def yc(self) -> float:
-        return (self.y0 + self.y1) / 2
-
-    @property
-    def width(self) -> float:
-        return max(0.0, self.x1 - self.x0)
-
-    @property
-    def height(self) -> float:
-        return max(0.0, self.y1 - self.y0)
-
-
-def _extract_words(page: "pymupdf.Page") -> list[_Word]:
-    words: list[_Word] = []
-    for item in page.get_text("words", sort=True):
-        if len(item) < 5:
-            continue
-        x0, y0, x1, y1, raw_text = item[:5]
-        text = _clean_text(str(raw_text))
-        if not text:
-            continue
-        words.append(_Word(float(x0), float(y0), float(x1), float(y1), text))
-    return words
 
 
 def _cluster_rows(words: list[_Word]) -> list[dict[str, Any]]:
@@ -218,18 +584,15 @@ def _cluster_rows(words: list[_Word]) -> list[dict[str, Any]]:
 def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     groups: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
-
     for row in rows:
         if len(row["words"]) < 2:
             if len(current) >= 2:
                 groups.append(current)
             current = []
             continue
-
         if not current:
             current = [row]
             continue
-
         previous = current[-1]
         vertical_gap = row["y0"] - previous["y1"]
         avg_height = (row["height"] + previous["height"]) / 2
@@ -242,7 +605,6 @@ def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
 
     if len(current) >= 2:
         groups.append(current)
-
     return [group for group in groups if max(len(row["words"]) for row in group) >= 2]
 
 
@@ -262,7 +624,6 @@ def _cluster_columns(rows: list[dict[str, Any]]) -> list[float]:
             clusters[-1].append(center)
         else:
             clusters.append([center])
-
     return [sum(cluster) / len(cluster) for cluster in clusters]
 
 
@@ -290,14 +651,12 @@ def _build_single_table_ast(
     column_signature = [round((center - table_bbox[0]) / table_width, 3) for center in column_centers]
 
     row_cell_maps: list[dict[int, list[_Word]]] = []
-    row_bboxes: list[tuple[float, float, float, float]] = []
     for row in rows:
         cell_map: dict[int, list[_Word]] = {}
         for word in row["words"]:
             col_index = _closest_column_index(word.xc, column_centers)
             cell_map.setdefault(col_index, []).append(word)
         row_cell_maps.append(cell_map)
-        row_bboxes.append(row["bbox"])
 
     header_row_index = 0
     for index, cell_map in enumerate(row_cell_maps):
@@ -314,7 +673,9 @@ def _build_single_table_ast(
         header.append({"text": text or f"Column {col_index + 1}", "col": col_index + 1})
 
     cells: list[dict[str, Any]] = []
+    row_non_empty_counts: list[int] = []
     for raw_row_index, cell_map in enumerate(row_cell_maps[header_row_index + 1 :], start=1):
+        non_empty_this_row = 0
         for col_index in range(len(column_centers)):
             words = sorted(cell_map.get(col_index, []), key=lambda item: item.x0)
             if not words:
@@ -322,6 +683,7 @@ def _build_single_table_ast(
             cell_text = _clean_text(" ".join(word.text for word in words))
             if not cell_text:
                 continue
+            non_empty_this_row += 1
             bbox = _bbox_union([(word.x0, word.y0, word.x1, word.y1) for word in words])
             covered_columns = [
                 index
@@ -339,9 +701,16 @@ def _build_single_table_ast(
                     "colspan": colspan,
                 }
             )
+        row_non_empty_counts.append(non_empty_this_row)
 
     if not cells:
         return None
+
+    data_row_count = max(1, len(row_cell_maps) - (header_row_index + 1))
+    coverage_ratio = len(cells) / max(1.0, data_row_count * len(column_centers))
+    aligned_ratio = sum(1 for count in row_non_empty_counts if count >= 2) / max(1, len(row_non_empty_counts))
+    numeric_ratio = sum(1 for cell in cells if re.search(r"\d", str(cell.get("text", "")))) / max(1, len(cells))
+    structure_score = min(1.0, 0.45 * aligned_ratio + 0.35 * min(1.0, coverage_ratio) + 0.2 * numeric_ratio)
 
     return {
         "block_type": "table",
@@ -355,9 +724,43 @@ def _build_single_table_ast(
         "column_signature": column_signature,
         "column_hash": _column_hash(column_signature),
         "header_row_index": header_row_index + 1,
+        "structure_score": round(structure_score, 3),
         "near_page_bottom": table_bbox[3] >= page_height * 0.72,
         "near_page_top": table_bbox[1] <= page_height * 0.28,
     }
+
+
+def _find_table_title_block(
+    table_bbox: tuple[float, float, float, float],
+    text_blocks: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for block in text_blocks:
+        text = _clean_text(block.get("text", ""))
+        if not text or not TABLE_TITLE_PATTERN.search(text):
+            continue
+        bbox = tuple(block["bbox"])
+        vertical_gap = table_bbox[1] - bbox[3]
+        if vertical_gap < -8 or vertical_gap > 160:
+            continue
+        overlap = _horizontal_overlap_ratio(table_bbox, bbox)
+        if overlap < 0.12:
+            continue
+        distance = vertical_gap if vertical_gap >= 0 else abs(vertical_gap) + 25
+        candidates.append((distance, block))
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: item[0])[0][1]
+
+
+def _is_valid_table_candidate(table_ast: dict[str, Any], title_block: dict[str, Any] | None) -> bool:
+    score = float(table_ast.get("structure_score", 0.0))
+    row_count = int(table_ast.get("row_count", 0))
+    col_count = int(table_ast.get("col_count", 0))
+    if title_block is not None:
+        return score >= 0.32 and row_count >= 2 and col_count >= 2
+    # Without "Table X / 表X" caption, keep only highly-structured grids.
+    return row_count >= 4 and col_count >= 3 and score >= 0.82
 
 
 def _column_similarity(signature_a: list[float], signature_b: list[float]) -> float:
@@ -411,7 +814,6 @@ def _stitch_cross_page_tables(
             current["header"] = previous.get("header", [])
             current["header_inherited"] = True
         stitched_count += 1
-
     return stitched_count
 
 
@@ -430,41 +832,77 @@ def parse_pdf(path: Path) -> dict[str, Any]:
     all_page_text: list[str] = []
     page_heights: dict[int, float] = {}
 
+    total_semantic_merges = 0
+    total_recovered_image_text = 0
+    rejected_table_candidates = 0
     figure_index = 1
     table_index = 1
 
     for page_index, page in enumerate(document):
         page_number = page_index + 1
-        text_blocks, page_images = _extract_page_text_and_images(page, page_number)
-        page_words = _extract_words(page)
-        table_row_groups = _group_table_rows(_cluster_rows(page_words))
-        page_tables: list[dict[str, Any]] = []
         page_rect = page.rect
         page_heights[page_number] = float(page_rect.height)
+        text_blocks, page_images = _extract_page_text_and_images(page, page_number)
+        page_words = _extract_words(page)
+        try:
+            page_drawings = page.get_drawings()
+        except Exception:
+            page_drawings = []
 
+        # Step-1: Correct image-vs-text confusion using text-layer/OCR/path signals.
+        text_blocks, page_images, recovered_image_text = _demote_textual_image_blocks(
+            page=page,
+            page_number=page_number,
+            page_rect=page_rect,
+            image_blocks=page_images,
+            text_blocks=text_blocks,
+            page_words=page_words,
+            page_drawings=page_drawings,
+        )
+        total_recovered_image_text += recovered_image_text
+
+        # Step-2: Semantic + layout-aware merge for over-segmented text blocks.
+        text_blocks, semantic_merge_count = _merge_semantic_text_blocks(
+            text_blocks=text_blocks,
+            page_number=page_number,
+            page_width=float(page_rect.width),
+        )
+        total_semantic_merges += semantic_merge_count
+
+        table_row_groups = _group_table_rows(_cluster_rows(page_words))
+        page_tables: list[dict[str, Any]] = []
         for row_group in table_row_groups:
-            table_id = f"tbl_{table_index:03d}"
-            table_ast = _build_single_table_ast(
+            candidate_table = _build_single_table_ast(
                 rows=row_group,
                 page_number=page_number,
                 page_height=float(page_rect.height),
-                table_id=table_id,
+                table_id=f"tbl_{table_index:03d}",
             )
-            if table_ast is None:
+            if candidate_table is None:
                 continue
-            table_asts.append(table_ast)
-            page_tables.append(table_ast)
+            title_block = _find_table_title_block(tuple(candidate_table["bbox"]), text_blocks)
+            if title_block is not None:
+                candidate_table["title"] = title_block["text"]
+                candidate_table["title_block_id"] = title_block["block_id"]
+            if not _is_valid_table_candidate(candidate_table, title_block):
+                rejected_table_candidates += 1
+                continue
+            if title_block is None:
+                candidate_table["title_missing"] = True
+            page_tables.append(candidate_table)
+            table_asts.append(candidate_table)
             table_index += 1
 
         page_figures, figure_index = _assign_figure_titles(page_images, text_blocks, figure_index)
         figure_nodes.extend(page_figures)
         image_blocks.extend(page_images)
 
-        page_text = "\n".join(item["text"] for item in text_blocks)
+        ordered_text_blocks = sorted(text_blocks, key=lambda item: (item["bbox"][1], item["bbox"][0]))
+        page_text = "\n".join(item["text"] for item in ordered_text_blocks)
         all_page_text.append(page_text)
 
         page_bbox_nodes: list[dict[str, Any]] = []
-        for text_block in text_blocks:
+        for text_block in ordered_text_blocks:
             bbox = text_block["bbox"]
             text_bounding_boxes.append(
                 {
@@ -481,6 +919,7 @@ def parse_pdf(path: Path) -> dict[str, Any]:
                     "page": page_number,
                     "bbox": bbox,
                     "text": text_block["text"],
+                    "source": text_block.get("source", "text-layer"),
                 }
             )
 
@@ -503,6 +942,7 @@ def parse_pdf(path: Path) -> dict[str, Any]:
                     "image_id": image_block["image_id"],
                     "figure_ref": image_block.get("figure_ref"),
                     "title": image_block.get("title", ""),
+                    "text_recovery": image_block.get("text_recovery", {}),
                 }
             )
 
@@ -524,6 +964,7 @@ def parse_pdf(path: Path) -> dict[str, Any]:
                     "bbox": bbox,
                     "table_id": table_ast["table_id"],
                     "column_hash": table_ast.get("column_hash"),
+                    "title": table_ast.get("title", ""),
                 }
             )
 
@@ -535,9 +976,11 @@ def parse_pdf(path: Path) -> dict[str, Any]:
                 "width": float(page_rect.width),
                 "height": float(page_rect.height),
                 "text": page_text,
-                "block_count": len(text_blocks),
+                "block_count": len(ordered_text_blocks),
                 "image_count": len(page_images),
                 "table_count": len(page_tables),
+                "semantic_merge_count": semantic_merge_count,
+                "image_text_recovered_count": recovered_image_text,
             }
         )
 
@@ -569,6 +1012,9 @@ def parse_pdf(path: Path) -> dict[str, Any]:
             "table_count": len(table_asts),
             "figure_count": len(figure_nodes),
             "cross_page_table_links": stitched_table_count,
-            "parser_hint": "pdf-ast-v2",
+            "semantic_merge_count": total_semantic_merges,
+            "image_text_recovered_count": total_recovered_image_text,
+            "rejected_table_candidates": rejected_table_candidates,
+            "parser_hint": "pdf-ast-v3",
         },
     }
