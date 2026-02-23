@@ -883,10 +883,15 @@ def _table_toc_row_ratio(table_ast: dict[str, Any]) -> float:
         if TOC_LINE_PATTERN.search(cleaned):
             toc_rows += 1.0
             continue
-        if re.match(r"^\d+(?:\.\d+){1,4}\s+", cleaned) and re.search(r"\d{1,3}\s*$", cleaned):
-            toc_rows += 0.85
-            continue
-        if "......" in cleaned or "······" in cleaned:
+        tokens = cleaned.split()
+        if len(tokens) >= 3 and re.fullmatch(r"\d+(?:\.\d+){1,4}", tokens[0]) and re.fullmatch(r"\d{1,3}", tokens[-1]):
+            middle = " ".join(tokens[1:-1])
+            has_textual_middle = bool(re.search(r"[A-Za-z\u4e00-\u9fff]", middle))
+            has_dot_leader = bool(re.search(r"[\.·…]{2,}", middle))
+            if has_textual_middle and (has_dot_leader or len(middle) >= 3):
+                toc_rows += 0.75
+                continue
+        if re.search(r"[\.·…]{2,}", cleaned) and re.search(r"\d{1,3}\s*$", cleaned):
             toc_rows += 0.65
     return min(1.0, toc_rows / max(1, len(row_texts)))
 
@@ -962,7 +967,178 @@ def _is_valid_table_candidate(
         return row_count >= 4 and col_count >= 2 and score >= 0.56
 
     # Without caption/hint/grid, keep only very strong grids.
-    return row_count >= 5 and col_count >= 3 and score >= 0.9 and toc_row_ratio <= 0.15
+    strong_multi_col = row_count >= 5 and col_count >= 3 and score >= 0.9 and toc_row_ratio <= 0.15
+    strong_two_col = row_count >= 8 and col_count >= 2 and score >= 0.93 and toc_row_ratio <= 0.1
+    return strong_multi_col or strong_two_col
+
+
+def _merge_two_table_fragments(primary: dict[str, Any], secondary: dict[str, Any]) -> dict[str, Any]:
+    primary_bbox = tuple(primary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    secondary_bbox = tuple(secondary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    primary["bbox"] = _bbox_to_list(_bbox_union([primary_bbox, secondary_bbox]))
+
+    current_max_row = max((int(cell.get("row", 0)) for cell in primary.get("cells", [])), default=0)
+    secondary_cells: list[dict[str, Any]] = []
+    for cell in secondary.get("cells", []):
+        cell_copy = dict(cell)
+        cell_copy["row"] = int(cell_copy.get("row", 0)) + current_max_row
+        secondary_cells.append(cell_copy)
+    primary.setdefault("cells", [])
+    primary["cells"].extend(secondary_cells)
+
+    primary["row_count"] = int(primary.get("row_count", 0)) + int(secondary.get("row_count", 0))
+    primary["col_count"] = max(int(primary.get("col_count", 0)), int(secondary.get("col_count", 0)))
+    primary["structure_score"] = round(
+        max(float(primary.get("structure_score", 0.0)), float(secondary.get("structure_score", 0.0))),
+        3,
+    )
+    primary["grid_line_score"] = round(
+        max(float(primary.get("grid_line_score", 0.0)), float(secondary.get("grid_line_score", 0.0))),
+        3,
+    )
+    primary["near_page_bottom"] = bool(primary.get("near_page_bottom")) or bool(secondary.get("near_page_bottom"))
+    primary["near_page_top"] = bool(primary.get("near_page_top")) and bool(secondary.get("near_page_top"))
+    if not primary.get("title") and secondary.get("title"):
+        primary["title"] = secondary.get("title")
+        primary["title_block_id"] = secondary.get("title_block_id")
+    if not primary.get("section_hint") and secondary.get("section_hint"):
+        primary["section_hint"] = secondary.get("section_hint")
+        primary["section_hint_block_id"] = secondary.get("section_hint_block_id")
+    primary.setdefault("merged_from", [])
+    primary["merged_from"].append(str(secondary.get("table_id", "")))
+    primary.setdefault("row_texts", [])
+    primary["row_texts"].extend([str(item) for item in secondary.get("row_texts", [])])
+    primary["toc_row_ratio"] = round(_table_toc_row_ratio(primary), 3)
+    return primary
+
+
+def _can_merge_table_fragments_on_same_page(primary: dict[str, Any], secondary: dict[str, Any]) -> bool:
+    if int(primary.get("page", 0)) != int(secondary.get("page", 0)):
+        return False
+    primary_bbox = tuple(primary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    secondary_bbox = tuple(secondary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    vertical_gap = secondary_bbox[1] - primary_bbox[3]
+    if vertical_gap < -10 or vertical_gap > 52:
+        return False
+    overlap = _horizontal_overlap_ratio(primary_bbox, secondary_bbox)
+    if overlap < 0.5:
+        return False
+    similarity = _column_similarity(
+        list(primary.get("column_signature", [])),
+        list(secondary.get("column_signature", [])),
+    )
+    if similarity < 0.68:
+        return False
+    if float(primary.get("toc_row_ratio", 0.0)) > 0.25 or float(secondary.get("toc_row_ratio", 0.0)) > 0.25:
+        return False
+    return True
+
+
+def _merge_same_page_table_fragments(page_tables: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    if not page_tables:
+        return [], 0
+    sorted_tables = sorted(page_tables, key=lambda item: (item["bbox"][1], item["bbox"][0]))
+    merged_tables: list[dict[str, Any]] = [dict(sorted_tables[0])]
+    merge_count = 0
+    for table in sorted_tables[1:]:
+        candidate = dict(table)
+        previous = merged_tables[-1]
+        if _can_merge_table_fragments_on_same_page(previous, candidate):
+            merged_tables[-1] = _merge_two_table_fragments(previous, candidate)
+            merge_count += 1
+            continue
+        merged_tables.append(candidate)
+    return merged_tables, merge_count
+
+
+def _is_header_footer_candidate(
+    block: dict[str, Any],
+    page_height: float,
+) -> bool:
+    bbox = tuple(block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    top_limit = max(72.0, page_height * 0.11)
+    bottom_limit = page_height - max(72.0, page_height * 0.11)
+    return bbox[3] <= top_limit or bbox[1] >= bottom_limit
+
+
+def _header_footer_signature(text: str) -> str:
+    normalized = _compact_text(text)
+    normalized = re.sub(r"\d+", "#", normalized)
+    normalized = normalized.replace("#", "")
+    return normalized
+
+
+def _looks_like_page_number(text: str) -> bool:
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return False
+    return bool(
+        re.fullmatch(r"(?:第\s*)?\d{1,4}(?:\s*/\s*\d{1,4})?(?:\s*页)?", cleaned)
+        or re.fullmatch(r"\d{1,4}\s*[-–—]\s*\d{1,4}", cleaned)
+    )
+
+
+def _filter_header_footer_text_blocks(
+    page_payloads: list[dict[str, Any]],
+) -> int:
+    signature_counts: dict[str, int] = {}
+    for payload in page_payloads:
+        page_height = float(payload["height"])
+        for block in payload["text_blocks"]:
+            if not _is_header_footer_candidate(block, page_height):
+                continue
+            signature = _header_footer_signature(str(block.get("text", "")))
+            if len(signature) < 3:
+                continue
+            signature_counts[signature] = signature_counts.get(signature, 0) + 1
+
+    removed_total = 0
+    for payload in page_payloads:
+        page_height = float(payload["height"])
+        kept: list[dict[str, Any]] = []
+        removed = 0
+        for block in payload["text_blocks"]:
+            text = _clean_text(block.get("text", ""))
+            if _is_header_footer_candidate(block, page_height):
+                signature = _header_footer_signature(text)
+                repeated_signature = len(signature) >= 3 and signature_counts.get(signature, 0) >= 2
+                if repeated_signature or _looks_like_page_number(text):
+                    removed += 1
+                    continue
+            kept.append(block)
+        payload["text_blocks"] = kept
+        payload["header_footer_filtered"] = removed
+        removed_total += removed
+    return removed_total
+
+
+def _suppress_table_text_blocks(
+    text_blocks: list[dict[str, Any]],
+    page_tables: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    if not text_blocks or not page_tables:
+        return text_blocks, 0
+    table_bboxes = [tuple(item.get("bbox", (0.0, 0.0, 0.0, 0.0))) for item in page_tables]
+    kept: list[dict[str, Any]] = []
+    removed = 0
+    for block in text_blocks:
+        text_bbox = tuple(block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+        text_center = ((text_bbox[0] + text_bbox[2]) / 2, (text_bbox[1] + text_bbox[3]) / 2)
+        inside_table = False
+        for table_bbox in table_bboxes:
+            overlap = _bbox_intersection_ratio(text_bbox, table_bbox)
+            center_inside = (
+                table_bbox[0] <= text_center[0] <= table_bbox[2]
+                and table_bbox[1] <= text_center[1] <= table_bbox[3]
+            )
+            if overlap >= 0.42 or (center_inside and overlap >= 0.2):
+                inside_table = True
+                break
+        if inside_table:
+            removed += 1
+            continue
+        kept.append(block)
+    return kept, removed
 
 
 def _column_similarity(signature_a: list[float], signature_b: list[float]) -> float:
@@ -1033,10 +1209,14 @@ def parse_pdf(path: Path) -> dict[str, Any]:
     document_ast_pages: list[dict[str, Any]] = []
     all_page_text: list[str] = []
     page_heights: dict[int, float] = {}
+    page_payloads: list[dict[str, Any]] = []
 
     total_semantic_merges = 0
     total_recovered_image_text = 0
     rejected_table_candidates = 0
+    total_table_fragment_merges = 0
+    total_header_footer_filtered = 0
+    total_table_text_suppressed = 0
     figure_index = 1
     table_index = 1
 
@@ -1072,7 +1252,7 @@ def parse_pdf(path: Path) -> dict[str, Any]:
         total_semantic_merges += semantic_merge_count
 
         table_row_groups = _group_table_rows(_cluster_rows(page_words))
-        page_tables: list[dict[str, Any]] = []
+        raw_page_tables: list[dict[str, Any]] = []
         for row_group in table_row_groups:
             candidate_table = _build_single_table_ast(
                 rows=row_group,
@@ -1112,20 +1292,52 @@ def parse_pdf(path: Path) -> dict[str, Any]:
                 continue
             if title_block is None:
                 candidate_table["title_missing"] = True
-            page_tables.append(candidate_table)
-            table_asts.append(candidate_table)
+            raw_page_tables.append(candidate_table)
             table_index += 1
+
+        page_tables, page_fragment_merge_count = _merge_same_page_table_fragments(raw_page_tables)
+        total_table_fragment_merges += page_fragment_merge_count
+        table_asts.extend(page_tables)
 
         page_figures, figure_index = _assign_figure_titles(page_images, text_blocks, figure_index)
         figure_nodes.extend(page_figures)
-        image_blocks.extend(page_images)
+        page_payloads.append(
+            {
+                "page_number": page_number,
+                "width": float(page_rect.width),
+                "height": float(page_rect.height),
+                "text_blocks": text_blocks,
+                "images": page_images,
+                "tables": page_tables,
+                "semantic_merge_count": semantic_merge_count,
+                "image_text_recovered_count": recovered_image_text,
+                "table_fragment_merge_count": page_fragment_merge_count,
+            }
+        )
 
-        ordered_text_blocks = sorted(text_blocks, key=lambda item: (item["bbox"][1], item["bbox"][0]))
-        page_text = "\n".join(item["text"] for item in ordered_text_blocks)
+    document.close()
+    total_header_footer_filtered = _filter_header_footer_text_blocks(page_payloads)
+    stitched_table_count = _stitch_cross_page_tables(table_asts, page_heights)
+
+    analysis_page_texts: list[str] = []
+    for page_payload in page_payloads:
+        page_number = int(page_payload["page_number"])
+        ordered_analysis_blocks = sorted(page_payload["text_blocks"], key=lambda item: (item["bbox"][1], item["bbox"][0]))
+        analysis_text = "\n".join(item["text"] for item in ordered_analysis_blocks).strip()
+        if analysis_text:
+            analysis_page_texts.append(analysis_text)
+
+        visible_text_blocks, table_text_suppressed_count = _suppress_table_text_blocks(
+            ordered_analysis_blocks,
+            page_payload["tables"],
+        )
+        total_table_text_suppressed += table_text_suppressed_count
+
+        page_text = "\n".join(item["text"] for item in visible_text_blocks).strip()
         all_page_text.append(page_text)
-
         page_bbox_nodes: list[dict[str, Any]] = []
-        for text_block in ordered_text_blocks:
+
+        for text_block in visible_text_blocks:
             bbox = text_block["bbox"]
             text_bounding_boxes.append(
                 {
@@ -1146,8 +1358,9 @@ def parse_pdf(path: Path) -> dict[str, Any]:
                 }
             )
 
-        for image_block in page_images:
+        for image_block in page_payload["images"]:
             bbox = image_block["bbox"]
+            image_blocks.append(image_block)
             text_bounding_boxes.append(
                 {
                     "id": image_block["image_id"],
@@ -1169,7 +1382,7 @@ def parse_pdf(path: Path) -> dict[str, Any]:
                 }
             )
 
-        for table_ast in page_tables:
+        for table_ast in page_payload["tables"]:
             bbox = table_ast["bbox"]
             text_bounding_boxes.append(
                 {
@@ -1196,20 +1409,21 @@ def parse_pdf(path: Path) -> dict[str, Any]:
         pages.append(
             {
                 "page_number": page_number,
-                "width": float(page_rect.width),
-                "height": float(page_rect.height),
+                "width": float(page_payload["width"]),
+                "height": float(page_payload["height"]),
                 "text": page_text,
-                "block_count": len(ordered_text_blocks),
-                "image_count": len(page_images),
-                "table_count": len(page_tables),
-                "semantic_merge_count": semantic_merge_count,
-                "image_text_recovered_count": recovered_image_text,
+                "block_count": len(visible_text_blocks),
+                "image_count": len(page_payload["images"]),
+                "table_count": len(page_payload["tables"]),
+                "semantic_merge_count": int(page_payload["semantic_merge_count"]),
+                "image_text_recovered_count": int(page_payload["image_text_recovered_count"]),
+                "header_footer_filtered_count": int(page_payload.get("header_footer_filtered", 0)),
+                "table_text_suppressed_count": table_text_suppressed_count,
+                "table_fragment_merge_count": int(page_payload.get("table_fragment_merge_count", 0)),
             }
         )
 
-    document.close()
-    stitched_table_count = _stitch_cross_page_tables(table_asts, page_heights)
-    merged_text = "\n\n".join(all_page_text)
+    merged_text = "\n\n".join(analysis_page_texts)
 
     return {
         "source_path": str(path),
@@ -1238,6 +1452,9 @@ def parse_pdf(path: Path) -> dict[str, Any]:
             "semantic_merge_count": total_semantic_merges,
             "image_text_recovered_count": total_recovered_image_text,
             "rejected_table_candidates": rejected_table_candidates,
-            "parser_hint": "pdf-ast-v3",
+            "table_fragment_merge_count": total_table_fragment_merges,
+            "header_footer_filtered_count": total_header_footer_filtered,
+            "table_text_suppressed_count": total_table_text_suppressed,
+            "parser_hint": "pdf-ast-v4",
         },
     }
