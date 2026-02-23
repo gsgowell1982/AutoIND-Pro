@@ -41,6 +41,40 @@ export interface PdfPageMeta {
   block_count: number
 }
 
+export interface PdfImageBlock {
+  image_id: string
+  page: number
+  bbox: [number, number, number, number]
+  title?: string
+  figure_ref?: string
+}
+
+export interface PdfTableCell {
+  row: number
+  col: number
+  text: string
+  bbox: [number, number, number, number]
+  rowspan?: number
+  colspan?: number
+}
+
+export interface PdfTableAst {
+  table_id: string
+  page: number
+  bbox: [number, number, number, number]
+  header: Array<{ text: string; col: number }>
+  cells: PdfTableCell[]
+  column_hash?: string
+}
+
+export interface PdfFigureRef {
+  figure_ref: string
+  image_id: string
+  title?: string
+  page: number
+  bbox: [number, number, number, number]
+}
+
 export interface WorkbenchPayload {
   pdf_document: {
     file_id: string
@@ -48,6 +82,9 @@ export interface WorkbenchPayload {
     file_url: string
     pages: PdfPageMeta[]
     bounding_boxes: BoundingBox[]
+    image_blocks?: PdfImageBlock[]
+    table_asts?: PdfTableAst[]
+    figures?: PdfFigureRef[]
   } | null
   markdown: string
   full_markdown_download_url?: string

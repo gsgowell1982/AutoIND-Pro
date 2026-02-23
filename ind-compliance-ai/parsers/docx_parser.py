@@ -257,11 +257,24 @@ def parse_docx(path: Path) -> dict[str, Any]:
         raise RuntimeError("No readable text extracted from Word file")
 
     logger.info("Parsed word file %s with parser=%s", path.name, parser_hint)
+    ast_blocks = [
+        {
+            "block_type": "paragraph",
+            "block_id": f"p_{index + 1:04d}",
+            "text": paragraph.get("text", ""),
+        }
+        for index, paragraph in enumerate(paragraphs)
+    ]
     return {
         "source_path": str(path),
         "source_type": "word",
         "headings": [],
         "paragraphs": paragraphs,
+        "document_ast": {
+            "source_type": "docx" if suffix == ".docx" else "doc",
+            "blocks": ast_blocks,
+            "block_count": len(ast_blocks),
+        },
         "text": merged_text,
         "atomic_facts": extract_atomic_facts(merged_text),
         "metadata": {

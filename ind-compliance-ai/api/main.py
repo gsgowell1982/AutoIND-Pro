@@ -15,6 +15,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.upload_controller import ALLOWED_EXTENSIONS
+from core.run_manager import (
+    append_run_log,
+    create_run_context,
+    finalize_run_context,
+    persist_document_artifacts,
+    persist_normalized_artifacts,
+    persist_run_outputs,
+)
 from parsers.parser_registry import parse_file
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -299,6 +307,8 @@ def _build_enterprise_metrics(
     parsed_count = len(parsed_documents)
     total_chars = sum(len(str(item.get("text", ""))) for item in parsed_documents)
     total_tokens = sum(_count_tokens(str(item.get("text", ""))) for item in parsed_documents)
+    total_images = sum(len(item.get("image_blocks", [])) for item in parsed_documents)
+    total_tables = sum(len(item.get("table_asts", [])) for item in parsed_documents)
 
     estimated_pages = 0
     for document in parsed_documents:
@@ -345,6 +355,8 @@ def _build_enterprise_metrics(
         "estimated_pages": estimated_pages,
         "total_characters": total_chars,
         "total_tokens": total_tokens,
+        "total_images": total_images,
+        "total_tables": total_tables,
         "captured_facts": captured_facts,
         "expected_total_facts": expected_total_facts,
         "fact_capture_rate": _safe_ratio(captured_facts, expected_total_facts) * 100,
@@ -378,6 +390,8 @@ def _build_ui_markdown(
             f"({metrics['parsed_count']}/{metrics['total_files']}) | Parser execution completeness |"
         ),
         f"| Estimated pages/slides | {metrics['estimated_pages']} | Approximate payload scale |",
+        f"| Extracted images | {metrics['total_images']} | Image block coverage in source documents |",
+        f"| Structured tables | {metrics['total_tables']} | Table AST extraction coverage |",
         f"| Extracted text volume | {metrics['total_characters']} chars / {metrics['total_tokens']} tokens | Text capture throughput |",
         (
             f"| Atomic fact capture rate | {metrics['fact_capture_rate']:.1f}% "
@@ -402,8 +416,8 @@ def _build_ui_markdown(
             "",
             "## Document Inventory",
             "",
-            "| File | Type | Estimated pages/slides | Extracted chars | Parser strategy |",
-            "| --- | --- | ---: | ---: | --- |",
+            "| File | Type | Estimated pages/slides | Images | Tables | Extracted chars | Parser strategy |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for index, document in enumerate(parsed_documents):
@@ -423,7 +437,12 @@ def _build_ui_markdown(
             else:
                 page_count = 0
         extracted_chars = len(str(document.get("text", "")))
-        lines.append(f"| {filename} | {source_type} | {page_count} | {extracted_chars} | {parser_hint} |")
+        image_count = len(document.get("image_blocks", []))
+        table_count = len(document.get("table_asts", []))
+        lines.append(
+            f"| {filename} | {source_type} | {page_count} | {image_count} | {table_count} | "
+            f"{extracted_chars} | {parser_hint} |"
+        )
 
     lines.extend(["", "## Content Alignment Preview (Plain Text, Up to 500 Chars)", ""])
     if parsed_documents:
@@ -536,6 +555,9 @@ def _build_workbench(
                 "file_url": f"/api/v1/files/{document.get('file_id')}",
                 "pages": document.get("pages", []),
                 "bounding_boxes": document.get("bounding_boxes", []),
+                "image_blocks": document.get("image_blocks", []),
+                "table_asts": document.get("table_asts", []),
+                "figures": document.get("figures", []),
             }
             break
 
@@ -551,6 +573,66 @@ def _build_workbench(
     }
 
 
+def _build_compliance_result(
+    submission_profile: str,
+    parsed_documents: list[dict[str, Any]],
+    consistency_rows: list[dict[str, Any]],
+    final_status: str,
+) -> dict[str, Any]:
+    table_count = sum(len(document.get("table_asts", [])) for document in parsed_documents)
+    image_count = sum(len(document.get("image_blocks", [])) for document in parsed_documents)
+    consistency_issues = sum(1 for row in consistency_rows if not row.get("is_consistent"))
+    return {
+        "submission_profile": submission_profile,
+        "run_status": final_status,
+        "summary": {
+            "hard_failures": 0,
+            "soft_risks": consistency_issues,
+            "parsed_documents": len(parsed_documents),
+            "tables": table_count,
+            "images": image_count,
+        },
+        "rules": [],
+        "risks": [
+            {
+                "risk_id": f"CONSISTENCY-{index + 1:03d}",
+                "severity": "medium",
+                "reason": f"Fact `{row.get('fact')}` has cross-document mismatch",
+            }
+            for index, row in enumerate(consistency_rows)
+            if not row.get("is_consistent")
+        ],
+    }
+
+
+def _build_audit_log(
+    run_id: str,
+    job_id: str,
+    final_status: str,
+    parsed_documents: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "job_id": job_id,
+        "generated_at": _utc_now(),
+        "status": final_status,
+        "events": [
+            {
+                "step": "parse",
+                "message": f"Parsed {len(parsed_documents)} document(s)",
+            },
+            {
+                "step": "materialize_artifacts",
+                "message": "AST/tables/images/normalized/atomic_facts persisted",
+            },
+            {
+                "step": "emit_outputs",
+                "message": "compliance_result.json and audit_log.json generated",
+            },
+        ],
+    }
+
+
 def _process_job(job_id: str) -> None:
     with STORE_LOCK:
         job = JOB_STORE.get(job_id)
@@ -562,11 +644,17 @@ def _process_job(job_id: str) -> None:
         file_count = len(job["files"])
     logger.info("Job %s started processing (%s files)", job_id, file_count)
 
-    parsed_documents: list[dict[str, Any]] = []
-    failed_files = 0
-
     with STORE_LOCK:
         file_records = list(JOB_STORE[job_id]["files"])
+
+    run_context = create_run_context(PROJECT_ROOT, job_id, file_records)
+    append_run_log(run_context, f"run context created for job={job_id}")
+    with STORE_LOCK:
+        JOB_STORE[job_id]["run_id"] = run_context.run_id
+        JOB_STORE[job_id]["run_dir"] = str(run_context.run_dir)
+
+    parsed_documents: list[dict[str, Any]] = []
+    failed_files = 0
 
     total_files = len(file_records) or 1
     for index, file_record in enumerate(file_records):
@@ -583,6 +671,15 @@ def _process_job(job_id: str) -> None:
             parsed["file_id"] = file_record["file_id"]
             parsed["filename"] = file_record["filename"]
             parsed_documents.append(parsed)
+            persist_document_artifacts(run_context, index, parsed, file_record)
+            append_run_log(
+                run_context,
+                (
+                    f"parsed file={file_record['filename']} "
+                    f"tables={len(parsed.get('table_asts', []))} "
+                    f"images={len(parsed.get('image_blocks', []))}"
+                ),
+            )
             file_status = "completed"
             file_message = "Parsed successfully"
             file_progress = 100
@@ -597,6 +694,7 @@ def _process_job(job_id: str) -> None:
             file_status = "failed"
             file_message = f"Parse failed: {exc}"
             file_progress = 100
+            append_run_log(run_context, f"parse failed for file={file_record['filename']}: {exc}", level="ERROR")
             logger.exception("Job %s failed parsing file %s", job_id, file_record["filename"])
 
         processed_ratio = (index + 1) / total_files
@@ -610,7 +708,9 @@ def _process_job(job_id: str) -> None:
             job["progress"] = 5 + int(processed_ratio * 80)
             job["updated_at"] = _utc_now()
 
+    append_run_log(run_context, "building consistency rows")
     consistency_rows = _build_consistency_rows(parsed_documents)
+    persist_normalized_artifacts(run_context, parsed_documents)
     full_markdown_text = _build_full_markdown(parsed_documents)
     markdown_file_path = PARSED_MARKDOWN_DIR / f"{job_id}_parse_full.md"
     markdown_file_path.write_text(full_markdown_text, encoding="utf-8")
@@ -638,6 +738,12 @@ def _process_job(job_id: str) -> None:
         else:
             job["status"] = "completed"
         final_status = job["status"]
+
+    compliance_result = _build_compliance_result("FIH", parsed_documents, consistency_rows, final_status)
+    audit_log = _build_audit_log(run_context.run_id, job_id, final_status, parsed_documents)
+    persist_run_outputs(run_context, compliance_result, audit_log)
+    finalize_run_context(run_context, final_status)
+    append_run_log(run_context, f"run finalized status={final_status}")
     logger.info("Job %s finished with status=%s", job_id, final_status)
 
 
@@ -703,6 +809,8 @@ def create_app() -> FastAPI:
 
         job_record = {
             "job_id": job_id,
+            "run_id": None,
+            "run_dir": None,
             "status": "queued",
             "progress": 0,
             "created_at": _utc_now(),
@@ -739,6 +847,8 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=404, detail="Job not found")
             return {
                 "job_id": job["job_id"],
+                "run_id": job.get("run_id"),
+                "run_dir": job.get("run_dir"),
                 "status": job["status"],
                 "progress": job["progress"],
                 "created_at": job["created_at"],

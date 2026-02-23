@@ -27,6 +27,9 @@ It provides compliance support signals, traceable evidence, and risk explanation
 3. **一致性检查看板**
    - 展示跨模块原子事实比对
    - 示例：M3 与 M5 的批号一致性
+4. **运行证据包（runs）**
+   - 每次任务自动生成 `runs/run_YYYY-MM-DD_HHMMSS_xxxxxxxx/`
+   - 固化 AST、表格结构、图片结构、统一语义、原子事实、输出结果、pipeline 日志
 
 ## Quick start (recommended)
 
@@ -82,3 +85,16 @@ Legacy `.doc` notes:
 Upload -> Parse -> Rule Evaluation -> Cross-Module Checks -> Risk Output
 
 See `docs/architecture.md` and `docs/phase1_scope.md` for details.
+
+## Run artifacts (audit and reproducibility)
+
+Each analysis job creates a frozen run folder under `runs/`:
+
+- `manifest.json`: input/version/artifact index/status
+- `artifacts/ast/*`: per-document AST snapshots
+- `artifacts/tables/*.json`: table AST with row/col/cell structure
+- `artifacts/images/*.json`: image blocks with page+bbox+figure anchors
+- `artifacts/normalized/material_normalized.json`
+- `artifacts/atomic_facts/atomic_facts.json`
+- `output/compliance_result.json`, `output/audit_log.json`
+- `logs/pipeline.log`

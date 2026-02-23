@@ -48,13 +48,34 @@ def parse_pptx(path: Path) -> dict[str, Any]:
         extracted_text.extend(normalized_lines)
 
     merged_text = "\n".join(extracted_text)
+    ast_slides = [
+        {
+            "block_type": "slide",
+            "slide_number": item["slide_number"],
+            "text": item["text"],
+            "notes": next(
+                (note.get("text", "") for note in notes if note.get("slide_number") == item["slide_number"]),
+                "",
+            ),
+        }
+        for item in slides
+    ]
 
     return {
         "source_path": str(path),
         "source_type": "presentation",
         "slides": slides,
         "notes": notes,
+        "document_ast": {
+            "source_type": "pptx" if path.suffix.lower() == ".pptx" else "ppt",
+            "slides": ast_slides,
+            "slide_count": len(ast_slides),
+        },
         "text": merged_text,
         "atomic_facts": extract_atomic_facts(merged_text),
-        "metadata": {"slide_count": len(slides), "note_count": len(notes)},
+        "metadata": {
+            "slide_count": len(slides),
+            "note_count": len(notes),
+            "parser_hint": "pptx-generic-v1",
+        },
     }

@@ -26,3 +26,6 @@ ui/frontend/dist/
 
 data/samples/uploaded/*
 !data/samples/uploaded/.gitkeep
+
+runs/*
+!runs/.gitkeep
