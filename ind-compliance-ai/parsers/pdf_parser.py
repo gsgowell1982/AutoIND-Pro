@@ -29,6 +29,9 @@ TABLE_TITLE_PATTERN = re.compile(
     r"^\s*(?:附?表\s*[0-9一二三四五六七八九十]+|table\s*\d+)\s*(?:[.:：、\-]|\s+)",
     re.IGNORECASE,
 )
+TABLE_SECTION_HINT_PATTERN = re.compile(r"(术语表|词汇表|名词表|名词解释|参数表|清单|附录表|glossary)", re.IGNORECASE)
+TOC_LINE_PATTERN = re.compile(r"[\.·…]{4,}\s*\d{1,3}\s*$")
+TOC_HEADING_PATTERN = re.compile(r"^\s*(目录|contents)\s*$", re.IGNORECASE)
 
 
 def _clean_text(value: str) -> str:
@@ -37,6 +40,18 @@ def _clean_text(value: str) -> str:
 
 def _has_cjk(text: str) -> bool:
     return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
+def _compact_text(text: str) -> str:
+    return re.sub(r"[^\w\u4e00-\u9fff]+", "", _clean_text(text).lower())
+
+
+def _text_contains_text(source: str, target: str) -> bool:
+    source_compact = _compact_text(source)
+    target_compact = _compact_text(target)
+    if not source_compact or not target_compact:
+        return False
+    return target_compact in source_compact
 
 
 def _bbox_to_list(bbox: tuple[float, float, float, float]) -> list[float]:
@@ -244,9 +259,49 @@ def _merge_semantic_text_blocks(
             continue
         merged.append(normalized)
 
-    for index, block in enumerate(merged, start=1):
+    deduped, dedup_count = _deduplicate_text_blocks(merged)
+    for index, block in enumerate(deduped, start=1):
         block["block_id"] = f"txt_p{page_number}_{index:03d}"
-    return merged, merge_count
+    return deduped, merge_count + dedup_count
+
+
+def _is_duplicate_text_block(candidate: dict[str, Any], existing: dict[str, Any]) -> bool:
+    candidate_bbox = tuple(candidate.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    existing_bbox = tuple(existing.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    overlap = _bbox_intersection_ratio(candidate_bbox, existing_bbox)
+    if overlap < 0.72:
+        return False
+    candidate_text = _clean_text(candidate.get("text", ""))
+    existing_text = _clean_text(existing.get("text", ""))
+    if not candidate_text or not existing_text:
+        return False
+    return _text_contains_text(candidate_text, existing_text) or _text_contains_text(existing_text, candidate_text)
+
+
+def _deduplicate_text_blocks(text_blocks: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    if not text_blocks:
+        return [], 0
+    deduped: list[dict[str, Any]] = []
+    duplicate_count = 0
+    for block in sorted(text_blocks, key=lambda item: (item["bbox"][1], item["bbox"][0])):
+        duplicate_index = next(
+            (
+                index
+                for index, kept in enumerate(deduped)
+                if _is_duplicate_text_block(block, kept)
+            ),
+            -1,
+        )
+        if duplicate_index < 0:
+            deduped.append(block)
+            continue
+        duplicate_count += 1
+        kept_text = _clean_text(deduped[duplicate_index].get("text", ""))
+        candidate_text = _clean_text(block.get("text", ""))
+        # Prefer longer candidate text if two blocks are duplicates.
+        if len(_compact_text(candidate_text)) > len(_compact_text(kept_text)):
+            deduped[duplicate_index] = block
+    return deduped, duplicate_count
 
 
 @dataclass(slots=True)
@@ -451,27 +506,45 @@ def _demote_textual_image_blocks(
         recovered_text = _clean_text(recovered["text"])
         confidence = float(recovered["confidence"])
         has_path = bool(recovered.get("has_path", False))
+        recovered_source = str(recovered.get("source", "none"))
         image_area = _bbox_area(bbox)
         area_ratio = image_area / page_area
 
         image_block["text_recovery"] = {
             "text": recovered_text,
             "confidence": round(confidence, 3),
-            "source": recovered.get("source", "none"),
+            "source": recovered_source,
             "has_path": has_path,
         }
 
         has_overlapping_text = any(
-            _bbox_intersection_ratio(tuple(block["bbox"]), bbox) >= 0.62
-            and _clean_text(block.get("text", "")) == recovered_text
+            _bbox_intersection_ratio(tuple(block["bbox"]), bbox) >= 0.55
+            and (
+                _text_contains_text(_clean_text(block.get("text", "")), recovered_text)
+                or _text_contains_text(recovered_text, _clean_text(block.get("text", "")))
+            )
             for block in merged_text_blocks
         )
+
+        if len(recovered_text) >= 2 and has_overlapping_text:
+            # If this image region is already represented by text, drop duplicate image block.
+            converted_count += 1
+            continue
+
+        if recovered_source in {"text-layer", "word-cluster"}:
+            confidence_gate = 0.86
+        elif recovered_source == "ocr":
+            confidence_gate = 0.9 if has_path else 0.93
+        else:
+            confidence_gate = 0.95
+
+        short_text_label = len(_compact_text(recovered_text)) <= 20 and len(_compact_text(recovered_text)) >= 2
         should_convert = (
             len(recovered_text) >= 2
-            and not has_overlapping_text
             and (
-                (confidence >= 0.92 and area_ratio <= 0.2)
+                (confidence >= confidence_gate and area_ratio <= 0.24)
                 or (has_path and confidence >= 0.78 and area_ratio <= 0.28)
+                or (short_text_label and confidence >= 0.84 and area_ratio <= 0.08)
             )
         )
         if should_convert:
@@ -651,12 +724,14 @@ def _build_single_table_ast(
     column_signature = [round((center - table_bbox[0]) / table_width, 3) for center in column_centers]
 
     row_cell_maps: list[dict[int, list[_Word]]] = []
+    row_texts: list[str] = []
     for row in rows:
         cell_map: dict[int, list[_Word]] = {}
         for word in row["words"]:
             col_index = _closest_column_index(word.xc, column_centers)
             cell_map.setdefault(col_index, []).append(word)
         row_cell_maps.append(cell_map)
+        row_texts.append(_clean_text(" ".join(word.text for word in sorted(row["words"], key=lambda item: item.x0))))
 
     header_row_index = 0
     for index, cell_map in enumerate(row_cell_maps):
@@ -725,6 +800,7 @@ def _build_single_table_ast(
         "column_hash": _column_hash(column_signature),
         "header_row_index": header_row_index + 1,
         "structure_score": round(structure_score, 3),
+        "row_texts": row_texts,
         "near_page_bottom": table_bbox[3] >= page_height * 0.72,
         "near_page_top": table_bbox[1] <= page_height * 0.28,
     }
@@ -753,14 +829,140 @@ def _find_table_title_block(
     return sorted(candidates, key=lambda item: item[0])[0][1]
 
 
-def _is_valid_table_candidate(table_ast: dict[str, Any], title_block: dict[str, Any] | None) -> bool:
+def _find_section_table_hint(
+    table_bbox: tuple[float, float, float, float],
+    text_blocks: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for block in text_blocks:
+        text = _clean_text(block.get("text", ""))
+        if not text or not TABLE_SECTION_HINT_PATTERN.search(text):
+            continue
+        bbox = tuple(block["bbox"])
+        vertical_gap = table_bbox[1] - bbox[3]
+        if vertical_gap < -8 or vertical_gap > 180:
+            continue
+        overlap = _horizontal_overlap_ratio(table_bbox, bbox)
+        if overlap < 0.1:
+            continue
+        candidates.append((max(0.0, vertical_gap), block))
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: item[0])[0][1]
+
+
+def _is_toc_context(
+    table_bbox: tuple[float, float, float, float],
+    text_blocks: list[dict[str, Any]],
+) -> bool:
+    table_top = table_bbox[1]
+    for block in text_blocks:
+        text = _clean_text(block.get("text", ""))
+        if not text:
+            continue
+        bbox = tuple(block["bbox"])
+        if bbox[3] > table_top + 15:
+            continue
+        vertical_gap = table_top - bbox[3]
+        if vertical_gap < 0 or vertical_gap > 220:
+            continue
+        if TOC_HEADING_PATTERN.search(text):
+            return True
+    return False
+
+
+def _table_toc_row_ratio(table_ast: dict[str, Any]) -> float:
+    row_texts = [str(item) for item in table_ast.get("row_texts", [])]
+    if not row_texts:
+        return 0.0
+    toc_rows = 0.0
+    for row_text in row_texts:
+        cleaned = _clean_text(row_text)
+        if not cleaned:
+            continue
+        if TOC_LINE_PATTERN.search(cleaned):
+            toc_rows += 1.0
+            continue
+        if re.match(r"^\d+(?:\.\d+){1,4}\s+", cleaned) and re.search(r"\d{1,3}\s*$", cleaned):
+            toc_rows += 0.85
+            continue
+        if "......" in cleaned or "······" in cleaned:
+            toc_rows += 0.65
+    return min(1.0, toc_rows / max(1, len(row_texts)))
+
+
+def _table_grid_line_score(
+    table_bbox: tuple[float, float, float, float],
+    page_drawings: list[dict[str, Any]],
+) -> float:
+    overlap_count = 0
+    for drawing in page_drawings:
+        rect = _drawing_rect_to_tuple(drawing)
+        if rect is None:
+            continue
+        if _bbox_intersection_ratio(rect, table_bbox) >= 0.18:
+            overlap_count += 1
+    return min(1.0, overlap_count / 8.0)
+
+
+def _find_continuation_hint(
+    candidate_table: dict[str, Any],
+    accepted_tables: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not bool(candidate_table.get("near_page_top")):
+        return None
+    best_parent: dict[str, Any] | None = None
+    best_similarity = 0.0
+    current_page = int(candidate_table.get("page", 0))
+    for previous in reversed(accepted_tables[-12:]):
+        if int(previous.get("page", 0)) != current_page - 1:
+            continue
+        if not bool(previous.get("near_page_bottom")):
+            continue
+        similarity = _column_similarity(
+            list(previous.get("column_signature", [])),
+            list(candidate_table.get("column_signature", [])),
+        )
+        if similarity > best_similarity:
+            best_similarity = similarity
+            best_parent = previous
+    if best_parent is None or best_similarity < 0.62:
+        return None
+    return {
+        "table_id": str(best_parent.get("table_id", "")),
+        "similarity": round(best_similarity, 3),
+    }
+
+
+def _is_valid_table_candidate(
+    table_ast: dict[str, Any],
+    title_block: dict[str, Any] | None,
+    section_hint_block: dict[str, Any] | None,
+    toc_context: bool,
+    grid_line_score: float,
+    continuation_hint: dict[str, Any] | None,
+) -> bool:
     score = float(table_ast.get("structure_score", 0.0))
     row_count = int(table_ast.get("row_count", 0))
     col_count = int(table_ast.get("col_count", 0))
+    toc_row_ratio = float(table_ast.get("toc_row_ratio", 0.0))
+    if toc_context or toc_row_ratio >= 0.38:
+        return False
+
     if title_block is not None:
         return score >= 0.32 and row_count >= 2 and col_count >= 2
-    # Without "Table X / 表X" caption, keep only highly-structured grids.
-    return row_count >= 4 and col_count >= 3 and score >= 0.82
+
+    if continuation_hint is not None:
+        return row_count >= 2 and col_count >= 2 and score >= 0.42
+
+    if section_hint_block is not None:
+        return row_count >= 4 and col_count >= 2 and score >= 0.55
+
+    if grid_line_score >= 0.45:
+        return row_count >= 4 and col_count >= 2 and score >= 0.56
+
+    # Without caption/hint/grid, keep only very strong grids.
+    return row_count >= 5 and col_count >= 3 and score >= 0.9 and toc_row_ratio <= 0.15
 
 
 def _column_similarity(signature_a: list[float], signature_b: list[float]) -> float:
@@ -800,8 +1002,8 @@ def _stitch_cross_page_tables(
         prev_near_bottom = previous["bbox"][3] >= prev_page_height * 0.72
         curr_near_top = current["bbox"][1] <= curr_page_height * 0.28
         similarity = _column_similarity(previous["column_signature"], current["column_signature"])
-        is_likely_continuation = (prev_near_bottom and curr_near_top) or similarity >= 0.9
-        if similarity < 0.78 or not is_likely_continuation:
+        is_likely_continuation = (prev_near_bottom and curr_near_top) or similarity >= 0.82
+        if similarity < 0.62 or not is_likely_continuation:
             continue
 
         previous.setdefault("continued_to", [])
@@ -880,11 +1082,32 @@ def parse_pdf(path: Path) -> dict[str, Any]:
             )
             if candidate_table is None:
                 continue
-            title_block = _find_table_title_block(tuple(candidate_table["bbox"]), text_blocks)
+            table_bbox = tuple(candidate_table["bbox"])
+            title_block = _find_table_title_block(table_bbox, text_blocks)
+            section_hint_block = _find_section_table_hint(table_bbox, text_blocks)
+            toc_context = _is_toc_context(table_bbox, text_blocks)
+            grid_line_score = _table_grid_line_score(table_bbox, page_drawings)
+            continuation_hint = _find_continuation_hint(candidate_table, table_asts)
+            toc_row_ratio = _table_toc_row_ratio(candidate_table)
+
+            candidate_table["grid_line_score"] = round(grid_line_score, 3)
+            candidate_table["toc_row_ratio"] = round(toc_row_ratio, 3)
+            if continuation_hint is not None:
+                candidate_table["continuation_hint"] = continuation_hint
             if title_block is not None:
                 candidate_table["title"] = title_block["text"]
                 candidate_table["title_block_id"] = title_block["block_id"]
-            if not _is_valid_table_candidate(candidate_table, title_block):
+            if section_hint_block is not None:
+                candidate_table["section_hint"] = section_hint_block["text"]
+                candidate_table["section_hint_block_id"] = section_hint_block["block_id"]
+            if not _is_valid_table_candidate(
+                candidate_table,
+                title_block=title_block,
+                section_hint_block=section_hint_block,
+                toc_context=toc_context,
+                grid_line_score=grid_line_score,
+                continuation_hint=continuation_hint,
+            ):
                 rejected_table_candidates += 1
                 continue
             if title_block is None:
