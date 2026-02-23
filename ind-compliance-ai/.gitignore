@@ -23,6 +23,7 @@ parser_artifacts/
 
 ui/frontend/node_modules/
 ui/frontend/dist/
+ui/frontend/.deps_fingerprint
 
 data/samples/uploaded/*
 !data/samples/uploaded/.gitkeep

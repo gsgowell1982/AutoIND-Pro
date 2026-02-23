@@ -68,6 +68,22 @@ node --version
 npm --version
 ```
 
+If local startup appears stuck at `Syncing frontend dependencies (npm install) ...`:
+
+- Skip auto install for current run:
+  ```bash
+  python main.py --skip-frontend-install
+  ```
+- Or increase timeout for slow networks:
+  ```bash
+  python main.py --frontend-install-timeout 1800
+  ```
+- Manual fallback:
+  ```bash
+  cd ui/frontend
+  npm install --no-audit --no-fund
+  ```
+
 If parser dependencies are missing in the selected interpreter, install:
 
 ```bash
