@@ -1107,7 +1107,7 @@ def _find_table_title_block(
         vertical_gap = table_bbox[1] - bbox[3]
         inside_top_band = (
             bbox[1] >= table_bbox[1] - 8
-            and bbox[3] <= table_bbox[1] + max(36.0, (table_bbox[3] - table_bbox[1]) * 0.18)
+            and bbox[3] <= table_bbox[1] + max(72.0, (table_bbox[3] - table_bbox[1]) * 0.28)
         )
         if (vertical_gap < -8 or vertical_gap > 160) and not inside_top_band:
             continue
@@ -1244,18 +1244,27 @@ def _find_continuation_hint(
             continue
         previous_has_title = bool(str(previous.get("title", "")).strip())
         previous_has_section_hint = bool(str(previous.get("section_hint", "")).strip())
+        previous_col_count = int(previous.get("col_count", 0))
+        candidate_col_count = int(candidate_table.get("col_count", 0))
         if not bool(previous.get("near_page_bottom")) and not previous_has_title and not previous_has_section_hint:
             continue
         similarity = _column_similarity(
             list(previous.get("column_signature", [])),
             list(candidate_table.get("column_signature", [])),
         )
-        if (previous_has_title or previous_has_section_hint) and bool(candidate_table.get("near_page_top")) and similarity >= 0.38:
+        if (
+            (previous_has_title or previous_has_section_hint)
+            and bool(candidate_table.get("near_page_top"))
+            and abs(previous_col_count - candidate_col_count) <= 1
+            and similarity >= 0.28
+        ):
+            similarity += 0.25
+        elif (previous_has_title or previous_has_section_hint) and bool(candidate_table.get("near_page_top")) and similarity >= 0.38:
             similarity += 0.08
         if similarity > best_similarity:
             best_similarity = similarity
             best_parent = previous
-    if best_parent is None or best_similarity < 0.58:
+    if best_parent is None or best_similarity < 0.48:
         return None
     return {
         "table_id": str(best_parent.get("table_id", "")),
@@ -1282,6 +1291,13 @@ def _is_valid_table_candidate(
     if (
         title_block is None
         and continuation_hint is None
+        and reference_like_ratio >= 0.75
+    ):
+        return False
+
+    if (
+        title_block is None
+        and continuation_hint is None
         and section_hint_block is None
         and grid_line_score < 0.3
         and reference_like_ratio >= 0.42
@@ -1303,7 +1319,7 @@ def _is_valid_table_candidate(
 
     if continuation_hint is not None:
         if col_count == 2 and row_count >= 3:
-            return score >= 0.25
+            return score >= 0.15
         return row_count >= 2 and col_count >= 2 and score >= 0.42
 
     if section_hint_block is not None:
@@ -1579,12 +1595,21 @@ def _stitch_cross_page_tables(
         similarity = _column_similarity(previous["column_signature"], current["column_signature"])
         previous_has_title = bool(str(previous.get("title", "")).strip())
         previous_has_section_hint = bool(str(previous.get("section_hint", "")).strip())
+        previous_col_count = int(previous.get("col_count", 0))
+        current_col_count = int(current.get("col_count", 0))
+        context_continuation = (
+            (previous_has_title or previous_has_section_hint)
+            and curr_near_top
+            and abs(previous_col_count - current_col_count) <= 1
+            and similarity >= 0.28
+        )
         is_likely_continuation = (
             (prev_near_bottom and curr_near_top)
             or similarity >= 0.82
             or ((previous_has_title or previous_has_section_hint) and curr_near_top and similarity >= 0.42)
+            or context_continuation
         )
-        if similarity < 0.42 or not is_likely_continuation:
+        if similarity < 0.28 or not is_likely_continuation:
             continue
         if str(current.get("title", "")).strip():
             # A titled table on the current page is treated as a new table, not continuation.
