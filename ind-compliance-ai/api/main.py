@@ -444,19 +444,6 @@ def _build_ui_markdown(
             f"{extracted_chars} | {parser_hint} |"
         )
 
-    lines.extend(["", "## Content Alignment Preview (Plain Text, Up to 500 Chars)", ""])
-    if parsed_documents:
-        primary_doc = parsed_documents[0]
-        filename = str(primary_doc.get("filename", "document-1"))
-        source_type = str(primary_doc.get("source_type", "unknown")).upper()
-        first_page_preview = _estimate_first_page_text(primary_doc)
-        formatted_preview = _format_preview_for_display(first_page_preview)
-        lines.append(f"### {filename} ({source_type})")
-        lines.append("")
-        lines.append(formatted_preview or "No preview text available.")
-    else:
-        lines.append("No parsed document available.")
-
     return "\n".join(lines).strip()
 
 
