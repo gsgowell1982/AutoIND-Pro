@@ -882,7 +882,7 @@ def _cluster_columns(rows: list[dict[str, Any]]) -> list[float]:
     if not words:
         return []
     median_width = statistics.median([word.width for word in words]) if words else 12.0
-    col_tol = max(8.0, median_width * 0.9)
+    col_tol = min(max(8.0, median_width * 0.75), 42.0)
     centers = sorted(word.xc for word in words)
     if not centers:
         return []
@@ -915,19 +915,21 @@ def _build_single_table_ast(
     if len(rows) < 2:
         return None
 
-    initial_column_centers = _cluster_columns(rows)
-    if len(initial_column_centers) < 2 or len(initial_column_centers) > 24:
-        return None
-
-    _, row_texts, initial_non_empty_counts = _assign_rows_to_columns(rows, initial_column_centers)
-    column_centers = _refine_column_centers(initial_column_centers, initial_non_empty_counts)
-
     header_row_candidate_index = 0
     for index, row in enumerate(rows[: min(3, len(rows))]):
         if _is_header_like_row(row["words"]):
             header_row_candidate_index = index
             break
     header_centers = _infer_header_column_centers(rows[header_row_candidate_index]["words"]) if rows else []
+
+    initial_column_centers = _cluster_columns(rows)
+    if len(initial_column_centers) < 2 and 2 <= len(header_centers) <= 24:
+        initial_column_centers = header_centers
+    if len(initial_column_centers) < 2 or len(initial_column_centers) > 24:
+        return None
+
+    _, row_texts, initial_non_empty_counts = _assign_rows_to_columns(rows, initial_column_centers)
+    column_centers = _refine_column_centers(initial_column_centers, initial_non_empty_counts)
     if 2 <= len(header_centers) <= 24 and len(header_centers) >= len(column_centers):
         # Prefer header-aligned columns when header expresses the real table schema.
         column_centers = header_centers
@@ -1103,12 +1105,19 @@ def _find_table_title_block(
             continue
         bbox = tuple(block["bbox"])
         vertical_gap = table_bbox[1] - bbox[3]
-        if vertical_gap < -8 or vertical_gap > 160:
+        inside_top_band = (
+            bbox[1] >= table_bbox[1] - 8
+            and bbox[3] <= table_bbox[1] + max(36.0, (table_bbox[3] - table_bbox[1]) * 0.18)
+        )
+        if (vertical_gap < -8 or vertical_gap > 160) and not inside_top_band:
             continue
         overlap = _horizontal_overlap_ratio(table_bbox, bbox)
         if overlap < 0.12:
             continue
-        distance = vertical_gap if vertical_gap >= 0 else abs(vertical_gap) + 25
+        if inside_top_band:
+            distance = 0.0
+        else:
+            distance = vertical_gap if vertical_gap >= 0 else abs(vertical_gap) + 25
         candidates.append((distance, block))
     if not candidates:
         return None
@@ -1234,13 +1243,14 @@ def _find_continuation_hint(
         if int(previous.get("page", 0)) != current_page - 1:
             continue
         previous_has_title = bool(str(previous.get("title", "")).strip())
-        if not bool(previous.get("near_page_bottom")) and not previous_has_title:
+        previous_has_section_hint = bool(str(previous.get("section_hint", "")).strip())
+        if not bool(previous.get("near_page_bottom")) and not previous_has_title and not previous_has_section_hint:
             continue
         similarity = _column_similarity(
             list(previous.get("column_signature", [])),
             list(candidate_table.get("column_signature", [])),
         )
-        if previous_has_title and bool(candidate_table.get("near_page_top")) and similarity >= 0.42:
+        if (previous_has_title or previous_has_section_hint) and bool(candidate_table.get("near_page_top")) and similarity >= 0.38:
             similarity += 0.08
         if similarity > best_similarity:
             best_similarity = similarity
@@ -1292,9 +1302,14 @@ def _is_valid_table_candidate(
         return score >= 0.32 and row_count >= 2 and col_count >= 2
 
     if continuation_hint is not None:
+        if col_count == 2 and row_count >= 3:
+            return score >= 0.25
         return row_count >= 2 and col_count >= 2 and score >= 0.42
 
     if section_hint_block is not None:
+        section_text = _clean_text(str(section_hint_block.get("text", ""))).lower()
+        if "术语表" in section_text or "glossary" in section_text:
+            return row_count >= 4 and col_count >= 2 and score >= 0.25
         return row_count >= 4 and col_count >= 2 and score >= 0.55
 
     if grid_line_score >= 0.45:
@@ -1563,12 +1578,13 @@ def _stitch_cross_page_tables(
         curr_near_top = current["bbox"][1] <= curr_page_height * 0.28
         similarity = _column_similarity(previous["column_signature"], current["column_signature"])
         previous_has_title = bool(str(previous.get("title", "")).strip())
+        previous_has_section_hint = bool(str(previous.get("section_hint", "")).strip())
         is_likely_continuation = (
             (prev_near_bottom and curr_near_top)
             or similarity >= 0.82
-            or (previous_has_title and curr_near_top and similarity >= 0.48)
+            or ((previous_has_title or previous_has_section_hint) and curr_near_top and similarity >= 0.42)
         )
-        if similarity < 0.48 or not is_likely_continuation:
+        if similarity < 0.42 or not is_likely_continuation:
             continue
         if str(current.get("title", "")).strip():
             # A titled table on the current page is treated as a new table, not continuation.
@@ -1698,9 +1714,11 @@ def parse_pdf(path: Path) -> dict[str, Any]:
             toc_context = _is_toc_context(table_bbox, text_blocks)
             grid_line_score = _table_grid_line_score(table_bbox, page_drawings)
             toc_row_ratio = _table_toc_row_ratio(candidate_table)
+            reference_like_ratio = _table_reference_like_ratio(candidate_table)
 
             candidate_table["grid_line_score"] = round(grid_line_score, 3)
             candidate_table["toc_row_ratio"] = round(toc_row_ratio, 3)
+            candidate_table["reference_like_ratio"] = round(reference_like_ratio, 3)
             if title_block is not None:
                 candidate_table["title"] = title_block["text"]
                 candidate_table["title_block_id"] = title_block["block_id"]
