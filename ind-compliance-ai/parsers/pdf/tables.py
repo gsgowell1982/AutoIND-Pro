@@ -189,9 +189,42 @@ def _is_header_like_row(words: list[_Word]) -> bool:
     merged_text = _clean_text(" ".join(word.text for word in words))
     if not merged_text:
         return False
+    header_keywords = [
+        "序列",
+        "相关序列",
+        "申请类型",
+        "注册行为类型",
+        "序列类型",
+        "序列描述",
+        "名词",
+        "定义",
+        "文件夹",
+        "文件",
+        "命名规则",
+        "扩展节点标题",
+    ]
+    if any(keyword in merged_text for keyword in header_keywords):
+        return True
+    # Action-heavy rows are likely data rows in continuation pages.
+    data_keywords = [
+        "首次提交",
+        "回复",
+        "撤回",
+        "补充申请",
+        "再注册",
+        "新适应症",
+        "备案",
+        "报告",
+        "格式转换",
+        "生产工艺变更",
+    ]
+    if any(keyword in merged_text for keyword in data_keywords):
+        return False
+    if re.search(r"\b\d{3,}\b", merged_text):
+        return False
     digit_count = sum(char.isdigit() for char in merged_text)
     alpha_count = sum(char.isalpha() for char in merged_text)
-    return digit_count <= max(2, alpha_count // 4)
+    return digit_count <= max(1, alpha_count // 6)
 
 
 def _infer_header_column_centers(header_words: list[_Word]) -> list[float]:
@@ -285,12 +318,12 @@ def _build_single_table_ast(
     if len(rows) < 2:
         return None
 
-    header_row_candidate_index = 0
+    header_row_candidate_index: int | None = None
     for index, row in enumerate(rows[: min(3, len(rows))]):
         if _is_header_like_row(row["words"]):
             header_row_candidate_index = index
             break
-    header_centers = _infer_header_column_centers(rows[header_row_candidate_index]["words"]) if rows else []
+    header_centers = _infer_header_column_centers(rows[header_row_candidate_index]["words"]) if header_row_candidate_index is not None else []
 
     initial_column_centers = _cluster_columns(rows)
     if len(initial_column_centers) < 2 and 2 <= len(header_centers) <= 24:
@@ -312,24 +345,29 @@ def _build_single_table_ast(
     table_width = max(1.0, table_bbox[2] - table_bbox[0])
     column_signature = [round((center - table_bbox[0]) / table_width, 3) for center in column_centers]
 
-    header_row_index = 0
-    for index, cell_map in enumerate(row_cell_maps):
+    header_row_index = -1
+    for index, cell_map in enumerate(row_cell_maps[: min(3, len(row_cell_maps))]):
         non_empty = row_non_empty_counts[index]
-        if non_empty >= 2:
+        if non_empty >= 2 and _is_header_like_row(rows[index]["words"]):
             header_row_index = index
             break
 
     header: list[dict[str, Any]] = []
-    header_cells = row_cell_maps[header_row_index] if row_cell_maps else {}
-    for col_index in range(len(column_centers)):
-        words = sorted(header_cells.get(col_index, []), key=lambda item: item.x0)
-        text = _clean_text(" ".join(word.text for word in words))
-        header.append({"text": text or f"Column {col_index + 1}", "col": col_index + 1})
+    if header_row_index >= 0 and row_cell_maps:
+        header_cells = row_cell_maps[header_row_index]
+        for col_index in range(len(column_centers)):
+            words = sorted(header_cells.get(col_index, []), key=lambda item: item.x0)
+            text = _clean_text(" ".join(word.text for word in words))
+            header.append({"text": text or f"Column {col_index + 1}", "col": col_index + 1})
+    else:
+        for col_index in range(len(column_centers)):
+            header.append({"text": f"Column {col_index + 1}", "col": col_index + 1})
 
     cells: list[dict[str, Any]] = []
     latest_cell_by_column: dict[int, dict[str, Any]] = {}
-    data_row_maps = row_cell_maps[header_row_index + 1 :]
-    data_row_non_empty_counts = row_non_empty_counts[header_row_index + 1 :]
+    data_start_index = header_row_index + 1 if header_row_index >= 0 else 0
+    data_row_maps = row_cell_maps[data_start_index:]
+    data_row_non_empty_counts = row_non_empty_counts[data_start_index:]
     logical_data_row_index = 0
 
     for raw_row_index, cell_map in enumerate(data_row_maps, start=1):
@@ -437,7 +475,7 @@ def _build_single_table_ast(
     if not cells:
         return None
 
-    logical_total_rows = (header_row_index + 1) + max(1, logical_data_row_index)
+    logical_total_rows = (header_row_index + 1 if header_row_index >= 0 else 0) + max(1, logical_data_row_index)
 
     logical_data_row_count = max(1, logical_data_row_index)
     coverage_ratio = len(cells) / max(1.0, logical_data_row_count * len(column_centers))
@@ -456,7 +494,7 @@ def _build_single_table_ast(
         "col_count": len(column_centers),
         "column_signature": column_signature,
         "column_hash": _column_hash(column_signature),
-        "header_row_index": header_row_index + 1,
+        "header_row_index": header_row_index + 1 if header_row_index >= 0 else 0,
         "structure_score": round(structure_score, 3),
         "row_texts": row_texts,
         "near_page_bottom": table_bbox[3] >= page_height * 0.72,
@@ -935,6 +973,9 @@ def _stitch_cross_page_tables(
         previous["continued_to"].append(current["table_id"])
         current["continued_from"] = previous["table_id"]
         current["cross_page_similarity"] = round(similarity, 3)
+        if not str(current.get("title", "")).strip() and str(previous.get("title", "")).strip():
+            current["title"] = previous["title"]
+            current["title_inherited"] = True
 
         header_similarity = _header_similarity(previous.get("header", []), current.get("header", []))
         if header_similarity < 0.45:
