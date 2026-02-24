@@ -432,6 +432,32 @@ def _column_hash(column_signature: list[float]) -> str:
     return hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
 
 
+def _normalize_header_text(text: str) -> str:
+    normalized = _clean_text(text)
+    if not normalized:
+        return ""
+    if re.fullmatch(r"(?i)column\s+\d+", normalized):
+        return normalized
+
+    phrase_replacements = {
+        "注册行为 类型": "注册行为类型",
+        "序列 类型": "序列类型",
+        "序列 描述": "序列描述",
+        "申请 类型": "申请类型",
+        "相关 序列": "相关序列",
+        "扩展节点 标题": "扩展节点标题",
+    }
+    for source, target in phrase_replacements.items():
+        normalized = normalized.replace(source, target)
+
+    normalized = re.sub(
+        r"^([\u4e00-\u9fffA-Za-z]{1,12})\s+(类型|描述|编号|名称|代码|规则|标题|序列)$",
+        r"\1\2",
+        normalized,
+    )
+    return normalized
+
+
 def _build_single_table_ast(
     rows: list[dict[str, Any]],
     page_number: int,
@@ -502,7 +528,7 @@ def _build_single_table_ast(
                 text = _clean_text(" ".join(word.text for word in words))
                 if text and (not parts or parts[-1] != text):
                     parts.append(text)
-            header_text = " ".join(parts)
+            header_text = _normalize_header_text(" ".join(parts))
             header.append({"text": header_text or f"Column {col_index + 1}", "col": col_index + 1})
     else:
         for col_index in range(len(column_centers)):
