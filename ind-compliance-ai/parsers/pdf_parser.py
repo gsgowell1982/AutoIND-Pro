@@ -711,22 +711,32 @@ def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
             dense_rows_in_current = 1
             continue
         previous = current[-1]
-        vertical_gap = row["y0"] - previous["y1"]
-        avg_height = (row["height"] + previous["height"]) / 2
-        near_previous = vertical_gap <= max(8.0, avg_height * 1.45)
-        if near_previous:
-            current.append(row)
-            if is_dense_row:
+
+        if is_dense_row:
+            anchor = next((candidate for candidate in reversed(current) if len(candidate["words"]) >= 2), previous)
+            vertical_gap = row["y0"] - anchor["y1"]
+            avg_height = (row["height"] + anchor["height"]) / 2
+            if vertical_gap <= max(6.0, avg_height * 1.25):
+                current.append(row)
                 dense_rows_in_current += 1
-        else:
+                continue
             if len(current) >= 2 and dense_rows_in_current >= 2:
                 groups.append(current)
-            if is_dense_row:
-                current = [row]
-                dense_rows_in_current = 1
-            else:
-                current = []
-                dense_rows_in_current = 0
+            current = [row]
+            dense_rows_in_current = 1
+            continue
+
+        # Sparse rows are treated as continuation lines only when they tightly follow.
+        vertical_gap = row["y0"] - previous["y1"]
+        avg_height = (row["height"] + previous["height"]) / 2
+        overlap = _horizontal_overlap_ratio(previous["bbox"], row["bbox"])
+        if vertical_gap <= max(4.5, avg_height * 0.9) and overlap >= 0.35:
+            current.append(row)
+            continue
+        if len(current) >= 2 and dense_rows_in_current >= 2:
+            groups.append(current)
+        current = []
+        dense_rows_in_current = 0
 
     if len(current) >= 2 and dense_rows_in_current >= 2:
         groups.append(current)
@@ -766,8 +776,8 @@ def _refine_column_centers(
         return initial_column_centers
     if target_by_mode < 2:
         return initial_column_centers
-    if len(initial_column_centers) - target_by_mode > 3:
-        return initial_column_centers
+    # Only collapse one suspicious split-column per table in this pass.
+    target_by_mode = max(target_by_mode, len(initial_column_centers) - 1)
 
     centers = list(sorted(initial_column_centers))
     while len(centers) > target_by_mode:
@@ -1181,13 +1191,17 @@ def _can_merge_tables_with_same_title(primary: dict[str, Any], secondary: dict[s
     vertical_gap = secondary_bbox[1] - primary_bbox[3]
     if vertical_gap < -12 or vertical_gap > 320:
         return False
-    if _horizontal_overlap_ratio(primary_bbox, secondary_bbox) < 0.4:
+    overlap = _horizontal_overlap_ratio(primary_bbox, secondary_bbox)
+    if overlap < 0.4:
         return False
     similarity = _column_similarity(
         list(primary.get("column_signature", [])),
         list(secondary.get("column_signature", [])),
     )
-    return similarity >= 0.62
+    if similarity >= 0.45:
+        return True
+    # Allow merge for same title when fragments are vertically adjacent and almost same width.
+    return overlap >= 0.92 and abs(vertical_gap) <= 10
 
 
 def _merge_same_title_tables(page_tables: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
