@@ -91,12 +91,29 @@ def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
                 continue
             leading_sparse_rows: list[dict[str, Any]] = []
             if pending_sparse:
-                for sparse_row in pending_sparse:
+                eligible_sparse_indexes: list[int] = []
+                for index, sparse_row in enumerate(pending_sparse):
                     vertical_gap = row["y0"] - sparse_row["y1"]
-                    avg_height = (row["height"] + sparse_row["height"]) / 2
                     overlap = _horizontal_overlap_ratio(sparse_row["bbox"], row["bbox"])
-                    if -2.0 <= vertical_gap <= max(18.0, avg_height * 1.9) and overlap >= 0.16:
-                        leading_sparse_rows.append(sparse_row)
+                    # Keep sparse-leading rows only when they are tightly adjacent to the first dense row.
+                    if -2.0 <= vertical_gap <= 12.0 and overlap >= 0.16:
+                        eligible_sparse_indexes.append(index)
+                if eligible_sparse_indexes:
+                    include_flags = [False] * len(pending_sparse)
+                    for index in eligible_sparse_indexes:
+                        include_flags[index] = True
+                    first_included = min(eligible_sparse_indexes)
+                    # Backtrack contiguous sparse rows (e.g. "回复/撤回") so the full leading line is preserved.
+                    for index in range(first_included - 1, -1, -1):
+                        current_sparse = pending_sparse[index]
+                        next_sparse = pending_sparse[index + 1]
+                        gap = next_sparse["y0"] - current_sparse["y1"]
+                        overlap = _horizontal_overlap_ratio(current_sparse["bbox"], next_sparse["bbox"])
+                        if -2.0 <= gap <= 12.0 and overlap >= 0.16:
+                            include_flags[index] = True
+                            continue
+                        break
+                    leading_sparse_rows = [item for index, item in enumerate(pending_sparse) if include_flags[index]]
             current = leading_sparse_rows + [row]
             dense_rows_in_current = 1
             pending_sparse = []
@@ -184,6 +201,39 @@ def _prune_non_table_edge_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
             pruned = pruned[:-1]
             continue
         break
+
+    # Drop leading narrative lines introducing tables and in-table caption rows.
+    while len(pruned) >= 2:
+        first_text = _row_text_from_words(pruned[0]["words"])
+        second_text = _row_text_from_words(pruned[1]["words"])
+        if not first_text:
+            pruned = pruned[1:]
+            continue
+        is_intro_line = bool(re.search(r"(如下表|见下表|详见表|见表)", first_text))
+        is_caption_line = bool(TABLE_TITLE_PATTERN.search(first_text))
+        if is_intro_line or is_caption_line:
+            pruned = pruned[1:]
+            continue
+        if (
+            len(pruned[0]["words"]) == 1
+            and re.search(r"[。；;]$", first_text)
+            and (bool(re.search(r"(如下表|见下表|详见表|见表)", second_text)) or bool(TABLE_TITLE_PATTERN.search(second_text)))
+        ):
+            pruned = pruned[1:]
+            continue
+        break
+
+    # Drop trailing narrative lines introducing figures/next sections.
+    while len(pruned) >= 2:
+        last_text = _row_text_from_words(pruned[-1]["words"])
+        if not last_text:
+            pruned = pruned[:-1]
+            continue
+        if re.search(r"(如下图|见下图|如图|见图)", last_text) or (re.search(r"图\s*\d+", last_text) and "所示" in last_text):
+            pruned = pruned[:-1]
+            continue
+        break
+
     return pruned
 
 
@@ -366,19 +416,19 @@ def _build_single_table_ast(
     header_centers = _infer_header_column_centers(rows[header_row_candidate_index]["words"]) if header_row_candidate_index is not None else []
 
     initial_column_centers = _cluster_columns(rows)
-    if len(initial_column_centers) < 2 and 2 <= len(header_centers) <= 24:
+    if len(initial_column_centers) < 1 and 1 <= len(header_centers) <= 24:
         initial_column_centers = header_centers
-    if len(initial_column_centers) < 2 or len(initial_column_centers) > 24:
+    if len(initial_column_centers) < 1 or len(initial_column_centers) > 24:
         return None
 
     _, row_texts, initial_non_empty_counts = _assign_rows_to_columns(rows, initial_column_centers)
     column_centers = _refine_column_centers(initial_column_centers, initial_non_empty_counts)
-    if 2 <= len(header_centers) <= 24 and len(header_centers) >= len(column_centers):
+    if 1 <= len(header_centers) <= 24 and len(header_centers) >= len(column_centers):
         # Prefer header-aligned columns when header expresses the real table schema.
         column_centers = header_centers
 
     row_cell_maps, row_texts, row_non_empty_counts = _assign_rows_to_columns(rows, column_centers)
-    if len(column_centers) < 2 or len(column_centers) > 24:
+    if len(column_centers) < 1 or len(column_centers) > 24:
         return None
 
     table_bbox = _bbox_union([row["bbox"] for row in rows])
@@ -391,6 +441,9 @@ def _build_single_table_ast(
         if non_empty >= 2 and _is_header_like_row(rows[index]["words"]):
             header_row_index = index
             break
+    if header_row_index < 0 and len(column_centers) == 1 and row_cell_maps:
+        # Single-column tables often have a one-cell header.
+        header_row_index = 0
 
     header: list[dict[str, Any]] = []
     if header_row_index >= 0 and row_cell_maps:
@@ -480,7 +533,7 @@ def _build_single_table_ast(
             cell_text = str(fragment["text"])
             colspan = int(fragment["colspan"])
 
-            if row_has_single_column and col_index == continuation_col_index:
+            if len(column_centers) > 1 and row_has_single_column and col_index == continuation_col_index:
                 previous_cell = latest_cell_by_column.get(col_index)
                 if previous_cell is not None:
                     previous_bbox = tuple(float(item) for item in previous_cell.get("bbox", (0.0, 0.0, 0.0, 0.0)))
@@ -782,6 +835,8 @@ def _is_valid_table_candidate(
         return False
 
     if title_block is not None:
+        if col_count == 1:
+            return row_count >= 4 and score >= 0.15
         return score >= 0.32 and row_count >= 2 and col_count >= 2
 
     if continuation_hint is not None:
