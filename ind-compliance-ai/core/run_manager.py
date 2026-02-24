@@ -150,8 +150,13 @@ def persist_document_artifacts(
     context.manifest["artifacts_index"]["ast"].append(_relative(ast_path, context.run_dir))
 
     for table in parsed_document.get("table_asts", []):
-        context.table_counter += 1
-        table_path = context.run_dir / "artifacts" / "tables" / f"tbl_{context.table_counter:03d}.json"
+        table_id = str(table.get("table_id", "")).strip()
+        if table_id:
+            table_filename = f"{table_id}.json"
+        else:
+            context.table_counter += 1
+            table_filename = f"tbl_{context.table_counter:03d}.json"
+        table_path = context.run_dir / "artifacts" / "tables" / table_filename
         _json_dump(table_path, table)
         context.manifest["artifacts_index"]["tables"].append(_relative(table_path, context.run_dir))
 

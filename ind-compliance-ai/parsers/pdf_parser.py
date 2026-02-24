@@ -761,6 +761,39 @@ def _assign_rows_to_columns(
     return row_cell_maps, row_texts, row_non_empty_counts
 
 
+def _is_header_like_row(words: list[_Word]) -> bool:
+    if len(words) < 2:
+        return False
+    merged_text = _clean_text(" ".join(word.text for word in words))
+    if not merged_text:
+        return False
+    digit_count = sum(char.isdigit() for char in merged_text)
+    alpha_count = sum(char.isalpha() for char in merged_text)
+    return digit_count <= max(2, alpha_count // 4)
+
+
+def _infer_header_column_centers(header_words: list[_Word]) -> list[float]:
+    if len(header_words) < 2:
+        return []
+    ordered = sorted(header_words, key=lambda item: item.x0)
+    median_width = statistics.median([word.width for word in ordered]) if ordered else 24.0
+    merge_gap = min(10.0, max(4.0, median_width * 0.2))
+
+    groups: list[list[_Word]] = [[ordered[0]]]
+    for word in ordered[1:]:
+        previous = groups[-1][-1]
+        gap = word.x0 - previous.x1
+        if gap <= merge_gap:
+            groups[-1].append(word)
+        else:
+            groups.append([word])
+
+    centers: list[float] = []
+    for group in groups:
+        centers.append(sum(item.xc for item in group) / len(group))
+    return centers
+
+
 def _refine_column_centers(
     initial_column_centers: list[float],
     row_non_empty_counts: list[int],
@@ -832,6 +865,17 @@ def _build_single_table_ast(
 
     _, row_texts, initial_non_empty_counts = _assign_rows_to_columns(rows, initial_column_centers)
     column_centers = _refine_column_centers(initial_column_centers, initial_non_empty_counts)
+
+    header_row_candidate_index = 0
+    for index, row in enumerate(rows[: min(3, len(rows))]):
+        if _is_header_like_row(row["words"]):
+            header_row_candidate_index = index
+            break
+    header_centers = _infer_header_column_centers(rows[header_row_candidate_index]["words"]) if rows else []
+    if 2 <= len(header_centers) <= 24 and len(header_centers) >= len(column_centers):
+        # Prefer header-aligned columns when header expresses the real table schema.
+        column_centers = header_centers
+
     row_cell_maps, row_texts, row_non_empty_counts = _assign_rows_to_columns(rows, column_centers)
     if len(column_centers) < 2 or len(column_centers) > 24:
         return None
@@ -1354,6 +1398,9 @@ def _stitch_cross_page_tables(
         is_likely_continuation = (prev_near_bottom and curr_near_top) or similarity >= 0.82
         if similarity < 0.62 or not is_likely_continuation:
             continue
+        if str(current.get("title", "")).strip():
+            # A titled table on the current page is treated as a new table, not continuation.
+            continue
 
         previous.setdefault("continued_to", [])
         previous["continued_to"].append(current["table_id"])
@@ -1443,19 +1490,22 @@ def parse_pdf(path: Path) -> dict[str, Any]:
             section_hint_block = _find_section_table_hint(table_bbox, text_blocks)
             toc_context = _is_toc_context(table_bbox, text_blocks)
             grid_line_score = _table_grid_line_score(table_bbox, page_drawings)
-            continuation_hint = _find_continuation_hint(candidate_table, table_asts)
             toc_row_ratio = _table_toc_row_ratio(candidate_table)
 
             candidate_table["grid_line_score"] = round(grid_line_score, 3)
             candidate_table["toc_row_ratio"] = round(toc_row_ratio, 3)
-            if continuation_hint is not None:
-                candidate_table["continuation_hint"] = continuation_hint
             if title_block is not None:
                 candidate_table["title"] = title_block["text"]
                 candidate_table["title_block_id"] = title_block["block_id"]
             if section_hint_block is not None:
                 candidate_table["section_hint"] = section_hint_block["text"]
                 candidate_table["section_hint_block_id"] = section_hint_block["block_id"]
+
+            continuation_hint: dict[str, Any] | None = None
+            if title_block is None:
+                continuation_hint = _find_continuation_hint(candidate_table, table_asts)
+                if continuation_hint is not None:
+                    candidate_table["continuation_hint"] = continuation_hint
             if not _is_valid_table_candidate(
                 candidate_table,
                 title_block=title_block,
