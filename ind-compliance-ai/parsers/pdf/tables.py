@@ -198,7 +198,16 @@ def _prune_non_table_edge_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
     while len(pruned) >= 2:
         last_words = pruned[-1]["words"]
         prev_words = pruned[-2]["words"]
-        if len(prev_words) >= 2 and _is_section_heading_like_tail(last_words):
+        last_bbox = tuple(float(item) for item in pruned[-1]["bbox"])
+        prev_bbox = tuple(float(item) for item in pruned[-2]["bbox"])
+        vertical_gap = last_bbox[1] - prev_bbox[3]
+        avg_height = max(1.0, ((last_bbox[3] - last_bbox[1]) + (prev_bbox[3] - prev_bbox[1])) / 2)
+        overlap = _horizontal_overlap_ratio(prev_bbox, last_bbox)
+        if _is_section_heading_like_tail(last_words) and (
+            len(prev_words) >= 2
+            or vertical_gap > max(8.0, avg_height * 0.55)
+            or overlap < 0.3
+        ):
             pruned = pruned[:-1]
             continue
         break
