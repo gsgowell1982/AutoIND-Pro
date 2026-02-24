@@ -1342,6 +1342,9 @@ def _is_valid_table_candidate(
         return score >= 0.32 and row_count >= 2 and col_count >= 2
 
     if continuation_hint is not None:
+        is_glossary_context = str(table_ast.get("continuation_context", "")).strip().lower() == "glossary"
+        if row_count < 3 and not is_glossary_context:
+            return False
         if col_count <= 3 and row_count >= 3:
             return score >= 0.15
         return row_count >= 2 and col_count >= 2 and score >= 0.42
