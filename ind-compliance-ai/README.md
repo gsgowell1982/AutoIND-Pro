@@ -1,37 +1,119 @@
-# IND Compliance AI (Phase 1 Prototype)
+# IND Compliance AI
 
-IND Compliance AI is a structured engineering foundation for a regulatory support platform focused on China IND submissions first, with future expansion to US and other regions.
+IND Compliance AI is an engineering platform for IND submission compliance support.
+It focuses on structured parsing, auditable artifacts, and explainable risk signals.
 
-## Phase 1 goals
-
-- Build a deterministic project structure and control points.
-- Define parsing, rule, and risk-analysis module boundaries.
-- Establish configuration, schema, and audit-ready output contracts.
-- Keep decision authority with human regulatory professionals.
+> Current release: **v1.0.0**
 
 ## Non-approval statement
 
 This project does **not** replace regulatory judgment or approval decisions.
 It provides compliance support signals, traceable evidence, and risk explanations only.
 
-## Phase 1 implemented modules
+## v1.0.0 implemented capabilities
 
-1. **文件上传与预处理区**
-   - 支持上传 `pdf/doc/docx/ppt/pptx`
-   - 展示任务级与文件级解析进度
-2. **智能审核工作台 (Audit Workbench)**
-   - 左区：PDF 阅读 + Bounding Box 高亮展示
-   - 中区：标准化 Markdown 视图（企业级量化指标总结 + 第一页预览）
-   - 提供完整解析 Markdown 下载（全量内容用于审阅留档）
-   - 右区：AI 规则检查列表占位（Phase 1 仅保留 UI 位置）
-3. **一致性检查看板**
-   - 展示跨模块原子事实比对
-   - 示例：M3 与 M5 的批号一致性
-4. **运行证据包（runs）**
-   - 每次任务自动生成 `runs/run_YYYY-MM-DD_HHMMSS_xxxxxxxx/`
-   - 固化 AST、表格结构、图片结构、统一语义、原子事实、输出结果、pipeline 日志
+### 1) Upload and job orchestration
 
-## Quick start (recommended)
+- Multi-file upload with per-file status and task progress.
+- Asynchronous background processing (FastAPI + BackgroundTasks).
+- Job status APIs with parse outputs and run identifiers.
+
+### 2) Multi-format parsing
+
+- Supported formats: `pdf`, `doc/docx`, `ppt/pptx`, `xml`.
+- Normalized parser outputs include:
+  - `text`
+  - `atomic_facts`
+  - `metadata`
+  - format-specific structural fields (`pages/slides/document_ast/table_asts/image_blocks`, etc.)
+
+### 3) PDF parsing (modularized architecture)
+
+PDF parsing is now decoupled into dedicated modules under `parsers/pdf/`:
+
+- `shared.py`: shared text/bbox utilities and word model.
+- `layout.py`: word extraction and drawing/path helpers.
+- `text_blocks.py`: text block extraction, semantic merge, dedup, header/footer filtering.
+- `image_blocks.py`: image block handling, OCR fallback, figure-title assignment.
+- `tables.py`: table row/column clustering, table AST build, validation, merge, cross-page stitching.
+- `pipeline.py`: page-by-page parse pipeline orchestration.
+- `postprocess.py`: output assembly, markdown-facing payload shaping.
+- `types.py`: pipeline state/counters and parser constants.
+
+`parsers/pdf_parser.py` remains the stable external entrypoint.
+
+#### PDF table recognition highlights
+
+- Table AST with explicit row/col/cell relationships.
+- Single-column and multi-column table support.
+- Multi-line cell merge, row/column span handling.
+- Same-page fragment merge + same-title merge.
+- Cross-page table stitching via structure similarity + context heuristics.
+- Continuation metadata:
+  - `continued_from`, `continued_to`
+  - `continuation_hint`
+  - `continuation_source` (source table, strategy, inherited fields, similarity)
+- Sequential table id renumbering (`tbl_001`, `tbl_002`, ...).
+
+#### PDF image recognition highlights
+
+- Image blocks are preserved as first-class nodes with `page + bbox`.
+- Figure reference generation (`Figure X -> image_id`).
+- OCR/text-layer/path-based image-vs-text correction.
+
+### 4) Audit Workbench (frontend)
+
+- PDF viewer with bounding-box highlighting.
+- Structured markdown executive summary.
+- Full markdown export/download for complete review content.
+- Cross-document consistency panel for atomic-fact alignment.
+
+> The old "Content Alignment Preview (Plain Text, Up to 500 Chars)" block has been removed to avoid partial-content bias.
+
+### 5) Runs evidence package (audit & reproducibility)
+
+Each run creates an immutable folder under `runs/`, e.g.
+`runs/run_YYYY-MM-DD_HHMMSS_xxxxxxxx/`, including:
+
+- `manifest.json`
+- `artifacts/ast/*`
+- `artifacts/tables/*.json`
+- `artifacts/images/*.json`
+- `artifacts/normalized/material_normalized.json`
+- `artifacts/atomic_facts/atomic_facts.json`
+- `output/compliance_result.json`
+- `output/audit_log.json`
+- `logs/pipeline.log`
+
+## Project structure (current)
+
+```text
+ind-compliance-ai/
+├── api/                         # FastAPI service and job orchestration
+├── core/
+│   └── run_manager.py           # run evidence package lifecycle
+├── parsers/
+│   ├── pdf_parser.py            # stable PDF parser entrypoint
+│   ├── pdf/                     # modular PDF implementation
+│   │   ├── pipeline.py
+│   │   ├── postprocess.py
+│   │   ├── tables.py
+│   │   ├── image_blocks.py
+│   │   ├── text_blocks.py
+│   │   ├── layout.py
+│   │   ├── shared.py
+│   │   └── types.py
+│   ├── docx_parser.py
+│   ├── pptx_parser.py
+│   ├── xml_parser.py
+│   └── common/
+├── ui/frontend/                 # React + Vite workbench UI
+├── runs/                        # generated run artifacts (git ignored)
+├── output/parsed_markdown/      # generated markdown outputs
+└── main.py                      # dev bootstrap / API mode entry
+```
+
+## Quick start
 
 ```bash
 cp .env.example .env
@@ -39,7 +121,7 @@ poetry install
 python3 main.py
 ```
 
-After startup in default `dev` mode:
+Default dev endpoints:
 
 - UI: `http://localhost:5173`
 - API: `http://localhost:8000`
@@ -50,67 +132,30 @@ After startup in default `dev` mode:
 python3 main.py --mode api
 ```
 
-## Windows + PyCharm + Conda notes
-
-If `python main.py` fails with `FileNotFoundError` when launching frontend,
-the Python environment cannot find `npm`.
-
-Install Node.js into the same conda environment (or ensure npm is in PATH):
-
-```bash
-conda install -c conda-forge nodejs=22
-```
-
-Then verify:
-
-```bash
-node --version
-npm --version
-```
+## Frontend dependency sync options
 
 If local startup appears stuck at `Syncing frontend dependencies (npm install) ...`:
 
-- Skip auto install for current run:
+- Skip auto install for this run:
   ```bash
-  python main.py --skip-frontend-install
+  python3 main.py --skip-frontend-install
   ```
-- Or increase timeout for slow networks:
+- Increase install timeout:
   ```bash
-  python main.py --frontend-install-timeout 1800
-  ```
-- Manual fallback:
-  ```bash
-  cd ui/frontend
-  npm install --no-audit --no-fund
+  python3 main.py --frontend-install-timeout 1800
   ```
 
-If parser dependencies are missing in the selected interpreter, install:
+## Environment notes
 
-```bash
-pip install python-docx python-pptx pymupdf fastapi uvicorn python-multipart
-```
+- Ensure `node`/`npm` are in PATH for local frontend startup.
+- If parser dependencies are missing:
+  ```bash
+  pip install python-docx python-pptx pymupdf fastapi uvicorn python-multipart
+  ```
+- For legacy `.doc`, convert to `.docx` for best quality when possible.
 
-Legacy `.doc` notes:
+## Processing flow
 
-- Best quality: upload `.docx`.
-- For `.doc`, the parser tries Windows Word COM / LibreOffice / antiword when available.
-- If none is available, the API will return a clear error asking to convert `.doc` to `.docx`.
+Upload -> Parse -> Normalize -> Atomic Facts -> Consistency Checks -> Output
 
-## Core processing flow
-
-Upload -> Parse -> Rule Evaluation -> Cross-Module Checks -> Risk Output
-
-See `docs/architecture.md` and `docs/phase1_scope.md` for details.
-
-## Run artifacts (audit and reproducibility)
-
-Each analysis job creates a frozen run folder under `runs/`:
-
-- `manifest.json`: input/version/artifact index/status
-- `artifacts/ast/*`: per-document AST snapshots
-- `artifacts/tables/*.json`: table AST with row/col/cell structure
-- `artifacts/images/*.json`: image blocks with page+bbox+figure anchors
-- `artifacts/normalized/material_normalized.json`
-- `artifacts/atomic_facts/atomic_facts.json`
-- `output/compliance_result.json`, `output/audit_log.json`
-- `logs/pipeline.log`
+See `docs/architecture.md` and `docs/phase1_scope.md` for broader context.
