@@ -1243,7 +1243,11 @@ def _find_continuation_hint(
         if int(previous.get("page", 0)) != current_page - 1:
             continue
         previous_has_title = bool(str(previous.get("title", "")).strip())
-        previous_has_section_hint = bool(str(previous.get("section_hint", "")).strip()) or bool(previous.get("continued_from"))
+        previous_has_section_hint = (
+            bool(str(previous.get("section_hint", "")).strip())
+            or bool(previous.get("continued_from"))
+            or bool(previous.get("continuation_hint"))
+        )
         previous_col_count = int(previous.get("col_count", 0))
         candidate_col_count = int(candidate_table.get("col_count", 0))
         if not bool(previous.get("near_page_bottom")) and not previous_has_title and not previous_has_section_hint:
