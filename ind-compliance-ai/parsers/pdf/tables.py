@@ -592,6 +592,23 @@ def _build_single_table_ast(
             continue
 
         present_cols = sorted(fragment["col_index"] for fragment in row_fragments)
+        # Generic abbreviation continuation: "(eCTD)" style rows should attach to previous same-column cell.
+        if len(row_fragments) == 1:
+            only_fragment = row_fragments[0]
+            only_col_index = int(only_fragment["col_index"])
+            if _is_parenthetical_abbreviation(str(only_fragment.get("text", ""))):
+                previous_only_cell = latest_cell_by_column.get(only_col_index)
+                if previous_only_cell is not None:
+                    previous_bbox = tuple(float(item) for item in previous_only_cell.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                    current_bbox = tuple(float(item) for item in only_fragment["bbox"])
+                    vertical_gap = current_bbox[1] - previous_bbox[3]
+                    if vertical_gap <= max(20.0, (current_bbox[3] - current_bbox[1]) * 2.4):
+                        merged_bbox = _bbox_union([previous_bbox, current_bbox])
+                        previous_only_cell["text"] = f"{previous_only_cell['text']}\n{only_fragment['text']}"
+                        previous_only_cell["bbox"] = _bbox_to_list(merged_bbox)
+                        previous_only_cell["rowspan"] = int(previous_only_cell.get("rowspan", 1)) + 1
+                        continue
+
         can_merge_parenthetical_two_col = False
         if len(column_centers) == 2 and present_cols == [0, 1]:
             first_fragment = next((item for item in row_fragments if int(item["col_index"]) == 0), None)
