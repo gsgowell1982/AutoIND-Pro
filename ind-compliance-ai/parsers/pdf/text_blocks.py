@@ -78,6 +78,17 @@ def _text_ends_with_break_marker(text: str) -> bool:
     return bool(re.search(r"[。！？；:：]\s*$", text.strip()))
 
 
+def _vertical_overlap_ratio(
+    a_bbox: tuple[float, float, float, float],
+    b_bbox: tuple[float, float, float, float],
+) -> float:
+    top = max(a_bbox[1], b_bbox[1])
+    bottom = min(a_bbox[3], b_bbox[3])
+    overlap = max(0.0, bottom - top)
+    min_height = max(1.0, min(a_bbox[3] - a_bbox[1], b_bbox[3] - b_bbox[1]))
+    return overlap / min_height
+
+
 def _join_text_fragments(left: str, right: str) -> str:
     if not left:
         return right
@@ -104,11 +115,13 @@ def _should_merge_text_blocks(
     right_height = max(1.0, right_bbox[3] - right_bbox[1])
     left_center = (left_bbox[1] + left_bbox[3]) / 2
     right_center = (right_bbox[1] + right_bbox[3]) / 2
-    if abs(left_center - right_center) > row_tolerance:
+    vertical_overlap = _vertical_overlap_ratio(left_bbox, right_bbox)
+    horizontal_overlap = _horizontal_overlap_ratio(left_bbox, right_bbox)
+    if abs(left_center - right_center) > row_tolerance and vertical_overlap < 0.6:
         return False
 
     gap = right_bbox[0] - left_bbox[2]
-    if gap < -2.5:
+    if gap < -2.5 and not (vertical_overlap >= 0.6 and horizontal_overlap >= 0.18):
         return False
     max_gap = max(24.0, page_width * 0.045, min(left_height, right_height) * 2.4)
     if gap > max_gap:
@@ -127,7 +140,7 @@ def _should_merge_text_blocks(
     right_font = float(right.get("font_size", 0.0) or 0.0)
     if left_font > 0 and right_font > 0:
         ratio = max(left_font, right_font) / max(0.1, min(left_font, right_font))
-        if ratio > 1.45:
+        if ratio > 1.45 and not (vertical_overlap >= 0.6 and horizontal_overlap >= 0.18):
             return False
 
     if _has_cjk(left_text) or _has_cjk(right_text):
