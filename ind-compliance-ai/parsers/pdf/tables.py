@@ -973,14 +973,30 @@ def _stitch_cross_page_tables(
         previous["continued_to"].append(current["table_id"])
         current["continued_from"] = previous["table_id"]
         current["cross_page_similarity"] = round(similarity, 3)
+        continuation_source: dict[str, Any] = {
+            "source_table_id": str(previous.get("table_id", "")),
+            "strategy": "cross_page_stitch",
+            "similarity": round(similarity, 3),
+            "inherited_fields": [],
+        }
+        if isinstance(continuation_hint, dict):
+            hint_table_id = str(continuation_hint.get("table_id", "")).strip()
+            if hint_table_id:
+                continuation_source["hint_table_id"] = hint_table_id
+            hint_similarity = continuation_hint.get("similarity")
+            if isinstance(hint_similarity, (int, float)):
+                continuation_source["hint_similarity"] = round(float(hint_similarity), 3)
         if not str(current.get("title", "")).strip() and str(previous.get("title", "")).strip():
             current["title"] = previous["title"]
             current["title_inherited"] = True
+            continuation_source["inherited_fields"].append("title")
 
         header_similarity = _header_similarity(previous.get("header", []), current.get("header", []))
         if header_similarity < 0.45:
             current["header"] = previous.get("header", [])
             current["header_inherited"] = True
+            continuation_source["inherited_fields"].append("header")
+        current["continuation_source"] = continuation_source
         stitched_count += 1
     return stitched_count
 
@@ -1018,4 +1034,13 @@ def _renumber_table_ids(table_asts: list[dict[str, Any]]) -> None:
             hint_table_id = str(continuation_hint.get("table_id", "")).strip()
             if hint_table_id:
                 continuation_hint["table_id"] = id_mapping.get(hint_table_id, hint_table_id)
+
+        continuation_source = table.get("continuation_source")
+        if isinstance(continuation_source, dict):
+            source_table_id = str(continuation_source.get("source_table_id", "")).strip()
+            if source_table_id:
+                continuation_source["source_table_id"] = id_mapping.get(source_table_id, source_table_id)
+            hint_table_id = str(continuation_source.get("hint_table_id", "")).strip()
+            if hint_table_id:
+                continuation_source["hint_table_id"] = id_mapping.get(hint_table_id, hint_table_id)
 

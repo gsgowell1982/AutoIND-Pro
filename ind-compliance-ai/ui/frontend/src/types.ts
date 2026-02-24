@@ -65,6 +65,16 @@ export interface PdfTableAst {
   header: Array<{ text: string; col: number }>
   cells: PdfTableCell[]
   column_hash?: string
+  continued_from?: string
+  continued_to?: string[]
+  continuation_source?: {
+    source_table_id: string
+    strategy: string
+    similarity: number
+    hint_table_id?: string
+    hint_similarity?: number
+    inherited_fields?: string[]
+  }
 }
 
 export interface PdfFigureRef {
