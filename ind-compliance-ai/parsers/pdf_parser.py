@@ -902,11 +902,13 @@ def _build_single_table_ast(
     latest_cell_by_column: dict[int, dict[str, Any]] = {}
     data_row_maps = row_cell_maps[header_row_index + 1 :]
     data_row_non_empty_counts = row_non_empty_counts[header_row_index + 1 :]
+    logical_data_row_index = 0
 
     for raw_row_index, cell_map in enumerate(data_row_maps, start=1):
         non_empty_this_row = data_row_non_empty_counts[raw_row_index - 1]
         row_has_single_column = non_empty_this_row == 1
         continuation_col_index = next((index for index, words in cell_map.items() if words), -1)
+        new_cells_for_this_row: list[dict[str, Any]] = []
         for col_index in range(len(column_centers)):
             words = sorted(cell_map.get(col_index, []), key=lambda item: item.x0)
             if not words:
@@ -934,22 +936,33 @@ def _build_single_table_ast(
                         previous_cell["rowspan"] = int(previous_cell.get("rowspan", 1)) + 1
                         continue
 
-            new_cell = {
-                "row": raw_row_index,
-                "col": col_index + 1,
-                "text": cell_text,
-                "bbox": _bbox_to_list(bbox),
-                "rowspan": 1,
-                "colspan": colspan,
-            }
+            new_cells_for_this_row.append(
+                {
+                    "row": 0,
+                    "col": col_index + 1,
+                    "text": cell_text,
+                    "bbox": _bbox_to_list(bbox),
+                    "rowspan": 1,
+                    "colspan": colspan,
+                }
+            )
+
+        if not new_cells_for_this_row:
+            continue
+
+        logical_data_row_index += 1
+        for new_cell in new_cells_for_this_row:
+            new_cell["row"] = logical_data_row_index
             cells.append(new_cell)
-            latest_cell_by_column[col_index] = new_cell
+            latest_cell_by_column[int(new_cell["col"]) - 1] = new_cell
 
     if not cells:
         return None
 
-    data_row_count = max(1, len(data_row_maps))
-    coverage_ratio = len(cells) / max(1.0, data_row_count * len(column_centers))
+    logical_total_rows = (header_row_index + 1) + max(1, logical_data_row_index)
+
+    logical_data_row_count = max(1, logical_data_row_index)
+    coverage_ratio = len(cells) / max(1.0, logical_data_row_count * len(column_centers))
     aligned_ratio = sum(1 for count in data_row_non_empty_counts if count >= 2) / max(1, len(data_row_non_empty_counts))
     numeric_ratio = sum(1 for cell in cells if re.search(r"\d", str(cell.get("text", "")))) / max(1, len(cells))
     structure_score = min(1.0, 0.45 * aligned_ratio + 0.35 * min(1.0, coverage_ratio) + 0.2 * numeric_ratio)
@@ -961,7 +974,7 @@ def _build_single_table_ast(
         "bbox": _bbox_to_list(table_bbox),
         "header": header,
         "cells": cells,
-        "row_count": len(row_cell_maps),
+        "row_count": logical_total_rows,
         "col_count": len(column_centers),
         "column_signature": column_signature,
         "column_hash": _column_hash(column_signature),
@@ -1415,6 +1428,41 @@ def _stitch_cross_page_tables(
     return stitched_count
 
 
+def _renumber_table_ids(table_asts: list[dict[str, Any]]) -> None:
+    if not table_asts:
+        return
+    ordered = sorted(
+        table_asts,
+        key=lambda item: (int(item.get("page", 0)), float(item.get("bbox", [0.0, 0.0, 0.0, 0.0])[1]), float(item.get("bbox", [0.0, 0.0, 0.0, 0.0])[0])),
+    )
+    id_mapping: dict[str, str] = {}
+    for index, table in enumerate(ordered, start=1):
+        old_id = str(table.get("table_id", "")).strip()
+        new_id = f"tbl_{index:03d}"
+        if old_id:
+            id_mapping[old_id] = new_id
+        table["table_id"] = new_id
+
+    for table in table_asts:
+        continued_from = str(table.get("continued_from", "")).strip()
+        if continued_from:
+            table["continued_from"] = id_mapping.get(continued_from, continued_from)
+
+        continued_to = table.get("continued_to")
+        if isinstance(continued_to, list):
+            table["continued_to"] = [id_mapping.get(str(item), str(item)) for item in continued_to]
+
+        merged_from = table.get("merged_from")
+        if isinstance(merged_from, list):
+            table["merged_from"] = [id_mapping.get(str(item), str(item)) for item in merged_from]
+
+        continuation_hint = table.get("continuation_hint")
+        if isinstance(continuation_hint, dict):
+            hint_table_id = str(continuation_hint.get("table_id", "")).strip()
+            if hint_table_id:
+                continuation_hint["table_id"] = id_mapping.get(hint_table_id, hint_table_id)
+
+
 def parse_pdf(path: Path) -> dict[str, Any]:
     """Parse PDF into text/image/table AST while preserving BBox anchors."""
     if pymupdf is None:
@@ -1546,6 +1594,7 @@ def parse_pdf(path: Path) -> dict[str, Any]:
     document.close()
     total_header_footer_filtered = _filter_header_footer_text_blocks(page_payloads)
     stitched_table_count = _stitch_cross_page_tables(table_asts, page_heights)
+    _renumber_table_ids(table_asts)
 
     analysis_page_texts: list[str] = []
     for page_payload in page_payloads:
