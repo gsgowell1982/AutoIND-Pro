@@ -214,6 +214,17 @@ def _prune_non_table_edge_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
         if is_intro_line or is_caption_line:
             pruned = pruned[1:]
             continue
+        second_is_intro_or_caption = bool(re.search(r"(如下表|见下表|详见表|见表)", second_text)) or bool(TABLE_TITLE_PATTERN.search(second_text))
+        first_compact_len = len(_compact_text(first_text))
+        first_looks_narrative = (
+            first_compact_len >= 10
+            and not TABLE_TITLE_PATTERN.search(first_text)
+            and not re.search(r"(申请编号|序列号|序列类型|序列描述|注册行为|扩展节点标题|名词|定义)", first_text)
+            and not re.fullmatch(r"[A-Za-z0-9.\-_/]+", first_text)
+        )
+        if first_looks_narrative and second_is_intro_or_caption:
+            pruned = pruned[1:]
+            continue
         if (
             len(pruned[0]["words"]) == 1
             and re.search(r"[。；;]$", first_text)
@@ -843,6 +854,9 @@ def _is_valid_table_candidate(
         is_glossary_context = str(table_ast.get("continuation_context", "")).strip().lower() == "glossary"
         if row_count < 4 and not is_glossary_context:
             return False
+        if is_glossary_context and row_count >= 2 and col_count >= 2:
+            # Glossary continuation pages can end with only a few rows, but should keep table grid signals.
+            return grid_line_score >= 0.45 and score >= 0.15
         if col_count <= 3 and row_count >= 3:
             return score >= 0.15
         return row_count >= 2 and col_count >= 2 and score >= 0.42
