@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 import hashlib
 import io
@@ -567,6 +568,49 @@ def _demote_textual_image_blocks(
     return merged_text_blocks, kept_images, converted_count
 
 
+def _are_duplicate_image_blocks(primary: dict[str, Any], secondary: dict[str, Any]) -> bool:
+    primary_bbox = tuple(float(item) for item in primary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    secondary_bbox = tuple(float(item) for item in secondary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    overlap = _bbox_intersection_ratio(primary_bbox, secondary_bbox)
+    if overlap < 0.9:
+        return False
+    primary_area = max(1.0, _bbox_area(primary_bbox))
+    secondary_area = max(1.0, _bbox_area(secondary_bbox))
+    area_ratio = max(primary_area, secondary_area) / min(primary_area, secondary_area)
+    if area_ratio > 1.4:
+        return False
+    primary_center = ((primary_bbox[0] + primary_bbox[2]) / 2, (primary_bbox[1] + primary_bbox[3]) / 2)
+    secondary_center = ((secondary_bbox[0] + secondary_bbox[2]) / 2, (secondary_bbox[1] + secondary_bbox[3]) / 2)
+    center_distance = abs(primary_center[0] - secondary_center[0]) + abs(primary_center[1] - secondary_center[1])
+    return center_distance <= 12.0
+
+
+def _deduplicate_page_images(
+    image_blocks: list[dict[str, Any]],
+    page_number: int,
+) -> tuple[list[dict[str, Any]], int]:
+    if not image_blocks:
+        return [], 0
+    ordered = sorted(
+        image_blocks,
+        key=lambda item: (_bbox_area(tuple(float(v) for v in item.get("bbox", (0.0, 0.0, 0.0, 0.0)))), item.get("image_id")),
+        reverse=True,
+    )
+    kept: list[dict[str, Any]] = []
+    removed_count = 0
+    for image in ordered:
+        duplicate = any(_are_duplicate_image_blocks(image, existing) for existing in kept)
+        if duplicate:
+            removed_count += 1
+            continue
+        kept.append(dict(image))
+
+    kept = sorted(kept, key=lambda item: (item["bbox"][1], item["bbox"][0]))
+    for index, image in enumerate(kept, start=1):
+        image["image_id"] = f"img_p{page_number}_{index:03d}"
+    return kept, removed_count
+
+
 def _assign_figure_titles(
     image_blocks: list[dict[str, Any]],
     text_blocks: list[dict[str, Any]],
@@ -657,28 +701,85 @@ def _cluster_rows(words: list[_Word]) -> list[dict[str, Any]]:
 def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     groups: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
+    dense_rows_in_current = 0
     for row in rows:
-        if len(row["words"]) < 2:
-            if len(current) >= 2:
-                groups.append(current)
-            current = []
-            continue
+        is_dense_row = len(row["words"]) >= 2
         if not current:
+            if not is_dense_row:
+                continue
             current = [row]
+            dense_rows_in_current = 1
             continue
         previous = current[-1]
         vertical_gap = row["y0"] - previous["y1"]
         avg_height = (row["height"] + previous["height"]) / 2
-        if vertical_gap <= max(6.0, avg_height * 1.25):
+        near_previous = vertical_gap <= max(8.0, avg_height * 1.45)
+        if near_previous:
             current.append(row)
+            if is_dense_row:
+                dense_rows_in_current += 1
         else:
-            if len(current) >= 2:
+            if len(current) >= 2 and dense_rows_in_current >= 2:
                 groups.append(current)
-            current = [row]
+            if is_dense_row:
+                current = [row]
+                dense_rows_in_current = 1
+            else:
+                current = []
+                dense_rows_in_current = 0
 
-    if len(current) >= 2:
+    if len(current) >= 2 and dense_rows_in_current >= 2:
         groups.append(current)
-    return [group for group in groups if max(len(row["words"]) for row in group) >= 2]
+    return [group for group in groups if sum(1 for row in group if len(row["words"]) >= 2) >= 2]
+
+
+def _assign_rows_to_columns(
+    rows: list[dict[str, Any]],
+    column_centers: list[float],
+) -> tuple[list[dict[int, list[_Word]]], list[str], list[int]]:
+    row_cell_maps: list[dict[int, list[_Word]]] = []
+    row_texts: list[str] = []
+    row_non_empty_counts: list[int] = []
+    for row in rows:
+        cell_map: dict[int, list[_Word]] = {}
+        for word in row["words"]:
+            col_index = _closest_column_index(word.xc, column_centers)
+            cell_map.setdefault(col_index, []).append(word)
+        row_cell_maps.append(cell_map)
+        row_texts.append(_clean_text(" ".join(word.text for word in sorted(row["words"], key=lambda item: item.x0))))
+        row_non_empty_counts.append(sum(1 for words in cell_map.values() if words))
+    return row_cell_maps, row_texts, row_non_empty_counts
+
+
+def _refine_column_centers(
+    initial_column_centers: list[float],
+    row_non_empty_counts: list[int],
+) -> list[float]:
+    if len(initial_column_centers) <= 2:
+        return initial_column_centers
+    candidates = [count for count in row_non_empty_counts if count >= 2]
+    if not candidates:
+        return initial_column_centers
+
+    target_by_mode = Counter(candidates).most_common(1)[0][0]
+    if target_by_mode >= len(initial_column_centers):
+        return initial_column_centers
+    if target_by_mode < 2:
+        return initial_column_centers
+    if len(initial_column_centers) - target_by_mode > 3:
+        return initial_column_centers
+
+    centers = list(sorted(initial_column_centers))
+    while len(centers) > target_by_mode:
+        if len(centers) <= 2:
+            break
+        nearest_pair_index = min(
+            range(len(centers) - 1),
+            key=lambda index: centers[index + 1] - centers[index],
+        )
+        merged_center = (centers[nearest_pair_index] + centers[nearest_pair_index + 1]) / 2
+        centers = centers[:nearest_pair_index] + [merged_center] + centers[nearest_pair_index + 2 :]
+    return centers
 
 
 def _cluster_columns(rows: list[dict[str, Any]]) -> list[float]:
@@ -715,7 +816,13 @@ def _build_single_table_ast(
     page_height: float,
     table_id: str,
 ) -> dict[str, Any] | None:
-    column_centers = _cluster_columns(rows)
+    initial_column_centers = _cluster_columns(rows)
+    if len(initial_column_centers) < 2 or len(initial_column_centers) > 24:
+        return None
+
+    _, row_texts, initial_non_empty_counts = _assign_rows_to_columns(rows, initial_column_centers)
+    column_centers = _refine_column_centers(initial_column_centers, initial_non_empty_counts)
+    row_cell_maps, row_texts, row_non_empty_counts = _assign_rows_to_columns(rows, column_centers)
     if len(column_centers) < 2 or len(column_centers) > 24:
         return None
 
@@ -723,19 +830,9 @@ def _build_single_table_ast(
     table_width = max(1.0, table_bbox[2] - table_bbox[0])
     column_signature = [round((center - table_bbox[0]) / table_width, 3) for center in column_centers]
 
-    row_cell_maps: list[dict[int, list[_Word]]] = []
-    row_texts: list[str] = []
-    for row in rows:
-        cell_map: dict[int, list[_Word]] = {}
-        for word in row["words"]:
-            col_index = _closest_column_index(word.xc, column_centers)
-            cell_map.setdefault(col_index, []).append(word)
-        row_cell_maps.append(cell_map)
-        row_texts.append(_clean_text(" ".join(word.text for word in sorted(row["words"], key=lambda item: item.x0))))
-
     header_row_index = 0
     for index, cell_map in enumerate(row_cell_maps):
-        non_empty = sum(1 for words in cell_map.values() if words)
+        non_empty = row_non_empty_counts[index]
         if non_empty >= 2:
             header_row_index = index
             break
@@ -748,9 +845,14 @@ def _build_single_table_ast(
         header.append({"text": text or f"Column {col_index + 1}", "col": col_index + 1})
 
     cells: list[dict[str, Any]] = []
-    row_non_empty_counts: list[int] = []
-    for raw_row_index, cell_map in enumerate(row_cell_maps[header_row_index + 1 :], start=1):
-        non_empty_this_row = 0
+    latest_cell_by_column: dict[int, dict[str, Any]] = {}
+    data_row_maps = row_cell_maps[header_row_index + 1 :]
+    data_row_non_empty_counts = row_non_empty_counts[header_row_index + 1 :]
+
+    for raw_row_index, cell_map in enumerate(data_row_maps, start=1):
+        non_empty_this_row = data_row_non_empty_counts[raw_row_index - 1]
+        row_has_single_column = non_empty_this_row == 1
+        continuation_col_index = next((index for index, words in cell_map.items() if words), -1)
         for col_index in range(len(column_centers)):
             words = sorted(cell_map.get(col_index, []), key=lambda item: item.x0)
             if not words:
@@ -758,7 +860,6 @@ def _build_single_table_ast(
             cell_text = _clean_text(" ".join(word.text for word in words))
             if not cell_text:
                 continue
-            non_empty_this_row += 1
             bbox = _bbox_union([(word.x0, word.y0, word.x1, word.y1) for word in words])
             covered_columns = [
                 index
@@ -766,24 +867,36 @@ def _build_single_table_ast(
                 if bbox[0] - 2 <= center <= bbox[2] + 2
             ]
             colspan = max(1, len(covered_columns))
-            cells.append(
-                {
-                    "row": raw_row_index,
-                    "col": col_index + 1,
-                    "text": cell_text,
-                    "bbox": _bbox_to_list(bbox),
-                    "rowspan": 1,
-                    "colspan": colspan,
-                }
-            )
-        row_non_empty_counts.append(non_empty_this_row)
+
+            if row_has_single_column and col_index == continuation_col_index:
+                previous_cell = latest_cell_by_column.get(col_index)
+                if previous_cell is not None:
+                    previous_bbox = tuple(float(item) for item in previous_cell.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                    vertical_gap = bbox[1] - previous_bbox[3]
+                    if vertical_gap <= max(16.0, (bbox[3] - bbox[1]) * 1.8):
+                        merged_bbox = _bbox_union([previous_bbox, bbox])
+                        previous_cell["text"] = f"{previous_cell['text']}\n{cell_text}"
+                        previous_cell["bbox"] = _bbox_to_list(merged_bbox)
+                        previous_cell["rowspan"] = int(previous_cell.get("rowspan", 1)) + 1
+                        continue
+
+            new_cell = {
+                "row": raw_row_index,
+                "col": col_index + 1,
+                "text": cell_text,
+                "bbox": _bbox_to_list(bbox),
+                "rowspan": 1,
+                "colspan": colspan,
+            }
+            cells.append(new_cell)
+            latest_cell_by_column[col_index] = new_cell
 
     if not cells:
         return None
 
-    data_row_count = max(1, len(row_cell_maps) - (header_row_index + 1))
+    data_row_count = max(1, len(data_row_maps))
     coverage_ratio = len(cells) / max(1.0, data_row_count * len(column_centers))
-    aligned_ratio = sum(1 for count in row_non_empty_counts if count >= 2) / max(1, len(row_non_empty_counts))
+    aligned_ratio = sum(1 for count in data_row_non_empty_counts if count >= 2) / max(1, len(data_row_non_empty_counts))
     numeric_ratio = sum(1 for cell in cells if re.search(r"\d", str(cell.get("text", "")))) / max(1, len(cells))
     structure_score = min(1.0, 0.45 * aligned_ratio + 0.35 * min(1.0, coverage_ratio) + 0.2 * numeric_ratio)
 
@@ -1051,6 +1164,52 @@ def _merge_same_page_table_fragments(page_tables: list[dict[str, Any]]) -> tuple
     return merged_tables, merge_count
 
 
+def _normalized_table_title(table: dict[str, Any]) -> str:
+    return _compact_text(str(table.get("title", "")))
+
+
+def _can_merge_tables_with_same_title(primary: dict[str, Any], secondary: dict[str, Any]) -> bool:
+    if int(primary.get("page", 0)) != int(secondary.get("page", 0)):
+        return False
+    primary_title = _normalized_table_title(primary)
+    secondary_title = _normalized_table_title(secondary)
+    if not primary_title or not secondary_title or primary_title != secondary_title:
+        return False
+
+    primary_bbox = tuple(primary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    secondary_bbox = tuple(secondary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    vertical_gap = secondary_bbox[1] - primary_bbox[3]
+    if vertical_gap < -12 or vertical_gap > 320:
+        return False
+    if _horizontal_overlap_ratio(primary_bbox, secondary_bbox) < 0.4:
+        return False
+    similarity = _column_similarity(
+        list(primary.get("column_signature", [])),
+        list(secondary.get("column_signature", [])),
+    )
+    return similarity >= 0.62
+
+
+def _merge_same_title_tables(page_tables: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    if not page_tables:
+        return [], 0
+    sorted_tables = sorted(page_tables, key=lambda item: (item["bbox"][1], item["bbox"][0]))
+    merged_tables: list[dict[str, Any]] = []
+    merge_count = 0
+    for table in sorted_tables:
+        candidate = dict(table)
+        if not merged_tables:
+            merged_tables.append(candidate)
+            continue
+        previous = merged_tables[-1]
+        if _can_merge_tables_with_same_title(previous, candidate):
+            merged_tables[-1] = _merge_two_table_fragments(previous, candidate)
+            merge_count += 1
+            continue
+        merged_tables.append(candidate)
+    return merged_tables, merge_count
+
+
 def _is_header_footer_candidate(
     block: dict[str, Any],
     page_height: float,
@@ -1217,6 +1376,7 @@ def parse_pdf(path: Path) -> dict[str, Any]:
     total_table_fragment_merges = 0
     total_header_footer_filtered = 0
     total_table_text_suppressed = 0
+    total_duplicate_image_blocks_removed = 0
     figure_index = 1
     table_index = 1
 
@@ -1242,6 +1402,8 @@ def parse_pdf(path: Path) -> dict[str, Any]:
             page_drawings=page_drawings,
         )
         total_recovered_image_text += recovered_image_text
+        page_images, duplicate_image_blocks_removed = _deduplicate_page_images(page_images, page_number)
+        total_duplicate_image_blocks_removed += duplicate_image_blocks_removed
 
         # Step-2: Semantic + layout-aware merge for over-segmented text blocks.
         text_blocks, semantic_merge_count = _merge_semantic_text_blocks(
@@ -1296,7 +1458,9 @@ def parse_pdf(path: Path) -> dict[str, Any]:
             table_index += 1
 
         page_tables, page_fragment_merge_count = _merge_same_page_table_fragments(raw_page_tables)
-        total_table_fragment_merges += page_fragment_merge_count
+        page_tables, page_title_merge_count = _merge_same_title_tables(page_tables)
+        page_total_fragment_merges = page_fragment_merge_count + page_title_merge_count
+        total_table_fragment_merges += page_total_fragment_merges
         table_asts.extend(page_tables)
 
         page_figures, figure_index = _assign_figure_titles(page_images, text_blocks, figure_index)
@@ -1311,7 +1475,7 @@ def parse_pdf(path: Path) -> dict[str, Any]:
                 "tables": page_tables,
                 "semantic_merge_count": semantic_merge_count,
                 "image_text_recovered_count": recovered_image_text,
-                "table_fragment_merge_count": page_fragment_merge_count,
+                "table_fragment_merge_count": page_total_fragment_merges,
             }
         )
 
@@ -1453,8 +1617,9 @@ def parse_pdf(path: Path) -> dict[str, Any]:
             "image_text_recovered_count": total_recovered_image_text,
             "rejected_table_candidates": rejected_table_candidates,
             "table_fragment_merge_count": total_table_fragment_merges,
+            "duplicate_image_blocks_removed": total_duplicate_image_blocks_removed,
             "header_footer_filtered_count": total_header_footer_filtered,
             "table_text_suppressed_count": total_table_text_suppressed,
-            "parser_hint": "pdf-ast-v4",
+            "parser_hint": "pdf-ast-v5",
         },
     }
