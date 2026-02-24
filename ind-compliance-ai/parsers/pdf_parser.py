@@ -908,7 +908,7 @@ def _build_single_table_ast(
         non_empty_this_row = data_row_non_empty_counts[raw_row_index - 1]
         row_has_single_column = non_empty_this_row == 1
         continuation_col_index = next((index for index, words in cell_map.items() if words), -1)
-        new_cells_for_this_row: list[dict[str, Any]] = []
+        row_fragments: list[dict[str, Any]] = []
         for col_index in range(len(column_centers)):
             words = sorted(cell_map.get(col_index, []), key=lambda item: item.x0)
             if not words:
@@ -923,6 +923,56 @@ def _build_single_table_ast(
                 if bbox[0] - 2 <= center <= bbox[2] + 2
             ]
             colspan = max(1, len(covered_columns))
+            row_fragments.append(
+                {
+                    "col_index": col_index,
+                    "text": cell_text,
+                    "bbox": bbox,
+                    "colspan": colspan,
+                }
+            )
+
+        if not row_fragments:
+            continue
+
+        present_cols = sorted(fragment["col_index"] for fragment in row_fragments)
+        # Multi-column continuation row: no leading key columns, only sparse trailing cells.
+        can_merge_sparse_continuation = (
+            non_empty_this_row <= 2
+            and present_cols
+            and present_cols[0] >= 2
+        )
+        if can_merge_sparse_continuation:
+            can_merge_all = True
+            for fragment in row_fragments:
+                previous_cell = latest_cell_by_column.get(int(fragment["col_index"]))
+                if previous_cell is None:
+                    can_merge_all = False
+                    break
+                previous_bbox = tuple(float(item) for item in previous_cell.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                current_bbox = tuple(float(item) for item in fragment["bbox"])
+                vertical_gap = current_bbox[1] - previous_bbox[3]
+                if vertical_gap > max(24.0, (current_bbox[3] - current_bbox[1]) * 2.4):
+                    can_merge_all = False
+                    break
+            if can_merge_all:
+                for fragment in row_fragments:
+                    col_index = int(fragment["col_index"])
+                    previous_cell = latest_cell_by_column[col_index]
+                    previous_bbox = tuple(float(item) for item in previous_cell.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                    current_bbox = tuple(float(item) for item in fragment["bbox"])
+                    merged_bbox = _bbox_union([previous_bbox, current_bbox])
+                    previous_cell["text"] = f"{previous_cell['text']}\n{fragment['text']}"
+                    previous_cell["bbox"] = _bbox_to_list(merged_bbox)
+                    previous_cell["rowspan"] = int(previous_cell.get("rowspan", 1)) + 1
+                continue
+
+        new_cells_for_this_row: list[dict[str, Any]] = []
+        for fragment in row_fragments:
+            col_index = int(fragment["col_index"])
+            bbox = tuple(float(item) for item in fragment["bbox"])
+            cell_text = str(fragment["text"])
+            colspan = int(fragment["colspan"])
 
             if row_has_single_column and col_index == continuation_col_index:
                 previous_cell = latest_cell_by_column.get(col_index)
