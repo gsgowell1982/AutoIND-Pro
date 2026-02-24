@@ -36,6 +36,11 @@ TOC_HEADING_PATTERN = re.compile(r"^\s*(目录|contents)\s*$", re.IGNORECASE)
 REFERENCE_ROW_PATTERN = re.compile(r"^\s*(?:\d+\.\s+|[（(]?\d+[)）])")
 
 
+def _is_glossary_hint_text(text: str) -> bool:
+    normalized = _clean_text(text).lower()
+    return "术语表" in normalized or "词汇表" in normalized or "glossary" in normalized
+
+
 def _clean_text(value: str) -> str:
     return " ".join(str(value).replace("\x00", " ").split())
 
@@ -1243,11 +1248,12 @@ def _find_continuation_hint(
         if int(previous.get("page", 0)) != current_page - 1:
             continue
         previous_has_title = bool(str(previous.get("title", "")).strip())
-        previous_has_section_hint = (
-            bool(str(previous.get("section_hint", "")).strip())
-            or bool(previous.get("continued_from"))
-            or bool(previous.get("continuation_hint"))
+        previous_section_hint_text = str(previous.get("section_hint", ""))
+        previous_is_glossary_context = _is_glossary_hint_text(previous_section_hint_text) or (
+            str(previous.get("continuation_context", "")).strip().lower() == "glossary"
         )
+        previous_has_section_hint = bool(previous_section_hint_text.strip()) or previous_is_glossary_context
+        previous_has_chain = bool(previous.get("continuation_hint")) or bool(previous.get("continued_from"))
         previous_col_count = int(previous.get("col_count", 0))
         candidate_col_count = int(candidate_table.get("col_count", 0))
         if not bool(previous.get("near_page_bottom")) and not previous_has_title and not previous_has_section_hint:
@@ -1257,10 +1263,24 @@ def _find_continuation_hint(
             list(candidate_table.get("column_signature", [])),
         )
         if (
-            (previous_has_title or previous_has_section_hint)
+            previous_is_glossary_context
             and bool(candidate_table.get("near_page_top"))
             and abs(previous_col_count - candidate_col_count) <= 1
             and similarity >= 0.22
+        ):
+            similarity += 0.25
+        elif (
+            previous_has_chain
+            and bool(candidate_table.get("near_page_top"))
+            and abs(previous_col_count - candidate_col_count) <= 1
+            and similarity >= 0.45
+        ):
+            similarity += 0.15
+        elif (
+            (previous_has_title or previous_has_section_hint)
+            and bool(candidate_table.get("near_page_top"))
+            and abs(previous_col_count - candidate_col_count) <= 1
+            and similarity >= 0.28
         ):
             similarity += 0.25
         elif (previous_has_title or previous_has_section_hint) and bool(candidate_table.get("near_page_top")) and similarity >= 0.38:
@@ -1598,22 +1618,36 @@ def _stitch_cross_page_tables(
         curr_near_top = current["bbox"][1] <= curr_page_height * 0.28
         similarity = _column_similarity(previous["column_signature"], current["column_signature"])
         previous_has_title = bool(str(previous.get("title", "")).strip())
-        previous_has_section_hint = bool(str(previous.get("section_hint", "")).strip()) or bool(previous.get("continued_from"))
+        previous_section_hint_text = str(previous.get("section_hint", ""))
+        previous_is_glossary_context = _is_glossary_hint_text(previous_section_hint_text) or (
+            str(previous.get("continuation_context", "")).strip().lower() == "glossary"
+        )
+        previous_has_section_hint = bool(previous_section_hint_text.strip()) or previous_is_glossary_context
         previous_col_count = int(previous.get("col_count", 0))
         current_col_count = int(current.get("col_count", 0))
+        continuation_hint = current.get("continuation_hint")
+        hint_matches_previous = (
+            isinstance(continuation_hint, dict)
+            and str(continuation_hint.get("table_id", "")).strip() == str(previous.get("table_id", "")).strip()
+        )
         context_continuation = (
             (previous_has_title or previous_has_section_hint)
             and curr_near_top
             and abs(previous_col_count - current_col_count) <= 1
-            and similarity >= 0.22
+            and (
+                (previous_is_glossary_context and similarity >= 0.22)
+                or (not previous_is_glossary_context and similarity >= 0.28)
+            )
         )
         is_likely_continuation = (
             (prev_near_bottom and curr_near_top)
             or similarity >= 0.82
             or ((previous_has_title or previous_has_section_hint) and curr_near_top and similarity >= 0.42)
             or context_continuation
+            or hint_matches_previous
         )
-        if similarity < 0.22 or not is_likely_continuation:
+        min_similarity = 0.22 if hint_matches_previous and previous_is_glossary_context else 0.28
+        if similarity < min_similarity or not is_likely_continuation:
             continue
         if str(current.get("title", "")).strip():
             # A titled table on the current page is treated as a new table, not continuation.
@@ -1754,12 +1788,24 @@ def parse_pdf(path: Path) -> dict[str, Any]:
             if section_hint_block is not None:
                 candidate_table["section_hint"] = section_hint_block["text"]
                 candidate_table["section_hint_block_id"] = section_hint_block["block_id"]
+                if _is_glossary_hint_text(section_hint_block["text"]):
+                    candidate_table["continuation_context"] = "glossary"
 
             continuation_hint: dict[str, Any] | None = None
             if title_block is None:
                 continuation_hint = _find_continuation_hint(candidate_table, table_asts)
                 if continuation_hint is not None:
                     candidate_table["continuation_hint"] = continuation_hint
+                    parent_table = next(
+                        (
+                            table
+                            for table in reversed(table_asts)
+                            if str(table.get("table_id", "")) == str(continuation_hint.get("table_id", ""))
+                        ),
+                        None,
+                    )
+                    if parent_table is not None and str(parent_table.get("continuation_context", "")).strip():
+                        candidate_table["continuation_context"] = parent_table["continuation_context"]
             if not _is_valid_table_candidate(
                 candidate_table,
                 title_block=title_block,
