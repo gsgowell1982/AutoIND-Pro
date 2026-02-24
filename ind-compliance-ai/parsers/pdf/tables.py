@@ -467,6 +467,13 @@ def _normalize_header_text(text: str) -> str:
     return normalized
 
 
+def _is_parenthetical_abbreviation(text: str) -> bool:
+    normalized = _clean_text(text)
+    if not normalized:
+        return False
+    return bool(re.fullmatch(r"[（(][A-Za-z0-9.\-_/]{2,28}[)）]", normalized))
+
+
 def _build_single_table_ast(
     rows: list[dict[str, Any]],
     page_number: int,
@@ -585,6 +592,42 @@ def _build_single_table_ast(
             continue
 
         present_cols = sorted(fragment["col_index"] for fragment in row_fragments)
+        can_merge_parenthetical_two_col = False
+        if len(column_centers) == 2 and present_cols == [0, 1]:
+            first_fragment = next((item for item in row_fragments if int(item["col_index"]) == 0), None)
+            second_fragment = next((item for item in row_fragments if int(item["col_index"]) == 1), None)
+            previous_first = latest_cell_by_column.get(0)
+            previous_second = latest_cell_by_column.get(1)
+            if (
+                first_fragment is not None
+                and second_fragment is not None
+                and previous_first is not None
+                and previous_second is not None
+                and _is_parenthetical_abbreviation(str(first_fragment.get("text", "")))
+                and not _is_parenthetical_abbreviation(str(previous_first.get("text", "")))
+                and len(_compact_text(str(previous_first.get("text", "")))) >= 4
+            ):
+                first_bbox = tuple(float(item) for item in first_fragment["bbox"])
+                second_bbox = tuple(float(item) for item in second_fragment["bbox"])
+                previous_first_bbox = tuple(float(item) for item in previous_first.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                previous_second_bbox = tuple(float(item) for item in previous_second.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                first_gap = first_bbox[1] - previous_first_bbox[3]
+                second_gap = second_bbox[1] - previous_second_bbox[3]
+                max_allowed_gap = max(20.0, (first_bbox[3] - first_bbox[1]) * 2.2)
+                if first_gap <= max_allowed_gap and second_gap <= max_allowed_gap:
+                    can_merge_parenthetical_two_col = True
+        if can_merge_parenthetical_two_col:
+            for fragment in row_fragments:
+                col_index = int(fragment["col_index"])
+                previous_cell = latest_cell_by_column[col_index]
+                previous_bbox = tuple(float(item) for item in previous_cell.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+                current_bbox = tuple(float(item) for item in fragment["bbox"])
+                merged_bbox = _bbox_union([previous_bbox, current_bbox])
+                previous_cell["text"] = f"{previous_cell['text']}\n{fragment['text']}"
+                previous_cell["bbox"] = _bbox_to_list(merged_bbox)
+                previous_cell["rowspan"] = int(previous_cell.get("rowspan", 1)) + 1
+            continue
+
         trailing_threshold = max(2, len(column_centers) // 2)
         is_trailing_only_row = bool(present_cols) and present_cols[0] >= trailing_threshold
         is_leading_key_row = bool(present_cols) and present_cols[0] <= 1
