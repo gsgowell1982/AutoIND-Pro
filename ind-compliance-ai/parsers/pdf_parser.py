@@ -27,12 +27,13 @@ except ImportError:  # pragma: no cover - optional runtime dependency
 from parsers.common.atomic_fact_extractor import extract_atomic_facts
 
 TABLE_TITLE_PATTERN = re.compile(
-    r"^\s*(?:附?表\s*[0-9一二三四五六七八九十]+|table\s*\d+)\s*(?:[.:：、\-]|\s+)",
+    r"^\s*(?:附?表\s*[0-9A-Za-z一二三四五六七八九十零〇.\-]+|table\s*[0-9A-Za-z.\-]+)\s*(?:[.:：、\-]|\s+)",
     re.IGNORECASE,
 )
 TABLE_SECTION_HINT_PATTERN = re.compile(r"(术语表|词汇表|名词表|名词解释|参数表|清单|附录表|glossary)", re.IGNORECASE)
 TOC_LINE_PATTERN = re.compile(r"[\.·…]{4,}\s*\d{1,3}\s*$")
 TOC_HEADING_PATTERN = re.compile(r"^\s*(目录|contents)\s*$", re.IGNORECASE)
+REFERENCE_ROW_PATTERN = re.compile(r"^\s*(?:\d+\.\s+|[（(]?\d+[)）])")
 
 
 def _clean_text(value: str) -> str:
@@ -713,10 +714,10 @@ def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
         previous = current[-1]
 
         if is_dense_row:
-            anchor = next((candidate for candidate in reversed(current) if len(candidate["words"]) >= 2), previous)
-            vertical_gap = row["y0"] - anchor["y1"]
-            avg_height = (row["height"] + anchor["height"]) / 2
-            if vertical_gap <= max(6.0, avg_height * 1.25):
+            vertical_gap = row["y0"] - previous["y1"]
+            avg_height = (row["height"] + previous["height"]) / 2
+            overlap = _horizontal_overlap_ratio(previous["bbox"], row["bbox"])
+            if vertical_gap <= max(7.0, avg_height * 1.35) and overlap >= 0.18:
                 current.append(row)
                 dense_rows_in_current += 1
                 continue
@@ -741,6 +742,57 @@ def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     if len(current) >= 2 and dense_rows_in_current >= 2:
         groups.append(current)
     return [group for group in groups if sum(1 for row in group if len(row["words"]) >= 2) >= 2]
+
+
+def _row_text_from_words(words: list[_Word]) -> str:
+    return _clean_text(" ".join(word.text for word in words))
+
+
+def _is_heading_like_row_text(text: str) -> bool:
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return False
+    return bool(
+        re.match(r"^\d+(?:\.\d+)*\s*[\u4e00-\u9fffA-Za-z]{1,20}表$", cleaned)
+        or re.match(r"^表\s*[0-9A-Za-z一二三四五六七八九十零〇.\-]+\b", cleaned)
+        or "术语表" in cleaned
+    )
+
+
+def _is_section_heading_like_tail(words: list[_Word]) -> bool:
+    if not words:
+        return False
+    parts = [word.text for word in words]
+    if len(parts) == 1:
+        return bool(re.match(r"^\d+(?:\.\d+){1,4}$", parts[0]))
+    if len(parts) == 2 and re.match(r"^\d+(?:\.\d+){1,4}$", parts[0]):
+        return len(parts[1]) <= 12 and bool(re.search(r"[\u4e00-\u9fffA-Za-z]", parts[1]))
+    merged = _row_text_from_words(words)
+    return bool(re.match(r"^\d+(?:\.\d+){1,4}\s+\S+$", merged)) and len(parts) <= 3
+
+
+def _prune_non_table_edge_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(rows) < 2:
+        return rows
+    pruned = list(rows)
+    # Drop leading table-heading rows like "6. 术语表".
+    while len(pruned) >= 2:
+        first_words = pruned[0]["words"]
+        second_words = pruned[1]["words"]
+        if len(first_words) <= 3 and len(second_words) >= 2 and _is_heading_like_row_text(_row_text_from_words(first_words)):
+            pruned = pruned[1:]
+            continue
+        break
+
+    # Drop trailing section heading rows like "2.3 序列信息".
+    while len(pruned) >= 2:
+        last_words = pruned[-1]["words"]
+        prev_words = pruned[-2]["words"]
+        if len(prev_words) >= 2 and _is_section_heading_like_tail(last_words):
+            pruned = pruned[:-1]
+            continue
+        break
+    return pruned
 
 
 def _assign_rows_to_columns(
@@ -859,6 +911,10 @@ def _build_single_table_ast(
     page_height: float,
     table_id: str,
 ) -> dict[str, Any] | None:
+    rows = _prune_non_table_edge_rows(rows)
+    if len(rows) < 2:
+        return None
+
     initial_column_centers = _cluster_columns(rows)
     if len(initial_column_centers) < 2 or len(initial_column_centers) > 24:
         return None
@@ -1140,6 +1196,31 @@ def _table_grid_line_score(
     return min(1.0, overlap_count / 8.0)
 
 
+def _table_reference_like_ratio(table_ast: dict[str, Any]) -> float:
+    row_texts = [str(item) for item in table_ast.get("row_texts", []) if str(item).strip()]
+    if not row_texts:
+        return 0.0
+    score = 0.0
+    for row_text in row_texts:
+        cleaned = _clean_text(row_text)
+        if not cleaned:
+            continue
+        row_score = 0.0
+        lowered = cleaned.lower()
+        if "——《" in cleaned or ("《" in cleaned and "》" in cleaned):
+            row_score += 0.9
+        if REFERENCE_ROW_PATTERN.match(cleaned):
+            row_score += 0.75
+        if re.search(r"\bV\d+(?:\.\d+){1,3}\b", cleaned, re.IGNORECASE):
+            row_score += 0.45
+        if "ich" in lowered:
+            row_score += 0.35
+        if re.search(r"(specification|document|technical|change request)", lowered):
+            row_score += 0.25
+        score += min(1.0, row_score)
+    return min(1.0, score / max(1, len(row_texts)))
+
+
 def _find_continuation_hint(
     candidate_table: dict[str, Any],
     accepted_tables: list[dict[str, Any]],
@@ -1152,16 +1233,19 @@ def _find_continuation_hint(
     for previous in reversed(accepted_tables[-12:]):
         if int(previous.get("page", 0)) != current_page - 1:
             continue
-        if not bool(previous.get("near_page_bottom")):
+        previous_has_title = bool(str(previous.get("title", "")).strip())
+        if not bool(previous.get("near_page_bottom")) and not previous_has_title:
             continue
         similarity = _column_similarity(
             list(previous.get("column_signature", [])),
             list(candidate_table.get("column_signature", [])),
         )
+        if previous_has_title and bool(candidate_table.get("near_page_top")) and similarity >= 0.42:
+            similarity += 0.08
         if similarity > best_similarity:
             best_similarity = similarity
             best_parent = previous
-    if best_parent is None or best_similarity < 0.62:
+    if best_parent is None or best_similarity < 0.58:
         return None
     return {
         "table_id": str(best_parent.get("table_id", "")),
@@ -1181,7 +1265,27 @@ def _is_valid_table_candidate(
     row_count = int(table_ast.get("row_count", 0))
     col_count = int(table_ast.get("col_count", 0))
     toc_row_ratio = float(table_ast.get("toc_row_ratio", 0.0))
+    reference_like_ratio = _table_reference_like_ratio(table_ast)
     if toc_context or toc_row_ratio >= 0.38:
+        return False
+
+    if (
+        title_block is None
+        and continuation_hint is None
+        and section_hint_block is None
+        and grid_line_score < 0.3
+        and reference_like_ratio >= 0.42
+    ):
+        return False
+
+    if (
+        title_block is None
+        and continuation_hint is None
+        and grid_line_score < 0.2
+        and col_count >= 4
+        and row_count <= 8
+        and reference_like_ratio >= 0.25
+    ):
         return False
 
     if title_block is not None:
@@ -1458,8 +1562,13 @@ def _stitch_cross_page_tables(
         prev_near_bottom = previous["bbox"][3] >= prev_page_height * 0.72
         curr_near_top = current["bbox"][1] <= curr_page_height * 0.28
         similarity = _column_similarity(previous["column_signature"], current["column_signature"])
-        is_likely_continuation = (prev_near_bottom and curr_near_top) or similarity >= 0.82
-        if similarity < 0.62 or not is_likely_continuation:
+        previous_has_title = bool(str(previous.get("title", "")).strip())
+        is_likely_continuation = (
+            (prev_near_bottom and curr_near_top)
+            or similarity >= 0.82
+            or (previous_has_title and curr_near_top and similarity >= 0.48)
+        )
+        if similarity < 0.48 or not is_likely_continuation:
             continue
         if str(current.get("title", "")).strip():
             # A titled table on the current page is treated as a new table, not continuation.
