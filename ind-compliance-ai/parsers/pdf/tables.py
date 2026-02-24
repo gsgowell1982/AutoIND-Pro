@@ -189,6 +189,15 @@ def _is_header_like_row(words: list[_Word]) -> bool:
     merged_text = _clean_text(" ".join(word.text for word in words))
     if not merged_text:
         return False
+    token_texts = [_clean_text(word.text) for word in words if _clean_text(word.text)]
+    max_token_len = max((len(_compact_text(token)) for token in token_texts), default=0)
+    compact_len = len(_compact_text(merged_text))
+    if len(token_texts) >= 2:
+        first_token = _compact_text(token_texts[0])
+        second_token = _compact_text(token_texts[1])
+        if first_token and second_token.startswith(first_token) and len(second_token) >= len(first_token) + 4:
+            # Common glossary continuation pattern: "术语 术语是..." -> data row, not header.
+            return False
     header_keywords = [
         "序列",
         "相关序列",
@@ -204,7 +213,9 @@ def _is_header_like_row(words: list[_Word]) -> bool:
         "扩展节点标题",
     ]
     if any(keyword in merged_text for keyword in header_keywords):
-        return True
+        # Header keywords should appear in concise labels, not in long definition sentences.
+        if max_token_len <= 10 and compact_len <= 24 and not re.search(r"[，。；;]", merged_text):
+            return True
     # Action-heavy rows are likely data rows in continuation pages.
     data_keywords = [
         "首次提交",
@@ -219,6 +230,13 @@ def _is_header_like_row(words: list[_Word]) -> bool:
         "生产工艺变更",
     ]
     if any(keyword in merged_text for keyword in data_keywords):
+        return False
+    # Continuation pages often start with long definition lines; avoid treating them as header rows.
+    if compact_len >= 18:
+        return False
+    if max_token_len >= 12:
+        return False
+    if re.search(r"[，。；;：:]", merged_text):
         return False
     if re.search(r"\b\d{3,}\b", merged_text):
         return False
@@ -695,7 +713,7 @@ def _find_continuation_hint(
         return None
     return {
         "table_id": str(best_parent.get("table_id", "")),
-        "similarity": round(best_similarity, 3),
+        "similarity": round(min(1.0, best_similarity), 3),
     }
 
 
