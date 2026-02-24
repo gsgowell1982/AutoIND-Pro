@@ -73,13 +73,33 @@ def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     groups: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
     dense_rows_in_current = 0
+    pending_sparse: list[dict[str, Any]] = []
     for row in rows:
         is_dense_row = len(row["words"]) >= 2
         if not current:
             if not is_dense_row:
+                if pending_sparse:
+                    prev_sparse = pending_sparse[-1]
+                    gap = row["y0"] - prev_sparse["y1"]
+                    avg_height = (row["height"] + prev_sparse["height"]) / 2
+                    overlap = _horizontal_overlap_ratio(prev_sparse["bbox"], row["bbox"])
+                    if gap > max(22.0, avg_height * 2.2) or overlap < 0.08:
+                        pending_sparse = []
+                pending_sparse.append(row)
+                if len(pending_sparse) > 4:
+                    pending_sparse = pending_sparse[-4:]
                 continue
-            current = [row]
+            leading_sparse_rows: list[dict[str, Any]] = []
+            if pending_sparse:
+                for sparse_row in pending_sparse:
+                    vertical_gap = row["y0"] - sparse_row["y1"]
+                    avg_height = (row["height"] + sparse_row["height"]) / 2
+                    overlap = _horizontal_overlap_ratio(sparse_row["bbox"], row["bbox"])
+                    if -2.0 <= vertical_gap <= max(18.0, avg_height * 1.9) and overlap >= 0.16:
+                        leading_sparse_rows.append(sparse_row)
+            current = leading_sparse_rows + [row]
             dense_rows_in_current = 1
+            pending_sparse = []
             continue
         previous = current[-1]
 
@@ -95,6 +115,7 @@ def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
                 groups.append(current)
             current = [row]
             dense_rows_in_current = 1
+            pending_sparse = []
             continue
 
         # Sparse rows are treated as continuation lines only when they tightly follow.
@@ -108,6 +129,7 @@ def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
             groups.append(current)
         current = []
         dense_rows_in_current = 0
+        pending_sparse = [row]
 
     if len(current) >= 2 and dense_rows_in_current >= 2:
         groups.append(current)
@@ -764,7 +786,7 @@ def _is_valid_table_candidate(
 
     if continuation_hint is not None:
         is_glossary_context = str(table_ast.get("continuation_context", "")).strip().lower() == "glossary"
-        if row_count < 3 and not is_glossary_context:
+        if row_count < 4 and not is_glossary_context:
             return False
         if col_count <= 3 and row_count >= 3:
             return score >= 0.15
