@@ -124,7 +124,8 @@ def _group_table_rows(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
             vertical_gap = row["y0"] - previous["y1"]
             avg_height = (row["height"] + previous["height"]) / 2
             overlap = _horizontal_overlap_ratio(previous["bbox"], row["bbox"])
-            if vertical_gap <= max(7.0, avg_height * 1.35) and overlap >= 0.18:
+            recent_overlap = any(_horizontal_overlap_ratio(candidate["bbox"], row["bbox"]) >= 0.16 for candidate in current[-4:])
+            if vertical_gap <= max(7.0, avg_height * 1.35) and (overlap >= 0.18 or recent_overlap):
                 current.append(row)
                 dense_rows_in_current += 1
                 continue
@@ -215,14 +216,26 @@ def _prune_non_table_edge_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
             pruned = pruned[1:]
             continue
         second_is_intro_or_caption = bool(re.search(r"(如下表|见下表|详见表|见表)", second_text)) or bool(TABLE_TITLE_PATTERN.search(second_text))
+        upcoming_intro_or_caption = any(
+            bool(re.search(r"(如下表|见下表|详见表|见表)", _row_text_from_words(row["words"])))
+            or bool(TABLE_TITLE_PATTERN.search(_row_text_from_words(row["words"])))
+            for row in pruned[1: min(len(pruned), 6)]
+        )
         first_compact_len = len(_compact_text(first_text))
         first_looks_narrative = (
             first_compact_len >= 10
             and not TABLE_TITLE_PATTERN.search(first_text)
-            and not re.search(r"(申请编号|序列号|序列类型|序列描述|注册行为|扩展节点标题|名词|定义)", first_text)
+            and (
+                len(pruned[0]["words"]) <= 2
+                or first_compact_len >= 18
+                or bool(re.search(r"[，。；;：:]", first_text))
+            )
             and not re.fullmatch(r"[A-Za-z0-9.\-_/]+", first_text)
         )
         if first_looks_narrative and second_is_intro_or_caption:
+            pruned = pruned[1:]
+            continue
+        if first_looks_narrative and upcoming_intro_or_caption:
             pruned = pruned[1:]
             continue
         if (
@@ -302,6 +315,8 @@ def _is_header_like_row(words: list[_Word]) -> bool:
     # Action-heavy rows are likely data rows in continuation pages.
     data_keywords = [
         "首次提交",
+        "首次",
+        "提交",
         "回复",
         "撤回",
         "补充申请",
@@ -369,6 +384,14 @@ def _refine_column_centers(
     target_by_mode = max(target_by_mode, len(initial_column_centers) - 1)
 
     centers = list(sorted(initial_column_centers))
+    if len(centers) == 6 and len(centers) > target_by_mode:
+        gaps = [centers[index + 1] - centers[index] for index in range(len(centers) - 1)]
+        if gaps:
+            nearest_gap = min(gaps)
+            typical_gap = statistics.median(gaps)
+            # Keep original centers when gaps are regular; avoid collapsing true narrow tables.
+            if nearest_gap >= max(12.0, typical_gap * 0.45):
+                return centers
     while len(centers) > target_by_mode:
         if len(centers) <= 2:
             break
@@ -452,27 +475,48 @@ def _build_single_table_ast(
         if non_empty >= 2 and _is_header_like_row(rows[index]["words"]):
             header_row_index = index
             break
+    header_row_indices: list[int] = []
+    if header_row_index >= 0:
+        header_row_indices.append(header_row_index)
+        max_scan = min(len(row_cell_maps), header_row_index + 4)
+        for index in range(header_row_index + 1, max_scan):
+            if not _is_header_like_row(rows[index]["words"]):
+                break
+            row_text = _row_text_from_words(rows[index]["words"])
+            # Stop when rows clearly enter data region.
+            if re.search(r"(?:x\d{6,}|\b\d{4,}\b)", row_text, re.IGNORECASE):
+                break
+            header_row_indices.append(index)
     if header_row_index < 0 and len(column_centers) == 1 and row_cell_maps:
         # Single-column tables often have a one-cell header.
         header_row_index = 0
+        header_row_indices = [0]
 
     header: list[dict[str, Any]] = []
-    if header_row_index >= 0 and row_cell_maps:
-        header_cells = row_cell_maps[header_row_index]
+    if header_row_indices and row_cell_maps:
         for col_index in range(len(column_centers)):
-            words = sorted(header_cells.get(col_index, []), key=lambda item: item.x0)
-            text = _clean_text(" ".join(word.text for word in words))
-            header.append({"text": text or f"Column {col_index + 1}", "col": col_index + 1})
+            parts: list[str] = []
+            for row_index in header_row_indices:
+                header_cells = row_cell_maps[row_index]
+                words = sorted(header_cells.get(col_index, []), key=lambda item: item.x0)
+                text = _clean_text(" ".join(word.text for word in words))
+                if text and (not parts or parts[-1] != text):
+                    parts.append(text)
+            header_text = " ".join(parts)
+            header.append({"text": header_text or f"Column {col_index + 1}", "col": col_index + 1})
     else:
         for col_index in range(len(column_centers)):
             header.append({"text": f"Column {col_index + 1}", "col": col_index + 1})
 
     cells: list[dict[str, Any]] = []
     latest_cell_by_column: dict[int, dict[str, Any]] = {}
-    data_start_index = header_row_index + 1 if header_row_index >= 0 else 0
+    header_row_count = len(header_row_indices)
+    data_start_index = (max(header_row_indices) + 1) if header_row_indices else 0
     data_row_maps = row_cell_maps[data_start_index:]
     data_row_non_empty_counts = row_non_empty_counts[data_start_index:]
     logical_data_row_index = 0
+    pending_trailing_fragments: list[dict[str, Any]] = []
+    last_leading_row_center: float | None = None
 
     for raw_row_index, cell_map in enumerate(data_row_maps, start=1):
         non_empty_this_row = data_row_non_empty_counts[raw_row_index - 1]
@@ -506,6 +550,57 @@ def _build_single_table_ast(
             continue
 
         present_cols = sorted(fragment["col_index"] for fragment in row_fragments)
+        trailing_threshold = max(2, len(column_centers) // 2)
+        is_trailing_only_row = bool(present_cols) and present_cols[0] >= trailing_threshold
+        is_leading_key_row = bool(present_cols) and present_cols[0] <= 1
+        allow_forward_merge = header_row_count >= 2 and len(column_centers) >= 5
+        row_bbox = rows[data_start_index + raw_row_index - 1]["bbox"] if (data_start_index + raw_row_index - 1) < len(rows) else (0.0, 0.0, 0.0, 0.0)
+        current_row_center = (row_bbox[1] + row_bbox[3]) / 2
+
+        if allow_forward_merge and pending_trailing_fragments and is_leading_key_row:
+            merged_by_column: dict[int, dict[str, Any]] = {}
+            for fragment in [*row_fragments, *pending_trailing_fragments]:
+                col_index = int(fragment["col_index"])
+                existing = merged_by_column.get(col_index)
+                if existing is None:
+                    merged_by_column[col_index] = dict(fragment)
+                    continue
+                existing_bbox = tuple(float(item) for item in existing["bbox"])
+                incoming_bbox = tuple(float(item) for item in fragment["bbox"])
+                existing["bbox"] = _bbox_union([existing_bbox, incoming_bbox])
+                incoming_text = str(fragment["text"])
+                if incoming_text and incoming_text not in str(existing["text"]):
+                    existing["text"] = f"{existing['text']}\n{incoming_text}"
+                existing["colspan"] = max(int(existing.get("colspan", 1)), int(fragment.get("colspan", 1)))
+            row_fragments = [merged_by_column[key] for key in sorted(merged_by_column)]
+            present_cols = sorted(fragment["col_index"] for fragment in row_fragments)
+            pending_trailing_fragments = []
+
+        if allow_forward_merge and is_trailing_only_row and raw_row_index < len(data_row_maps):
+            next_leading_center: float | None = None
+            for lookahead_index in range(raw_row_index, len(data_row_maps)):
+                lookahead_cell_map = data_row_maps[lookahead_index]
+                lookahead_cols = sorted(index for index, words in lookahead_cell_map.items() if words)
+                if lookahead_cols and lookahead_cols[0] <= 1:
+                    lookahead_row_index = data_start_index + lookahead_index
+                    if lookahead_row_index < len(rows):
+                        lookahead_bbox = rows[lookahead_row_index]["bbox"]
+                        next_leading_center = (lookahead_bbox[1] + lookahead_bbox[3]) / 2
+                    break
+            prefer_next_leading = (
+                next_leading_center is not None
+                and (
+                    last_leading_row_center is None
+                    or abs(next_leading_center - current_row_center) + 1.5 < abs(current_row_center - last_leading_row_center)
+                )
+            )
+            if prefer_next_leading:
+                if pending_trailing_fragments:
+                    pending_trailing_fragments.extend(dict(fragment) for fragment in row_fragments)
+                else:
+                    pending_trailing_fragments = [dict(fragment) for fragment in row_fragments]
+                continue
+
         # Multi-column continuation row: no leading key columns, only sparse trailing cells.
         can_merge_sparse_continuation = (
             non_empty_this_row <= 2
@@ -575,11 +670,13 @@ def _build_single_table_ast(
             new_cell["row"] = logical_data_row_index
             cells.append(new_cell)
             latest_cell_by_column[int(new_cell["col"]) - 1] = new_cell
+        if is_leading_key_row:
+            last_leading_row_center = current_row_center
 
     if not cells:
         return None
 
-    logical_total_rows = (header_row_index + 1 if header_row_index >= 0 else 0) + max(1, logical_data_row_index)
+    logical_total_rows = header_row_count + max(1, logical_data_row_index)
 
     logical_data_row_count = max(1, logical_data_row_index)
     coverage_ratio = len(cells) / max(1.0, logical_data_row_count * len(column_centers))
@@ -598,7 +695,7 @@ def _build_single_table_ast(
         "col_count": len(column_centers),
         "column_signature": column_signature,
         "column_hash": _column_hash(column_signature),
-        "header_row_index": header_row_index + 1 if header_row_index >= 0 else 0,
+        "header_row_index": header_row_count,
         "structure_score": round(structure_score, 3),
         "row_texts": row_texts,
         "near_page_bottom": table_bbox[3] >= page_height * 0.72,
