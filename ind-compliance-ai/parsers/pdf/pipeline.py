@@ -16,6 +16,7 @@ from .image_blocks import (
 from .layout import _extract_words
 from .tables import (
     _build_single_table_ast,
+    _build_table_ast_from_pymupdf,
     _cluster_rows,
     _find_continuation_hint,
     _find_section_table_hint,
@@ -69,10 +70,58 @@ def _build_page_tables(
     accepted_tables: list[dict[str, Any]],
     table_index: int,
     state: PdfPipelineState,
+    page: Any = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
-    table_row_groups = _group_table_rows(_cluster_rows(page_words))
+    """Build table ASTs for a page.
+
+    Strategy:
+    1. Try PyMuPDF's built-in table detection first (more accurate for multi-line cells)
+    2. Fall back to custom word-clustering method if PyMuPDF fails
+    """
     raw_page_tables: list[dict[str, Any]] = []
     next_table_index = table_index
+
+    # Strategy 1: Try PyMuPDF's built-in table detection first
+    if page is not None:
+        try:
+            pymupdf_tables = page.find_tables()
+            if pymupdf_tables and hasattr(pymupdf_tables, 'tables') and pymupdf_tables.tables:
+                for pymupdf_table in pymupdf_tables.tables:
+                    candidate_table = _build_table_ast_from_pymupdf(
+                        page=page,
+                        page_number=page_number,
+                        page_height=float(page_rect.height),
+                        table_id=f"tbl_{next_table_index:03d}",
+                    )
+                    if candidate_table is not None:
+                        table_bbox = tuple(candidate_table["bbox"])
+                        title_block = _find_table_title_block(table_bbox, text_blocks)
+                        section_hint_block = _find_section_table_hint(table_bbox, text_blocks)
+
+                        if title_block is not None:
+                            candidate_table["title"] = title_block["text"]
+                            candidate_table["title_block_id"] = title_block["block_id"]
+                        if section_hint_block is not None:
+                            candidate_table["section_hint"] = section_hint_block["text"]
+                            candidate_table["section_hint_block_id"] = section_hint_block["block_id"]
+                            if _is_glossary_hint_text(section_hint_block["text"]):
+                                candidate_table["continuation_context"] = "glossary"
+
+                        raw_page_tables.append(candidate_table)
+                        next_table_index += 1
+
+                # If PyMuPDF found tables, use them and skip custom detection
+                if raw_page_tables:
+                    page_tables, page_fragment_merge_count = _merge_same_page_table_fragments(raw_page_tables)
+                    page_tables, page_title_merge_count = _merge_same_title_tables(page_tables)
+                    page_total_fragment_merges = page_fragment_merge_count + page_title_merge_count
+                    state.counters.table_fragment_merge_count += page_total_fragment_merges
+                    return page_tables, next_table_index, page_total_fragment_merges
+        except Exception:
+            pass  # Fall through to custom detection
+
+    # Strategy 2: Fall back to custom word-clustering table detection
+    table_row_groups = _group_table_rows(_cluster_rows(page_words))
     for row_group in table_row_groups:
         candidate_table = _build_single_table_ast(
             rows=row_group,
@@ -180,6 +229,7 @@ def run_pdf_extraction_pipeline(path: Path) -> PdfPipelineState:
                 accepted_tables=state.table_asts,
                 table_index=table_index,
                 state=state,
+                page=page,
             )
             state.table_asts.extend(page_tables)
 
@@ -205,4 +255,3 @@ def run_pdf_extraction_pipeline(path: Path) -> PdfPipelineState:
     state.counters.cross_page_table_links = _stitch_cross_page_tables(state.table_asts, state.page_heights)
     _renumber_table_ids(state.table_asts)
     return state
-
