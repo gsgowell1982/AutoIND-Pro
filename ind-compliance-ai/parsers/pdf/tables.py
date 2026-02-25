@@ -1345,3 +1345,123 @@ def _renumber_table_ids(table_asts: list[dict[str, Any]]) -> None:
             if hint_table_id:
                 continuation_source["hint_table_id"] = id_mapping.get(hint_table_id, hint_table_id)
 
+
+def _build_table_ast_from_pymupdf(
+    page: Any,
+    page_number: int,
+    page_height: float,
+    table_id: str,
+) -> dict[str, Any] | None:
+    """Build table AST using PyMuPDF's built-in table detection.
+
+    This method is more accurate for tables with:
+    - Multi-line cells
+    - Cell content that wraps within cells
+    - Inconsistent row heights
+
+    Falls back to None if PyMuPDF table detection fails.
+    """
+    try:
+        # Use PyMuPDF's built-in table detection
+        tables = page.find_tables()
+        if not tables or not hasattr(tables, 'tables') or not tables.tables:
+            return None
+
+        # Get the first detected table (for single-page processing)
+        pymupdf_table = tables.tables[0]
+        if not pymupdf_table:
+            return None
+
+        # Extract table content
+        table_data = pymupdf_table.extract()
+        if not table_data or len(table_data) < 2:
+            return None
+
+        # Get table bounding box
+        table_bbox = pymupdf_table.bbox
+        if not table_bbox:
+            return None
+
+        col_count = pymupdf_table.col_count
+        row_count = pymupdf_table.row_count
+
+        if col_count < 1 or row_count < 2:
+            return None
+
+        # Build header from first row
+        header: list[dict[str, Any]] = []
+        first_row = table_data[0] if table_data else []
+        for col_index, cell_text in enumerate(first_row):
+            text = _clean_text(str(cell_text or "").replace("\n", " ").strip())
+            header.append({
+                "text": text or f"Column {col_index + 1}",
+                "col": col_index + 1
+            })
+
+        # Build cells from remaining rows
+        cells: list[dict[str, Any]] = []
+        for row_index, row_data in enumerate(table_data[1:], start=1):
+            for col_index, cell_text in enumerate(row_data):
+                text = _clean_text(str(cell_text or "").strip())
+                if not text:
+                    continue
+
+                # Calculate approximate bbox based on table structure
+                # This is approximate since PyMuPDF doesn't provide per-cell bboxes
+                cell_bbox = (
+                    table_bbox[0] + (table_bbox[2] - table_bbox[0]) * col_index / col_count,
+                    table_bbox[1] + (table_bbox[3] - table_bbox[1]) * row_index / row_count,
+                    table_bbox[0] + (table_bbox[2] - table_bbox[0]) * (col_index + 1) / col_count,
+                    table_bbox[1] + (table_bbox[3] - table_bbox[1]) * (row_index + 1) / row_count,
+                )
+
+                cells.append({
+                    "row": row_index,
+                    "col": col_index + 1,
+                    "text": text,
+                    "bbox": _bbox_to_list(cell_bbox),
+                    "rowspan": 1,
+                    "colspan": 1,
+                })
+
+        if not cells:
+            return None
+
+        # Build column signature
+        table_width = max(1.0, table_bbox[2] - table_bbox[0])
+        column_signature = [round((i + 0.5) / col_count, 3) for i in range(col_count)]
+
+        # Build row texts for consistency
+        row_texts = []
+        for row_data in table_data:
+            row_text = " | ".join(_clean_text(str(cell or "")) for cell in row_data)
+            row_texts.append(row_text)
+
+        # Calculate structure score (PyMuPDF detection is usually accurate)
+        aligned_ratio = sum(1 for row in table_data[1:] if any(cell for cell in row)) / max(1, len(table_data) - 1)
+        coverage_ratio = len(cells) / max(1, (row_count - 1) * col_count)
+        numeric_ratio = sum(1 for cell in cells if re.search(r"\d", str(cell.get("text", "")))) / max(1, len(cells))
+        structure_score = min(1.0, 0.45 * aligned_ratio + 0.35 * coverage_ratio + 0.2 * numeric_ratio)
+
+        return {
+            "block_type": "table",
+            "table_id": table_id,
+            "page": page_number,
+            "bbox": _bbox_to_list(table_bbox),
+            "header": header,
+            "cells": cells,
+            "row_count": row_count,
+            "col_count": col_count,
+            "column_signature": column_signature,
+            "column_hash": _column_hash(column_signature),
+            "header_row_index": 1,
+            "structure_score": round(structure_score, 3),
+            "row_texts": row_texts,
+            "near_page_bottom": table_bbox[3] >= page_height * 0.72,
+            "near_page_top": table_bbox[1] <= page_height * 0.28,
+            "detection_method": "pymupdf_builtin",
+        }
+
+    except Exception:
+        # If PyMuPDF table detection fails, return None to fall back to custom method
+        return None
