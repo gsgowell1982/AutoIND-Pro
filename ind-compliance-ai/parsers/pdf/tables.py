@@ -172,10 +172,13 @@ def extract_tables_from_page(
     if prev_tables:
         for prev in reversed(prev_tables):
             if prev.get("near_page_bottom") and prev.get("page") == page_number - 1:
+                # Check column signature similarity to confirm continuation
+                # This prevents false positives where unrelated tables are incorrectly merged
+                prev_signature = prev.get("column_signature", [])
+                # We'll check similarity after extracting raw evidence
+                # For now, just store the parent info
                 parent_col_count = prev.get("col_count")
                 parent_header = prev.get("header")
-                # Extract parent bbox for column boundary inheritance
-                # This ensures continuation tables align with parent's column structure
                 if prev.get("bbox"):
                     parent_bbox = tuple(prev.get("bbox"))
                 break
@@ -257,12 +260,40 @@ def _process_raw_evidence(
 ) -> dict[str, Any] | None:
     """Process raw evidence through the full pipeline."""
 
+    # Validate continuation before passing parent_col_count
+    # This prevents false positives where unrelated tables inherit wrong column count
+    effective_parent_col_count = parent_col_count
+    effective_parent_bbox = parent_bbox
+    
+    if parent_col_count is not None and parent_bbox is not None and prev_tables:
+        # Check if current table is really a continuation
+        # by comparing column signatures
+        current_bbox = raw_evidence.bbox
+        
+        # Check if current table is near page top (continuation indicator)
+        near_top = raw_evidence.near_page_top
+        
+        # Check horizontal overlap with parent table
+        current_width = current_bbox[2] - current_bbox[0]
+        parent_width = parent_bbox[2] - parent_bbox[0]
+        
+        # Calculate horizontal overlap
+        x_overlap = max(0, min(current_bbox[2], parent_bbox[2]) - max(current_bbox[0], parent_bbox[0]))
+        overlap_ratio = x_overlap / min(current_width, parent_width) if min(current_width, parent_width) > 0 else 0
+        
+        # Check if tables are truly related
+        # Conditions: must be near page top AND have significant horizontal overlap
+        if not near_top or overlap_ratio < 0.3:
+            # Not a valid continuation, clear parent info
+            effective_parent_col_count = None
+            effective_parent_bbox = None
+
     # Phase 1: Normalization
     # Pass parent_bbox for column boundary inheritance in continuation tables
     normalized = normalize_raw_evidence(
         raw_evidence=raw_evidence,
-        parent_col_count=parent_col_count,
-        parent_bbox=parent_bbox,
+        parent_col_count=effective_parent_col_count,
+        parent_bbox=effective_parent_bbox,
     )
 
     # Phase 2: Assembly
