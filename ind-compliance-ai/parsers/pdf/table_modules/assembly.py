@@ -378,11 +378,14 @@ def _build_row_texts(grid: list[list[str | None]]) -> list[str]:
     """构建行文本表示"""
     row_texts = []
     for row in grid:
-        parts = []
-        for cell in row:
-            text = _clean_text(cell) if cell else "null"
-            parts.append(text if text else "null")
-        row_texts.append(" | ".join(parts))
+        normalized_cells = [_clean_text(cell) for cell in row]
+        non_empty_parts = [text for text in normalized_cells if text]
+        if not non_empty_parts:
+            continue
+        if len(non_empty_parts) == 1:
+            row_texts.append(non_empty_parts[0])
+            continue
+        row_texts.append(" ".join(non_empty_parts))
     return row_texts
 
 
