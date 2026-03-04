@@ -3,12 +3,38 @@
 IND Compliance AI is an engineering platform for IND submission compliance support.
 It focuses on structured parsing, auditable artifacts, and explainable risk signals.
 
-> Current release: **v1.0.0**
+> Current release: **v1.0.1**
 
 ## Non-approval statement
 
 This project does **not** replace regulatory judgment or approval decisions.
 It provides compliance support signals, traceable evidence, and risk explanations only.
+
+## v1.0.1 updates
+
+### 1) PDF table pipeline hardening (enterprise IND scenarios)
+
+- Introduced configurable parser policy at `config/pdf_parser.toml` via `parsers/pdf/settings.py`.
+- Added non-destructive table-content policy and semantic rule-engine policy switches.
+- Added table-detection policy for supplemental candidate merge and two-column guard.
+
+### 2) Continuum modularization and maintainability
+
+- Added semantic rule-engine and semantic repair modules:
+  - `parsers/pdf/table_modules/continuum/rules_engine.py`
+  - `parsers/pdf/table_modules/continuum/semantic_orchestration.py`
+  - `parsers/pdf/table_modules/continuum/semantic_repairs.py`
+- Added layout/projection modules to reduce `normalization.py` complexity:
+  - `parsers/pdf/table_modules/continuum/column_layout.py`
+  - `parsers/pdf/table_modules/continuum/row_projection.py`
+  - `parsers/pdf/table_modules/continuum/legacy_supplement.py`
+- Kept extraction non-destructive by default while preserving auditable diagnostics.
+
+### 3) Borderless and two-column handling strategy
+
+- Supplemental word-clustering candidate path now runs conservatively in parallel.
+- Strict overlap de-dup protects already-correct PyMuPDF table detections.
+- Added two-column layout guard and tabular-strength scoring to reduce false positives in literature-style PDFs.
 
 ## v1.0.0 implemented capabilities
 
