@@ -1,0 +1,44 @@
+# Version: v1.1.0
+# Optimization Summary:
+# - Tunable thresholds for cross-page table stitching in enterprise IND scenarios.
+# - Adjust these values based on false-link vs miss-link trade-offs per corpus.
+# - Default to non-destructive table extraction (no supplement writeback).
+# - Add rule-engine policy switches for staged rollout.
+# - Add table-detection policy for supplemental merge and two-column guard.
+
+[cross_page_stitching]
+prev_near_bottom_ratio = 0.72
+curr_near_top_ratio = 0.28
+hint_glossary_similarity_min = 0.22
+default_similarity_min = 0.28
+high_similarity_link_threshold = 0.82
+title_context_similarity_threshold = 0.42
+context_overlap_min = 0.45
+overlap_min_without_hint = 0.35
+low_similarity_guard_threshold = 0.50
+low_similarity_guard_overlap_min = 0.55
+
+[table_content_policy]
+enable_supplement_writeback = false
+enable_missing_content_diagnostics = true
+diagnostic_min_candidates_per_table = 3
+diagnostic_max_candidate_ratio = 0.08
+diagnostic_min_text_length = 2
+suppress_col0_diagnostics_for_continuation = true
+
+[rule_engine_policy]
+enabled = false
+shadow_mode = true
+apply_writeback = false
+emit_diagnostics = true
+
+[table_detection_policy]
+supplemental_dedup_overlap_threshold = 0.30
+enable_two_column_guard = true
+two_column_balance_tolerance = 0.30
+two_column_gutter_ratio_min = 0.06
+two_column_gutter_ratio_max = 0.30
+two_column_min_words = 120
+two_column_min_tabular_score = 0.72
+min_rows_for_supplemental_candidate = 3
+min_cols_for_supplemental_candidate = 2

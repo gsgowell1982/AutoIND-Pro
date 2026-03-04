@@ -1,3 +1,11 @@
+﻿# Version: v1.1.2
+# Optimization Summary:
+# - Keep existing continuum behavior and prepare for external semantic rule-engine integration.
+# - Integrate semantic rule-engine and legacy supplement as first-class continuum layers.
+# - Provide unified exports to avoid duplicated orchestration entry points.
+# - Add column layout utilities as reusable continuum-level inference primitives.
+# - Add row projection utilities for normalized row/cell construction.
+
 """Continuum Engine - 逻辑表格连续体引擎
 
 Architecture:
@@ -84,6 +92,43 @@ from .confidence import (
     REFERENCE_ROW_PATTERN,
     ConfidenceAssessment,
     assess_confidence,
+)
+
+
+# ============================================================================
+# Semantic Rule-Engine & Legacy Supplement Layers
+# ============================================================================
+
+from .rules_engine import (
+    RuleContext,
+    RuleRunRecord,
+    RuleEngineReport,
+    SemanticRule,
+    CallableSemanticRule,
+    run_semantic_rule_engine,
+)
+from .semantic_repairs import (
+    recover_key_identifier_cells,
+    repair_directory_listing_structure,
+    detect_filename_semantic_columns,
+    merge_filename_continuations,
+)
+from .semantic_orchestration import (
+    build_default_semantic_rules,
+    run_apply_semantic_rules,
+    run_shadow_semantic_rules,
+)
+from .legacy_supplement import supplement_missing_content
+from .column_layout import (
+    infer_logical_column_count,
+    analyze_content_distribution,
+    analyze_column_clustering,
+    build_column_mapping,
+    build_column_mapping_with_parent_bbox,
+)
+from .row_projection import (
+    build_column_clusters,
+    normalize_rows_and_cells,
 )
 
 
@@ -207,6 +252,33 @@ __all__ = [
     "REFERENCE_ROW_PATTERN",
     "ConfidenceAssessment",
     "assess_confidence",
+    # Semantic rule-engine
+    "RuleContext",
+    "RuleRunRecord",
+    "RuleEngineReport",
+    "SemanticRule",
+    "CallableSemanticRule",
+    "run_semantic_rule_engine",
+    # Semantic repair rules
+    "recover_key_identifier_cells",
+    "repair_directory_listing_structure",
+    "detect_filename_semantic_columns",
+    "merge_filename_continuations",
+    # Semantic orchestration
+    "build_default_semantic_rules",
+    "run_apply_semantic_rules",
+    "run_shadow_semantic_rules",
+    # Legacy supplement
+    "supplement_missing_content",
+    # Column layout utilities
+    "infer_logical_column_count",
+    "analyze_content_distribution",
+    "analyze_column_clustering",
+    "build_column_mapping",
+    "build_column_mapping_with_parent_bbox",
+    # Row projection utilities
+    "build_column_clusters",
+    "normalize_rows_and_cells",
     # Pipeline
     "ContinuumResult",
     "run_continuum_engine",
@@ -214,3 +286,7 @@ __all__ = [
     "column_similarity",
     "header_similarity",
 ]
+
+
+
+

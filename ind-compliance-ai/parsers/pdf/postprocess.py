@@ -1,3 +1,10 @@
+# Version: v1.0.11
+# Optimization Summary:
+# - Add audit-oriented table quality metrics to parse metadata.
+# - Expose low-confidence/review-required/continuation counts and continuation similarity stats.
+# - Persist active parser threshold snapshot in metadata for traceable auditing.
+# - Add non-destructive missing-content diagnostic summary counters.
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -5,6 +12,7 @@ from typing import Any
 
 from parsers.common.atomic_fact_extractor import extract_atomic_facts
 
+from .settings import get_pdf_parser_settings
 from .text_blocks import _suppress_table_text_blocks
 from .types import PDF_PARSER_HINT, PdfPipelineState
 
@@ -119,6 +127,34 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             }
         )
 
+    settings = get_pdf_parser_settings()
+    cfg = settings.cross_page_stitching
+    table_policy = settings.table_content_policy
+    cfg_snapshot = {
+        "prev_near_bottom_ratio": cfg.prev_near_bottom_ratio,
+        "curr_near_top_ratio": cfg.curr_near_top_ratio,
+        "hint_glossary_similarity_min": cfg.hint_glossary_similarity_min,
+        "default_similarity_min": cfg.default_similarity_min,
+        "high_similarity_link_threshold": cfg.high_similarity_link_threshold,
+        "title_context_similarity_threshold": cfg.title_context_similarity_threshold,
+        "context_overlap_min": cfg.context_overlap_min,
+        "overlap_min_without_hint": cfg.overlap_min_without_hint,
+        "low_similarity_guard_threshold": cfg.low_similarity_guard_threshold,
+        "low_similarity_guard_overlap_min": cfg.low_similarity_guard_overlap_min,
+    }
+
+    table_nodes = state.table_asts
+    continuation_tables = [t for t in table_nodes if t.get("is_continuation")]
+    review_required_tables = [t for t in table_nodes if t.get("review_required")]
+    low_confidence_tables = [t for t in table_nodes if float(t.get("confidence", 0.0) or 0.0) < 0.75]
+    diagnostic_tables = [t for t in table_nodes if (t.get("diagnostics") or {}).get("possible_missing_table_content")]
+    diagnostic_candidate_total = sum(int((t.get("diagnostics") or {}).get("candidate_count", 0) or 0) for t in table_nodes)
+    continuation_similarities = [
+        float(t.get("cross_page_similarity"))
+        for t in continuation_tables
+        if t.get("cross_page_similarity") is not None
+    ]
+
     merged_text = "\n\n".join(analysis_page_texts)
     return {
         "source_path": str(path),
@@ -142,6 +178,23 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             "bounding_box_count": len(text_bounding_boxes),
             "image_count": len(image_blocks),
             "table_count": len(state.table_asts),
+            "raw_table_candidates": state.counters.raw_table_candidates,
+            "accepted_table_candidates": state.counters.accepted_table_candidates,
+            "continuation_table_count": len(continuation_tables),
+            "review_required_table_count": len(review_required_tables),
+            "low_confidence_table_count": len(low_confidence_tables),
+            "possible_missing_content_table_count": len(diagnostic_tables),
+            "possible_missing_content_candidate_count": diagnostic_candidate_total,
+            "continuation_similarity_avg": (
+                round(sum(continuation_similarities) / len(continuation_similarities), 3)
+                if continuation_similarities else None
+            ),
+            "continuation_similarity_min": (
+                round(min(continuation_similarities), 3) if continuation_similarities else None
+            ),
+            "continuation_similarity_max": (
+                round(max(continuation_similarities), 3) if continuation_similarities else None
+            ),
             "figure_count": len(state.figure_nodes),
             "cross_page_table_links": state.counters.cross_page_table_links,
             "semantic_merge_count": state.counters.semantic_merge_count,
@@ -152,6 +205,17 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             "header_footer_filtered_count": state.counters.header_footer_filtered_count,
             "table_text_suppressed_count": total_table_text_suppressed,
             "parser_hint": PDF_PARSER_HINT,
+            "parser_config_snapshot": {
+                "cross_page_stitching": cfg_snapshot,
+                "table_content_policy": {
+                    "enable_supplement_writeback": table_policy.enable_supplement_writeback,
+                    "enable_missing_content_diagnostics": table_policy.enable_missing_content_diagnostics,
+                    "diagnostic_min_candidates_per_table": table_policy.diagnostic_min_candidates_per_table,
+                    "diagnostic_max_candidate_ratio": table_policy.diagnostic_max_candidate_ratio,
+                    "diagnostic_min_text_length": table_policy.diagnostic_min_text_length,
+                    "suppress_col0_diagnostics_for_continuation": table_policy.suppress_col0_diagnostics_for_continuation,
+                },
+            },
         },
     }
 

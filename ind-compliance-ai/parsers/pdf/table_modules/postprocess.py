@@ -1,3 +1,10 @@
+# Version: v1.0.9
+# Optimization Summary:
+# - Strengthen cross-page stitching with title compatibility and horizontal overlap checks.
+# - Allow stitching when current page repeats the same title as previous continuation table.
+# - Add stricter gating for low-similarity continuation candidates to reduce false links.
+# - Externalize stitching thresholds to config/pdf_parser.toml for enterprise tuning.
+
 """Post-processing Module - 表格后处理
 
 Architecture:
@@ -15,6 +22,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ..settings import get_pdf_parser_settings
 
 # ============================================================================
 # Utility Functions
@@ -53,7 +61,7 @@ def stitch_cross_page_tables(
     table_asts: list[dict[str, Any]],
     page_heights: dict[int, float],
 ) -> int:
-    """跨页表格拼接
+    """??????
 
     This function:
     1. Detects continuation tables across pages
@@ -71,6 +79,7 @@ def stitch_cross_page_tables(
     if not table_asts:
         return 0
 
+    cfg = get_pdf_parser_settings().cross_page_stitching
     stitched_count = 0
     sorted_tables = sorted(table_asts, key=lambda item: (item["page"], item["bbox"][1]))
 
@@ -78,10 +87,14 @@ def stitch_cross_page_tables(
         if current["page"] != previous["page"] + 1:
             continue
 
+        previous_bbox = tuple(previous.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+        current_bbox = tuple(current.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+        overlap_ratio = _horizontal_overlap_ratio(previous_bbox, current_bbox)
+
         prev_page_height = max(1.0, page_heights.get(previous["page"], 1.0))
         curr_page_height = max(1.0, page_heights.get(current["page"], 1.0))
-        prev_near_bottom = previous["bbox"][3] >= prev_page_height * 0.72
-        curr_near_top = current["bbox"][1] <= curr_page_height * 0.28
+        prev_near_bottom = previous_bbox[3] >= prev_page_height * cfg.prev_near_bottom_ratio
+        curr_near_top = current_bbox[1] <= curr_page_height * cfg.curr_near_top_ratio
 
         similarity = column_similarity(
             previous.get("column_signature", []),
@@ -104,30 +117,45 @@ def stitch_cross_page_tables(
             and str(continuation_hint.get("table_id", "")).strip() == str(previous.get("table_id", "")).strip()
         )
 
+        previous_title = str(previous.get("title", "")).strip()
+        current_title = str(current.get("title", "")).strip()
+        if not _titles_compatible(previous_title, current_title):
+            continue
+
+        if overlap_ratio < cfg.overlap_min_without_hint and not hint_matches_previous:
+            continue
+
         # Context-based continuation detection
         context_continuation = (
             (previous_has_title or previous_has_section_hint)
             and curr_near_top
             and abs(previous_col_count - current_col_count) <= 1
+            and overlap_ratio >= cfg.context_overlap_min
             and (
-                (previous_is_glossary_context and similarity >= 0.22)
-                or (not previous_is_glossary_context and similarity >= 0.28)
+                (previous_is_glossary_context and similarity >= cfg.hint_glossary_similarity_min)
+                or (not previous_is_glossary_context and similarity >= cfg.default_similarity_min)
             )
         )
 
         is_likely_continuation = (
             (prev_near_bottom and curr_near_top)
-            or similarity >= 0.82
-            or ((previous_has_title or previous_has_section_hint) and curr_near_top and similarity >= 0.42)
+            or similarity >= cfg.high_similarity_link_threshold
+            or ((previous_has_title or previous_has_section_hint) and curr_near_top and similarity >= cfg.title_context_similarity_threshold)
             or context_continuation
             or hint_matches_previous
         )
 
-        min_similarity = 0.22 if hint_matches_previous and previous_is_glossary_context else 0.28
+        min_similarity = cfg.hint_glossary_similarity_min if hint_matches_previous and previous_is_glossary_context else cfg.default_similarity_min
         if similarity < min_similarity or not is_likely_continuation:
             continue
+        if (
+            similarity < cfg.low_similarity_guard_threshold
+            and overlap_ratio < cfg.low_similarity_guard_overlap_min
+            and not hint_matches_previous
+        ):
+            continue
 
-        if str(current.get("title", "")).strip():
+        if current_title and _compact_text(current_title) != _compact_text(previous_title):
             continue
 
         # Set cross-page links
@@ -135,6 +163,7 @@ def stitch_cross_page_tables(
         previous["continued_to"].append(current["table_id"])
         current["continued_from"] = previous["table_id"]
         current["cross_page_similarity"] = round(similarity, 3)
+        current["cross_page_overlap"] = round(overlap_ratio, 3)
         current["is_continuation"] = True
 
         # Record inheritance metadata
@@ -142,11 +171,12 @@ def stitch_cross_page_tables(
             "source_table_id": str(previous.get("table_id", "")),
             "strategy": "cross_page_stitch",
             "similarity": round(similarity, 3),
+            "horizontal_overlap": round(overlap_ratio, 3),
             "inherited_fields": [],
         }
 
         # Inherit title
-        if not str(current.get("title", "")).strip() and str(previous.get("title", "")).strip():
+        if not current_title and previous_title:
             current["title"] = previous["title"]
             current["title_inherited"] = True
             continuation_source["inherited_fields"].append("title")
@@ -173,6 +203,12 @@ def _is_glossary_hint_text(text: str) -> bool:
 # ============================================================================
 # Same-Page Fragment Merging
 # ============================================================================
+
+def _titles_compatible(previous_title: str, current_title: str) -> bool:
+    """Check whether two titles can belong to the same continuation chain."""
+    if not previous_title or not current_title:
+        return True
+    return _compact_text(previous_title) == _compact_text(current_title)
 
 def can_merge_table_fragments_on_same_page(primary: dict[str, Any], secondary: dict[str, Any]) -> bool:
     """检查同页上的两个表格片段是否可以合并"""

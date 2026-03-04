@@ -8,6 +8,8 @@ PDF_PARSER_HINT = "pdf-ast-v5"
 
 @dataclass(slots=True)
 class PdfPipelineCounters:
+    raw_table_candidates: int = 0
+    accepted_table_candidates: int = 0
     semantic_merge_count: int = 0
     image_text_recovered_count: int = 0
     rejected_table_candidates: int = 0

@@ -154,6 +154,7 @@ def run_pdf_extraction_pipeline(path: Path) -> PdfPipelineState:
             context_text_blocks = _get_text_blocks(page)
             context_drawings = _get_drawings(page)
 
+            page_table_stats: dict[str, int] = {}
             page_tables, table_counter = extract_tables_from_page(
                 page=page,
                 page_number=page_number,
@@ -162,7 +163,11 @@ def run_pdf_extraction_pipeline(path: Path) -> PdfPipelineState:
                 page_drawings=context_drawings,
                 prev_tables=state.table_asts,
                 table_counter=table_counter,
+                out_stats=page_table_stats,
             )
+            state.counters.raw_table_candidates += page_table_stats.get("raw_candidates", 0)
+            state.counters.accepted_table_candidates += page_table_stats.get("accepted", 0)
+            state.counters.rejected_table_candidates += page_table_stats.get("rejected", 0)
 
             # Merge same-page fragments if multiple tables found
             if len(page_tables) > 1:

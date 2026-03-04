@@ -1,4 +1,4 @@
-"""Table Instance Assembly Layer - 表格实例组装层
+﻿"""Table Instance Assembly Layer - 表格实例组装层
 
 Architecture:
     Normalized Evidence → Assembly → Table Instance
@@ -14,6 +14,10 @@ Architecture:
 - 单元格合并：续表行合并、括号缩写合并
 - 空值处理：显式 null 占位符
 """
+
+# Version: v1.0.4
+# Optimization Summary:
+# - Preserve auditability for inferred cell values by exposing inference metadata.
 
 from __future__ import annotations
 
@@ -312,6 +316,8 @@ def _build_cells(
                 "physical_col_end": cell.physical_col_end + 1,
                 "physical_colspan": cell.physical_colspan,
                 "text": _clean_text(cell.text) if cell.text else None,
+                "inferred": bool(cell.supplemented),
+                "inference_reason": cell.supplement_reason,
                 "rowspan": 1,
                 "colspan": 1,
             }
@@ -378,14 +384,11 @@ def _build_row_texts(grid: list[list[str | None]]) -> list[str]:
     """构建行文本表示"""
     row_texts = []
     for row in grid:
-        normalized_cells = [_clean_text(cell) for cell in row]
-        non_empty_parts = [text for text in normalized_cells if text]
-        if not non_empty_parts:
-            continue
-        if len(non_empty_parts) == 1:
-            row_texts.append(non_empty_parts[0])
-            continue
-        row_texts.append(" ".join(non_empty_parts))
+        parts = []
+        for cell in row:
+            text = _clean_text(cell) if cell else "null"
+            parts.append(text if text else "null")
+        row_texts.append(" | ".join(parts))
     return row_texts
 
 

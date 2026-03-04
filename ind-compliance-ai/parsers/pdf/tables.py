@@ -1,3 +1,12 @@
+# Version: v1.2.0
+# Optimization Summary:
+# - Keep AST extraction non-destructive and surface optional diagnostics only.
+# - Attach per-table possible-missing-content diagnostic payload.
+# - Mark fully-null rows as structural-empty for enterprise auditability.
+# - Add conservative parallel word-clustering candidate path for borderless-table scenarios.
+# - Use strict bbox-overlap de-dup to protect already-correct PyMuPDF detections.
+# - Add config-driven two-column guard and supplemental candidate strength scoring.
+
 """Table parsing for PDF documents - Unified Architecture.
 
 统一架构:
@@ -21,6 +30,34 @@ Usage:
     from parsers.pdf.tables import extract_tables_from_page
 
     tables = extract_tables_from_page(page, page_number, page_height)
+
+================================================================================
+修复历史 (Fix History)
+================================================================================
+
+v1.0.7 - 第21页续表列映射错误修复
+    问题: 第21页作为第20页续表，列映射错误导致数据错位
+    原因: 第20页表格不在页面底部(下面有脚注)，续表未被正确识别
+    修复:
+        1. 放宽续表检测条件 - 即使上一页表格不在底部，当前表格在顶部+水平重叠>=50%也识别为续表
+        2. 新增两层续表检测机制，确保与第18页修复逻辑兼容
+    位置: extract_tables_from_page() 第182-221行
+
+v1.0.6 - 第20页多识别一行修复
+    问题: "文件夹"被拆分成两行
+    原因: PDF文本换行导致的错误行拆分
+    修复: 新增 _merge_split_rows() 函数，检测并合并被错误拆分的行
+    位置: _postprocess_cells() 第451-452行, _merge_split_rows() 第455-592行
+
+v1.0.5 - 第18页逻辑列数错误修复
+    问题: 续表错误继承不相关表格的列数
+    原因: 续表检测仅依赖页面位置，未验证表格相关性
+    修复:
+        1. 新增续表验证逻辑 - 检查 near_page_top 和 overlap_ratio >= 0.3
+        2. 不满足条件时清除 parent_col_count，避免错误继承
+    位置: _process_raw_evidence() 第290-316行
+
+================================================================================
 """
 
 from __future__ import annotations
@@ -111,6 +148,7 @@ from .table_modules.ast import (
 )
 
 from .shared import _Word
+from .settings import get_pdf_parser_settings
 
 
 # ============================================================================
@@ -140,15 +178,16 @@ def extract_tables_from_page(
     page_drawings: list[dict[str, Any]] | None = None,
     prev_tables: list[dict[str, Any]] | None = None,
     table_counter: int = 0,
+    out_stats: dict[str, int] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Extract tables from a single PDF page.
 
-    使用统一的新架构处理流程：
-    1. Raw Objects Extraction - 原始证据提取
-    2. Normalization - 物理证据规范化
-    3. Assembly - 表格实例组装
-    4. Continuum Engine - 6 Phase 处理
-    5. AST Building - 构建逻辑表格 AST
+    Uses the unified table pipeline:
+    1. Raw Objects Extraction
+    2. Normalization
+    3. Assembly
+    4. Continuum Engine (6 phases)
+    5. Logical AST building
 
     Args:
         page: PyMuPDF page object
@@ -163,37 +202,38 @@ def extract_tables_from_page(
         Tuple of (list of table ASTs, updated table counter)
     """
     tables: list[dict[str, Any]] = []
+    raw_candidate_count = 0
+    rejected_count = 0
+    page_width = page.rect.width if hasattr(page, "rect") else 612.0
+    detection_policy = get_pdf_parser_settings().table_detection_policy
 
-    # Get parent context for continuation
-    parent_col_count = None
-    parent_header = None
-    parent_bbox = None
+    # Strategy 1: PyMuPDF built-in detection (multi-table aware)
+    pymupdf_table_count = 0
+    try:
+        detected_tables = page.find_tables()
+        if detected_tables and hasattr(detected_tables, "tables") and detected_tables.tables:
+            pymupdf_table_count = len(detected_tables.tables)
+    except Exception:
+        pymupdf_table_count = 0
 
-    if prev_tables:
-        for prev in reversed(prev_tables):
-            if prev.get("near_page_bottom") and prev.get("page") == page_number - 1:
-                # Check column signature similarity to confirm continuation
-                # This prevents false positives where unrelated tables are incorrectly merged
-                prev_signature = prev.get("column_signature", [])
-                # We'll check similarity after extracting raw evidence
-                # For now, just store the parent info
-                parent_col_count = prev.get("col_count")
-                parent_header = prev.get("header")
-                if prev.get("bbox"):
-                    parent_bbox = tuple(prev.get("bbox"))
-                break
+    for table_index in range(pymupdf_table_count):
+        raw_evidence = extract_raw_evidence_from_pymupdf(
+            page=page,
+            page_number=page_number,
+            page_height=page_height,
+            page_width=page_width,
+            table_index=table_index,
+        )
+        if not raw_evidence:
+            continue
+        raw_candidate_count += 1
 
-    page_width = page.rect.width if hasattr(page, 'rect') else 612.0
+        parent_col_count, parent_header, parent_bbox = _resolve_parent_context(
+            raw_evidence=raw_evidence,
+            page_number=page_number,
+            prev_tables=prev_tables,
+        )
 
-    # Strategy 1: PyMuPDF built-in detection
-    raw_evidence = extract_raw_evidence_from_pymupdf(
-        page=page,
-        page_number=page_number,
-        page_height=page_height,
-        page_width=page_width,
-    )
-
-    if raw_evidence:
         table_ast = _process_raw_evidence(
             raw_evidence=raw_evidence,
             page=page,
@@ -211,38 +251,107 @@ def extract_tables_from_page(
         if table_ast:
             tables.append(table_ast)
             table_counter += 1
+        else:
+            rejected_count += 1
 
-    # Strategy 2: Word-clustering fallback
-    if not tables:
-        words = _extract_words_from_page(page)
-        if words:
-            raw_evidence_fallback = extract_raw_evidence_from_words(
-                words=words,
+    # Strategy 2: Word-clustering supplemental candidate (borderless-table support)
+    # Run even when Strategy 1 succeeds, but only append when clearly distinct.
+    words = _extract_words_from_page(page)
+    if words:
+        raw_evidence_fallback = extract_raw_evidence_from_words(
+            words=words,
+            page_number=page_number,
+            page_height=page_height,
+            page_width=page_width,
+        )
+
+        if raw_evidence_fallback:
+            raw_candidate_count += 1
+            parent_col_count, parent_header, parent_bbox = _resolve_parent_context(
+                raw_evidence=raw_evidence_fallback,
+                page_number=page_number,
+                prev_tables=prev_tables,
+            )
+            table_ast = _process_raw_evidence(
+                raw_evidence=raw_evidence_fallback,
+                page=page,
                 page_number=page_number,
                 page_height=page_height,
-                page_width=page_width,
+                text_blocks=text_blocks,
+                page_drawings=page_drawings,
+                prev_tables=prev_tables,
+                table_counter=table_counter,
+                parent_col_count=parent_col_count,
+                parent_header=parent_header,
+                parent_bbox=parent_bbox,
             )
 
-            if raw_evidence_fallback:
-                table_ast = _process_raw_evidence(
-                    raw_evidence=raw_evidence_fallback,
-                    page=page,
-                    page_number=page_number,
-                    page_height=page_height,
-                    text_blocks=text_blocks,
-                    page_drawings=page_drawings,
-                    prev_tables=prev_tables,
-                    table_counter=table_counter,
-                    parent_col_count=parent_col_count,
-                    parent_header=parent_header,
-                    parent_bbox=parent_bbox,
-                )
+            accept_supplemental = _can_accept_supplemental_candidate(
+                raw_evidence=raw_evidence_fallback,
+                words=words,
+                page_width=page_width,
+            )
+            if table_ast and accept_supplemental and _is_distinct_from_existing_tables(
+                table_ast,
+                tables,
+                overlap_threshold=detection_policy.supplemental_dedup_overlap_threshold,
+            ):
+                tables.append(table_ast)
+                table_counter += 1
+            elif table_ast:
+                rejected_count += 1
+            else:
+                rejected_count += 1
 
-                if table_ast:
-                    tables.append(table_ast)
-                    table_counter += 1
+    if out_stats is not None:
+        out_stats["raw_candidates"] = out_stats.get("raw_candidates", 0) + raw_candidate_count
+        out_stats["accepted"] = out_stats.get("accepted", 0) + len(tables)
+        out_stats["rejected"] = out_stats.get("rejected", 0) + rejected_count
 
     return tables, table_counter
+
+
+def _resolve_parent_context(
+    raw_evidence: RawTableEvidence,
+    page_number: int,
+    prev_tables: list[dict[str, Any]] | None,
+) -> tuple[int | None, list[dict[str, Any]] | None, tuple[float, float, float, float] | None]:
+    """Resolve possible parent context for continuation validation."""
+    parent_col_count = None
+    parent_header = None
+    parent_bbox = None
+
+    if not prev_tables:
+        return parent_col_count, parent_header, parent_bbox
+
+    for prev in reversed(prev_tables):
+        prev_page = prev.get("page")
+        prev_near_bottom = prev.get("near_page_bottom")
+        prev_bbox_value = prev.get("bbox")
+        if prev_page != page_number - 1:
+            continue
+
+        is_continuation = False
+        if prev_near_bottom:
+            is_continuation = True
+        elif raw_evidence.near_page_top and prev_bbox_value:
+            current_bbox = raw_evidence.bbox
+            prev_bbox_tuple = tuple(prev_bbox_value)
+            x_overlap = max(0, min(current_bbox[2], prev_bbox_tuple[2]) - max(current_bbox[0], prev_bbox_tuple[0]))
+            current_width = current_bbox[2] - current_bbox[0]
+            prev_width = prev_bbox_tuple[2] - prev_bbox_tuple[0]
+            overlap_ratio = x_overlap / min(current_width, prev_width) if min(current_width, prev_width) > 0 else 0
+            if overlap_ratio >= 0.5:
+                is_continuation = True
+
+        if is_continuation:
+            parent_col_count = prev.get("col_count")
+            parent_header = prev.get("header")
+            if prev_bbox_value:
+                parent_bbox = tuple(prev_bbox_value)
+            break
+
+    return parent_col_count, parent_header, parent_bbox
 
 
 def _process_raw_evidence(
@@ -264,23 +373,23 @@ def _process_raw_evidence(
     # This prevents false positives where unrelated tables inherit wrong column count
     effective_parent_col_count = parent_col_count
     effective_parent_bbox = parent_bbox
-    
+
     if parent_col_count is not None and parent_bbox is not None and prev_tables:
         # Check if current table is really a continuation
         # by comparing column signatures
         current_bbox = raw_evidence.bbox
-        
+
         # Check if current table is near page top (continuation indicator)
         near_top = raw_evidence.near_page_top
-        
+
         # Check horizontal overlap with parent table
         current_width = current_bbox[2] - current_bbox[0]
         parent_width = parent_bbox[2] - parent_bbox[0]
-        
+
         # Calculate horizontal overlap
         x_overlap = max(0, min(current_bbox[2], parent_bbox[2]) - max(current_bbox[0], parent_bbox[0]))
         overlap_ratio = x_overlap / min(current_width, parent_width) if min(current_width, parent_width) > 0 else 0
-        
+
         # Check if tables are truly related
         # Conditions: must be near page top AND have significant horizontal overlap
         if not near_top or overlap_ratio < 0.3:
@@ -337,7 +446,26 @@ def _process_raw_evidence(
     # Post-process cells
     _postprocess_cells(ast)
 
-    return ast.to_dict()
+    result = ast.to_dict()
+    structural_empty_rows = _collect_structural_empty_rows(result.get("grid", []))
+    if structural_empty_rows:
+        result["structural_empty_rows"] = structural_empty_rows
+    if normalized.missing_content_candidates_count > 0:
+        result["diagnostics"] = {
+            "possible_missing_table_content": True,
+            "candidate_count": normalized.missing_content_candidates_count,
+            "candidates": normalized.missing_content_candidates,
+            "supplement_writeback_enabled": normalized.supplement_writeback_enabled,
+        }
+    else:
+        result["diagnostics"] = {
+            "possible_missing_table_content": False,
+            "candidate_count": 0,
+            "candidates": [],
+            "supplement_writeback_enabled": normalized.supplement_writeback_enabled,
+        }
+
+    return result
 
 
 def _build_context(
@@ -429,6 +557,18 @@ def _horizontal_overlap_ratio(bbox_a: tuple, bbox_b: tuple) -> float:
     return x_overlap / min(width_a, width_b)
 
 
+def _collect_structural_empty_rows(grid: list[list[str | None]]) -> list[int]:
+    """Return 1-based row indices that are completely empty in the logical grid."""
+    empty_rows: list[int] = []
+    for row_idx, row in enumerate(grid or [], start=1):
+        if not row:
+            empty_rows.append(row_idx)
+            continue
+        if all((cell is None) or (isinstance(cell, str) and not cell.strip()) for cell in row):
+            empty_rows.append(row_idx)
+    return empty_rows
+
+
 def _postprocess_cells(ast: LogicalTableAST) -> None:
     """Post-process cells in AST."""
     cells = ast.cells
@@ -450,6 +590,149 @@ def _postprocess_cells(ast: LogicalTableAST) -> None:
         ast.cells,
         key=lambda c: (c.get("logical_row", c.get("row", 0)), c.get("col", 0))
     )
+
+    # Merge incorrectly split rows
+    _merge_split_rows(ast)
+
+
+def _merge_split_rows(ast: LogicalTableAST) -> None:
+    """合并被错误拆分的行
+
+    检测并合并由于 PDF 文本换行导致的错误行拆分。
+
+    例如：
+    Row 5: ['m1', None, '符合 ICH 要求的模块一内容文件']
+    Row 6: [None, '夹', '符合 ICH 要求的模块一内容文件\n夹']
+
+    应该合并为：
+    Row 5: ['m1', None, '符合 ICH 要求的模块一内容文件夹']
+    Row 6: 删除
+    """
+    if not ast.grid or len(ast.grid) < 2:
+        return
+
+    rows_to_merge: list[tuple[int, int]] = []  # (source_row, target_row)
+
+    for row_idx in range(len(ast.grid) - 1, 0, -1):  # 从后往前遍历
+        current_row = ast.grid[row_idx]
+        prev_row = ast.grid[row_idx - 1]
+
+        # 检测是否是错误拆分的行
+        # 条件: 当前行包含很短的内容（1-3字符），且是常见拆分词
+        # 并且：当前行某列内容与前一行某列内容高度相似（前缀关系）
+
+        # 检查是否有短内容拆分词
+        has_short_split_word = False
+        short_split_word_col = -1
+        short_split_word_text = ""
+        short_split_words = ['夹', '件', '文', '的', '等', '表', '书', '明']
+
+        for col_idx, cell in enumerate(current_row):
+            if cell and len(cell.strip()) <= 2 and cell.strip() in short_split_words:
+                has_short_split_word = True
+                short_split_word_col = col_idx
+                short_split_word_text = cell.strip()
+                break
+
+        if not has_short_split_word:
+            continue
+
+        # 检查是否有内容续接关系（在其他列）
+        has_continuation = False
+        continuation_col = -1
+        for col_idx in range(min(len(current_row), len(prev_row))):
+            if col_idx == short_split_word_col:
+                continue  # 跳过短词所在列
+
+            current_cell = current_row[col_idx]
+            prev_cell = prev_row[col_idx]
+
+            if not current_cell or not current_cell.strip():
+                continue
+
+            current_text = current_cell.strip().replace('\n', ' ')
+
+            if prev_cell:
+                prev_text = prev_cell.strip().replace('\n', ' ')
+
+                # 检查续接关系：当前行内容包含前一行内容
+                if prev_text and current_text.startswith(prev_text):
+                    has_continuation = True
+                    continuation_col = col_idx
+                    break
+
+        if has_short_split_word and has_continuation:
+            rows_to_merge.append((row_idx, row_idx - 1))
+
+    # 执行合并（从后往前，避免索引变化）
+    for source_row, target_row in rows_to_merge:
+        current_row = ast.grid[source_row]
+        prev_row = ast.grid[target_row]
+
+        # 找到短拆分词所在列
+        short_split_word_col = -1
+        short_split_word_text = ""
+        short_split_words = ['夹', '件', '文', '的', '等', '表', '书', '明']
+
+        for col_idx, cell in enumerate(current_row):
+            if cell and len(cell.strip()) <= 2 and cell.strip() in short_split_words:
+                short_split_word_col = col_idx
+                short_split_word_text = cell.strip()
+                break
+
+        # 找到有续接关系的列
+        continuation_col = -1
+        for col_idx in range(min(len(current_row), len(prev_row))):
+            if col_idx == short_split_word_col:
+                continue
+
+            current_cell = current_row[col_idx]
+            prev_cell = prev_row[col_idx]
+
+            if not current_cell or not current_cell.strip():
+                continue
+
+            current_text = current_cell.strip().replace('\n', ' ')
+
+            if prev_cell:
+                prev_text = prev_cell.strip().replace('\n', ' ')
+                if prev_text and current_text.startswith(prev_text):
+                    continuation_col = col_idx
+                    break
+
+        # 步骤1: 先把短词追加到续接列（而不是短词列对应的 target）
+        if short_split_word_text and continuation_col >= 0:
+            target_cell = prev_row[continuation_col]
+            if target_cell:
+                # 检查是否需要追加
+                target_text = target_cell.strip().replace('\n', ' ')
+                # 只有当短词不在目标文本末尾时才追加
+                if not target_text.endswith(short_split_word_text):
+                    prev_row[continuation_col] = target_text + short_split_word_text
+
+        # 步骤2: 清空源行
+        ast.grid[source_row] = [None] * len(ast.grid[source_row])
+
+        # 更新 cells
+        for cell in ast.cells:
+            if cell.get("logical_row", cell.get("row", 0)) == source_row:
+                cell["text"] = None
+
+    # 移除空行并更新 row_texts
+    if rows_to_merge:
+        # 过滤空行
+        new_grid = [row for row in ast.grid if any(c for c in row if c and c.strip())]
+        ast.grid = new_grid
+        ast.row_count = len(new_grid)
+
+        # 重建 row_texts
+        ast.row_texts = []
+        for row in new_grid:
+            parts = []
+            for cell in row:
+                text = cell.replace('\n', ' ').strip() if cell else "null"
+                parts.append(text if text else "null")
+            ast.row_texts.append(" | ".join(parts))
 
 
 def extract_tables_from_document(
@@ -524,6 +807,154 @@ def _extract_words_from_page(page: Any) -> list[_Word]:
     except Exception:
         pass
     return words
+
+
+def _bbox_overlap_ratio(
+    bbox_a: tuple[float, float, float, float],
+    bbox_b: tuple[float, float, float, float],
+) -> float:
+    """Overlap ratio based on min area, robust for containment duplicate checks."""
+    ax0, ay0, ax1, ay1 = bbox_a
+    bx0, by0, bx1, by1 = bbox_b
+    inter_w = max(0.0, min(ax1, bx1) - max(ax0, bx0))
+    inter_h = max(0.0, min(ay1, by1) - max(ay0, by0))
+    inter_area = inter_w * inter_h
+    area_a = max(0.0, (ax1 - ax0) * (ay1 - ay0))
+    area_b = max(0.0, (bx1 - bx0) * (by1 - by0))
+    denom = min(area_a, area_b)
+    if denom <= 0:
+        return 0.0
+    return inter_area / denom
+
+
+def _is_distinct_from_existing_tables(
+    candidate: dict[str, Any],
+    existing_tables: list[dict[str, Any]],
+    overlap_threshold: float = 0.30,
+) -> bool:
+    """Conservative same-page de-dup gate for supplemental candidates.
+
+    Keep current correct detections stable by requiring low spatial overlap
+    before accepting supplemental word-clustering candidates.
+    """
+    cand_bbox_raw = candidate.get("bbox")
+    if not cand_bbox_raw or len(cand_bbox_raw) != 4:
+        return False
+    cand_bbox = tuple(float(v) for v in cand_bbox_raw)
+
+    for existing in existing_tables:
+        ex_bbox_raw = existing.get("bbox")
+        if not ex_bbox_raw or len(ex_bbox_raw) != 4:
+            continue
+        ex_bbox = tuple(float(v) for v in ex_bbox_raw)
+        overlap_ratio = _bbox_overlap_ratio(cand_bbox, ex_bbox)
+        # Strong overlap indicates duplicate extraction of the same table.
+        if overlap_ratio >= overlap_threshold:
+            return False
+    return True
+
+
+def _can_accept_supplemental_candidate(
+    raw_evidence: RawTableEvidence,
+    words: list[_Word],
+    page_width: float,
+) -> bool:
+    """Guard supplemental word-clustering candidates with config-driven rules."""
+    policy = get_pdf_parser_settings().table_detection_policy
+    if raw_evidence.physical_row_count < policy.min_rows_for_supplemental_candidate:
+        return False
+    if raw_evidence.physical_col_count < policy.min_cols_for_supplemental_candidate:
+        return False
+
+    score = _tabular_strength_score(raw_evidence)
+    if _is_two_column_layout(words, page_width):
+        if not policy.enable_two_column_guard:
+            return score >= 0.55
+        return score >= policy.two_column_min_tabular_score
+
+    return score >= 0.45
+
+
+def _is_two_column_layout(words: list[_Word], page_width: float) -> bool:
+    """Heuristic two-column detector for literature-style pages."""
+    policy = get_pdf_parser_settings().table_detection_policy
+    if not policy.enable_two_column_guard:
+        return False
+    if not words or page_width <= 0:
+        return False
+    if len(words) < policy.two_column_min_words:
+        return False
+
+    mid = page_width / 2.0
+    gutter_half = page_width * max(0.0, policy.two_column_gutter_ratio_min) / 2.0
+    gutter_max_half = page_width * max(policy.two_column_gutter_ratio_max, policy.two_column_gutter_ratio_min) / 2.0
+    left_count = 0
+    right_count = 0
+    gutter_count = 0
+    for w in words:
+        xc = (w.x0 + w.x1) / 2.0
+        dist = abs(xc - mid)
+        if dist <= gutter_half:
+            gutter_count += 1
+        elif xc < mid:
+            left_count += 1
+        else:
+            right_count += 1
+
+    side_total = left_count + right_count
+    if side_total <= 0:
+        return False
+    balance = abs(left_count - right_count) / side_total
+    gutter_ratio = gutter_count / max(1, len(words))
+    return balance <= policy.two_column_balance_tolerance and gutter_ratio <= policy.two_column_gutter_ratio_max
+
+
+def _tabular_strength_score(raw_evidence: RawTableEvidence) -> float:
+    """Estimate whether a word-clustered candidate is likely a real table."""
+    rows = raw_evidence.physical_row_count
+    cols = raw_evidence.physical_col_count
+    raw_data = raw_evidence.raw_data or []
+    if rows <= 0 or cols <= 0 or not raw_data:
+        return 0.0
+
+    filled = 0
+    total = rows * cols
+    multi_cell_rows = 0
+    consistent_rows = 0
+    per_row_filled: list[int] = []
+    for row in raw_data:
+        row_fill = 0
+        for cell in row:
+            txt = str(cell or "").strip()
+            if txt:
+                filled += 1
+                row_fill += 1
+        per_row_filled.append(row_fill)
+        if row_fill >= 2:
+            multi_cell_rows += 1
+        if row_fill >= max(1, cols // 2):
+            consistent_rows += 1
+
+    density = filled / max(1, total)
+    multi_row_ratio = multi_cell_rows / max(1, rows)
+    consistent_ratio = consistent_rows / max(1, rows)
+
+    col_usage = 0
+    for c in range(cols):
+        if any(str((row[c] if c < len(row) else "") or "").strip() for row in raw_data):
+            col_usage += 1
+    col_usage_ratio = col_usage / max(1, cols)
+
+    # Weighted score tuned for conservative supplemental acceptance.
+    score = (
+        0.30 * min(1.0, rows / 8.0)
+        + 0.20 * min(1.0, cols / 4.0)
+        + 0.20 * max(0.0, min(1.0, density))
+        + 0.15 * multi_row_ratio
+        + 0.10 * consistent_ratio
+        + 0.05 * col_usage_ratio
+    )
+    return max(0.0, min(1.0, score))
 
 
 def _get_text_blocks(page: Any) -> list[dict[str, Any]]:

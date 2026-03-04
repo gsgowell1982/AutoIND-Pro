@@ -1,4 +1,4 @@
-"""Raw Objects Layer - 原始证据提取层
+﻿"""Raw Objects Layer - 原始证据提取层
 
 Architecture:
     PDF → PyMuPDF → Raw Objects
@@ -17,6 +17,13 @@ Architecture:
 - 提供完整的原始证据供后续层处理
 - 包含 chars, spans, drawings 三类原始数据
 """
+
+# Version: v1.0.9
+# Optimization Summary:
+# - Fix PyMuPDF row/cell bbox alignment by reading per-row cell geometry directly.
+# - Avoid incorrect flat-index mapping for sparse/merged table cell bboxes.
+# - Preserve row bbox/y-range metadata for downstream recovery logic.
+# - Add row-aligned table words as a secondary evidence source for robust recovery.
 
 from __future__ import annotations
 
@@ -112,6 +119,30 @@ class RawSpan:
             "flags": self.flags,
             "chars": [c.to_dict() for c in self.chars],
             "origin": list(self.origin),
+        }
+
+
+@dataclass
+class RawWord:
+    """原始单词证据 (PyMuPDF words)"""
+    text: str
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+    @property
+    def x_center(self) -> float:
+        return (self.x0 + self.x1) / 2
+
+    @property
+    def y_center(self) -> float:
+        return (self.y0 + self.y1) / 2
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "text": self.text,
+            "bbox": [self.x0, self.y0, self.x1, self.y1],
         }
 
 
@@ -249,6 +280,7 @@ class RawTableEvidence:
     # 原始数据 - 三类核心数据
     chars: list[RawChar] = field(default_factory=list)      # 字符级数据
     spans: list[RawSpan] = field(default_factory=list)      # 片段级数据
+    words: list[RawWord] = field(default_factory=list)      # 单词级数据
     drawings: list[RawDrawing] = field(default_factory=list)  # 绘图数据
     
     # 原始表格数据
@@ -297,6 +329,7 @@ class RawTableEvidence:
             "rows": [r.to_dict() for r in self.rows],
             "chars_count": len(self.chars),
             "spans_count": len(self.spans),
+            "words_count": len(self.words),
             "drawings_count": len(self.drawings),
             "horizontal_lines": len(self.horizontal_lines),
             "vertical_lines": len(self.vertical_lines),
@@ -365,25 +398,50 @@ def extract_raw_evidence_from_pymupdf(
         
         # Step 1: 提取 chars 和 spans
         chars, spans = _extract_chars_and_spans_from_page(page, table_bbox)
+        words = _extract_words_from_page(page, table_bbox)
         
         # Step 2: 提取 drawings
         drawings = _extract_drawings_from_page(page, table_bbox)
         
         # Step 3: 构建行数据
+        # 优先使用逐行 cells 几何，避免合并单元格导致的扁平索引错位。
+        table_row_objects = pymupdf_table.rows if hasattr(pymupdf_table, "rows") else None
+        table_cells_bboxes = pymupdf_table.cells if hasattr(pymupdf_table, "cells") else None
         rows = []
         for row_idx, row_data in enumerate(raw_table_data):
+            row_bbox = None
+            row_cells_bboxes = None
+            if table_row_objects and row_idx < len(table_row_objects):
+                row_obj = table_row_objects[row_idx]
+                row_bbox = getattr(row_obj, "bbox", None)
+                row_cells_bboxes = getattr(row_obj, "cells", None)
             cells = []
             for col_idx, cell_text in enumerate(row_data):
+                # 优先用行内列 bbox；仅在致密网格时退回扁平索引。
+                cell_bbox = None
+                if isinstance(row_cells_bboxes, (list, tuple)) and col_idx < len(row_cells_bboxes):
+                    cell_bbox_raw = row_cells_bboxes[col_idx]
+                    if isinstance(cell_bbox_raw, (list, tuple)) and len(cell_bbox_raw) == 4:
+                        cell_bbox = tuple(cell_bbox_raw)
+                elif table_cells_bboxes and len(table_cells_bboxes) == physical_col_count * physical_row_count:
+                    cell_index = row_idx * physical_col_count + col_idx
+                    cell_bbox_raw = table_cells_bboxes[cell_index]
+                    if isinstance(cell_bbox_raw, (list, tuple)) and len(cell_bbox_raw) == 4:
+                        cell_bbox = tuple(cell_bbox_raw)
                 cell = RawCell(
                     physical_col=col_idx,
                     physical_row=row_idx,
                     text=str(cell_text).strip() if cell_text else None,
+                    bbox=cell_bbox,
                 )
                 cells.append(cell)
             
             row = RawRow(
                 physical_row=row_idx,
                 cells=cells,
+                bbox=tuple(row_bbox) if isinstance(row_bbox, (list, tuple)) and len(row_bbox) == 4 else None,
+                y0=float(row_bbox[1]) if isinstance(row_bbox, (list, tuple)) and len(row_bbox) == 4 else 0.0,
+                y1=float(row_bbox[3]) if isinstance(row_bbox, (list, tuple)) and len(row_bbox) == 4 else 0.0,
             )
             rows.append(row)
         
@@ -396,6 +454,7 @@ def extract_raw_evidence_from_pymupdf(
             rows=rows,
             chars=chars,
             spans=spans,
+            words=words,
             drawings=drawings,
             raw_data=raw_table_data,
             page_height=page_height,
@@ -465,6 +524,27 @@ def _extract_chars_and_spans_from_page(
         print(f"[Char/Span Extraction Warning] {e}")
     
     return chars, spans
+
+
+def _extract_words_from_page(
+    page: Any,
+    table_bbox: tuple[float, float, float, float],
+) -> list[RawWord]:
+    """提取表格区域内的 words 证据，作为 spans 的稳健补充。"""
+    words: list[RawWord] = []
+    try:
+        for item in page.get_text("words"):
+            if len(item) < 5:
+                continue
+            x0, y0, x1, y1, text = item[0], item[1], item[2], item[3], str(item[4]).strip()
+            if not text:
+                continue
+            if not _is_in_table_region((x0, y0, x1, y1), table_bbox):
+                continue
+            words.append(RawWord(text=text, x0=x0, y0=y0, x1=x1, y1=y1))
+    except Exception:
+        pass
+    return words
 
 
 def _extract_drawings_from_page(
@@ -891,6 +971,7 @@ __all__ = [
     # Data classes
     "RawChar",
     "RawSpan",
+    "RawWord",
     "RawDrawing",
     "RawCell",
     "RawRow",
