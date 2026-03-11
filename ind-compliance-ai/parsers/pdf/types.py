@@ -16,6 +16,7 @@ class PdfPipelineCounters:
     table_fragment_merge_count: int = 0
     duplicate_image_blocks_removed: int = 0
     header_footer_filtered_count: int = 0
+    table_text_suppressed_count: int = 0
     cross_page_table_links: int = 0
 
 

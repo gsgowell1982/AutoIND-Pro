@@ -29,6 +29,15 @@ from .shared import (
     _horizontal_overlap_ratio,
     _text_contains_text,
 )
+from .text_blocks import _is_header_footer_candidate, _looks_like_page_number
+
+# Version: v1.0.1
+# Updates:
+# - Filter footer-like text blocks before selecting figure captions.
+# - Deduplicate caption candidates and prefer figure-labeled text for better generalization.
+# - Expose page-height context so footer heuristics stay reusable across IND scenarios.
+
+_FIGURE_LABEL_KEYWORDS = ("figure", "fig", "图", "图表", "表", "chart", "illustration")
 
 
 def _ocr_text_from_clip(
@@ -74,6 +83,11 @@ def _ocr_text_from_clip(
     joined = _clean_text(" ".join(words))
     average_conf = sum(confidences) / len(confidences) if confidences else 0.0
     return joined, average_conf
+
+
+def _looks_like_figure_caption(text: str) -> bool:
+    normalized = _compact_text(text).lower()
+    return any(keyword in normalized for keyword in _FIGURE_LABEL_KEYWORDS)
 
 
 def _recover_text_from_image_region(
@@ -138,6 +152,7 @@ def _demote_textual_image_blocks(
         recovered_source = str(recovered.get("source", "none"))
         image_area = _bbox_area(bbox)
         area_ratio = image_area / page_area
+        is_figure_caption = _looks_like_figure_caption(recovered_text)
 
         image_block["text_recovery"] = {
             "text": recovered_text,
@@ -155,7 +170,7 @@ def _demote_textual_image_blocks(
             for block in merged_text_blocks
         )
 
-        if len(recovered_text) >= 2 and has_overlapping_text:
+        if len(recovered_text) >= 2 and has_overlapping_text and not is_figure_caption:
             # If this image region is already represented by text, drop duplicate image block.
             converted_count += 1
             continue
@@ -176,7 +191,7 @@ def _demote_textual_image_blocks(
                 or (short_text_label and confidence >= 0.84 and area_ratio <= 0.08)
             )
         )
-        if should_convert:
+        if should_convert and not is_figure_caption:
             merged_text_blocks.append(
                 {
                     "block_type": "text",
@@ -239,39 +254,65 @@ def _deduplicate_page_images(
     return kept, removed_count
 
 
+def _is_footer_like_text_block(
+    block: dict[str, Any],
+    page_height: float,
+) -> bool:
+    if page_height <= 0:
+        return False
+    text = _clean_text(block.get("text", ""))
+    if not text:
+        return False
+    if not _is_header_footer_candidate(block, page_height):
+        return False
+    if _looks_like_page_number(text):
+        return True
+    bbox = tuple(block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    height = max(0.0, bbox[3] - bbox[1])
+    if height <= max(12.0, page_height * 0.035) and len(_compact_text(text)) <= 3:
+        return True
+    if text.isdigit() and height <= max(16.0, page_height * 0.04):
+        return True
+    return False
+
+
 def _assign_figure_titles(
     image_blocks: list[dict[str, Any]],
     text_blocks: list[dict[str, Any]],
     figure_start_index: int,
+    page_height: float,
 ) -> tuple[list[dict[str, Any]], int]:
     figure_nodes: list[dict[str, Any]] = []
     figure_index = figure_start_index
 
     for image_block in image_blocks:
         image_bbox = tuple(image_block["bbox"])
-        below_candidates: list[tuple[float, str]] = []
-        nearby_candidates: list[tuple[float, str]] = []
+        candidate_queue: list[tuple[float, int, str]] = []
         for text_block in text_blocks:
             text_bbox = tuple(text_block["bbox"])
             overlap_ratio = _horizontal_overlap_ratio(image_bbox, text_bbox)
             if overlap_ratio < 0.15:
                 continue
+            if _is_footer_like_text_block(text_block, page_height):
+                continue
             text = _clean_text(text_block["text"])
             if not text:
                 continue
             distance = text_bbox[1] - image_bbox[3]
-            if distance >= 0:
-                below_candidates.append((distance, text))
-            else:
-                nearby_candidates.append((abs(distance), text))
+            is_below = 0 if distance >= 0 else 1
+            candidate_queue.append((abs(distance), is_below, text))
 
         title_text = ""
-        if below_candidates:
-            title_text = sorted(below_candidates, key=lambda item: item[0])[0][1]
-        elif nearby_candidates:
-            title_text = sorted(nearby_candidates, key=lambda item: item[0])[0][1]
-        if title_text:
-            title_text = title_text[:160]
+        seen_captions: set[str] = set()
+        for _, _, candidate_text in sorted(candidate_queue, key=lambda item: (item[0], item[1])):
+            normalized = _compact_text(candidate_text)
+            if not normalized or normalized in seen_captions:
+                continue
+            seen_captions.add(normalized)
+            if not title_text or _looks_like_figure_caption(candidate_text):
+                title_text = candidate_text[:160]
+            if _looks_like_figure_caption(candidate_text):
+                break
 
         figure_ref = f"Figure {figure_index}"
         image_block["title"] = title_text

@@ -26,6 +26,11 @@ The table parsing module handles:
 """
 from __future__ import annotations
 
+# Version: v1.0.2
+# Updates:
+# - Pass page height through to figure title assignment so footer filtering can be applied consistently.
+# - Suppress text blocks that overlap extracted tables before storing page payload to avoid duplicating table rows.
+
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +58,7 @@ from .text_blocks import (
     _extract_page_text_and_images,
     _filter_header_footer_text_blocks,
     _merge_semantic_text_blocks,
+    _suppress_table_text_blocks,
 )
 from .types import PdfPipelineState
 
@@ -178,8 +184,13 @@ def run_pdf_extraction_pipeline(path: Path) -> PdfPipelineState:
             state.table_asts.extend(page_tables)
 
             # Step-4: Assign figure titles
-            page_figures, figure_index = _assign_figure_titles(page_images, text_blocks, figure_index)
+            page_figures, figure_index = _assign_figure_titles(
+                page_images, text_blocks, figure_index, float(page_rect.height)
+            )
             state.figure_nodes.extend(page_figures)
+
+            text_blocks, suppressed_count = _suppress_table_text_blocks(text_blocks, page_tables)
+            state.counters.table_text_suppressed_count += suppressed_count
 
             # Store page payload
             state.page_payloads.append(

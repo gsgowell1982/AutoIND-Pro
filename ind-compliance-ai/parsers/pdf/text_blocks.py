@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from __future__ import annotations
+
 import re
 import statistics
 from typing import Any
@@ -15,6 +17,14 @@ from .shared import (
     _text_contains_text,
 )
 
+# Version: v1.0.4
+# Updates:
+# - 在图像图注附近增加近似重复块的归并，规整 Figure caption 重复/页脚混入问题。
+# - 优化 near-duplicate 合并 bbox 选择，优先保留更紧凑区域以避免跨越页脚或紧邻的图像。
+# - 按行构建文本块，确保表格首行不会与前面的标题合并，从而让 table suppression 更可靠。
+
+_ROMAN_PAGE_NUMBER_RE = re.compile(r"^[ivxlcdm]+$", re.IGNORECASE)
+
 
 def _extract_page_text_and_images(
     page: "pymupdf.Page",
@@ -28,33 +38,30 @@ def _extract_page_text_and_images(
         block_type = int(block.get("type", 0))
         bbox = tuple(float(item) for item in block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
         if block_type == 0:
-            line_texts: list[str] = []
-            font_sizes: list[float] = []
-            for line in block.get("lines", []):
+            for line_index, line in enumerate(block.get("lines", [])):
                 span_text = ""
+                font_sizes: list[float] = []
                 for span in line.get("spans", []):
                     span_text += str(span.get("text", ""))
                     try:
                         font_sizes.append(float(span.get("size", 0.0)))
                     except (TypeError, ValueError):
                         continue
-                cleaned = _clean_text(span_text)
-                if cleaned:
-                    line_texts.append(cleaned)
-            text = "\n".join(line_texts).strip()
-            if not text:
-                continue
-            text_blocks.append(
-                {
-                    "block_type": "text",
-                    "block_id": f"txt_p{page_number}_{len(text_blocks) + 1:03d}",
-                    "page": page_number,
-                    "bbox": _bbox_to_list(bbox),
-                    "text": text,
-                    "font_size": statistics.median(font_sizes) if font_sizes else 0.0,
-                    "source_block_index": block_index,
-                }
-            )
+                text = _clean_text(span_text)
+                if not text:
+                    continue
+                line_bbox = tuple(float(item) for item in line.get("bbox", bbox))
+                text_blocks.append(
+                    {
+                        "block_type": "text",
+                        "block_id": f"txt_p{page_number}_{len(text_blocks) + 1:03d}",
+                        "page": page_number,
+                        "bbox": _bbox_to_list(line_bbox),
+                        "text": text,
+                        "font_size": statistics.median(font_sizes) if font_sizes else 0.0,
+                        "source_block_index": block_index,
+                    }
+                )
         elif block_type == 1:
             image_blocks.append(
                 {
@@ -193,6 +200,8 @@ def _merge_semantic_text_blocks(
         merged.append(normalized)
 
     deduped, dedup_count = _deduplicate_text_blocks(merged)
+    deduped, near_dup_count = _merge_near_duplicate_text_blocks(deduped)
+    dedup_count += near_dup_count
     for index, block in enumerate(deduped, start=1):
         block["block_id"] = f"txt_p{page_number}_{index:03d}"
     return deduped, merge_count + dedup_count
@@ -237,6 +246,65 @@ def _deduplicate_text_blocks(text_blocks: list[dict[str, Any]]) -> tuple[list[di
     return deduped, duplicate_count
 
 
+def _text_blocks_are_close(
+    a_bbox: tuple[float, float, float, float],
+    b_bbox: tuple[float, float, float, float],
+) -> bool:
+    horizontal_overlap = _horizontal_overlap_ratio(a_bbox, b_bbox)
+    left_gap = max(0.0, b_bbox[0] - a_bbox[2])
+    right_gap = max(0.0, a_bbox[0] - b_bbox[2])
+    touching = left_gap <= 4.0 or right_gap <= 4.0
+    return horizontal_overlap >= 0.05 or touching
+
+
+def _prefer_compact_bbox(
+    existing_bbox: tuple[float, float, float, float],
+    candidate_bbox: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    existing_height = existing_bbox[3] - existing_bbox[1]
+    candidate_height = candidate_bbox[3] - candidate_bbox[1]
+    if candidate_height < existing_height * 0.85:
+        return candidate_bbox
+    if existing_height < candidate_height * 0.85:
+        return existing_bbox
+    return existing_bbox
+
+
+def _merge_near_duplicate_text_blocks(
+    text_blocks: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    if not text_blocks:
+        return [], 0
+    merged: list[dict[str, Any]] = []
+    duplicates = 0
+    for block in text_blocks:
+        normalized = _compact_text(block.get("text", ""))
+        if not normalized:
+            merged.append(dict(block))
+            continue
+        block_bbox = tuple(block["bbox"])
+        candidate = next(
+            (
+                existing
+                for existing in merged
+                if _compact_text(existing["text"]) == normalized
+                and _vertical_overlap_ratio(tuple(existing["bbox"]), block_bbox) >= 0.6
+                and _text_blocks_are_close(tuple(existing["bbox"]), block_bbox)
+            ),
+            None,
+        )
+        if candidate:
+            candidate_bbox = tuple(candidate["bbox"])
+            preferred_bbox = _prefer_compact_bbox(candidate_bbox, block_bbox)
+            candidate["bbox"] = _bbox_to_list(preferred_bbox)
+            if len(block.get("text", "")) > len(candidate.get("text", "")):
+                candidate["text"] = block["text"]
+            duplicates += 1
+            continue
+        merged.append(dict(block))
+    return merged, duplicates
+
+
 def _is_header_footer_candidate(
     block: dict[str, Any],
     page_height: float,
@@ -254,13 +322,21 @@ def _header_footer_signature(text: str) -> str:
     return normalized
 
 
+def _is_small_footer_block(block: dict[str, Any], page_height: float) -> bool:
+    bbox = tuple(block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    height = max(0.0, bbox[3] - bbox[1])
+    return height <= max(12.0, page_height * 0.035)
+
+
 def _looks_like_page_number(text: str) -> bool:
     cleaned = _clean_text(text)
     if not cleaned:
         return False
     return bool(
-        re.fullmatch(r"(?:第\s*)?\d{1,4}(?:\s*/\s*\d{1,4})?(?:\s*页)?", cleaned)
-        or re.fullmatch(r"\d{1,4}\s*[-–—]\s*\d{1,4}", cleaned)
+        re.fullmatch(r"(?:菴\s*)?\d{1,4}(?:\s*/\s*\d{1,4})?(?:\s*珜)?", cleaned)
+        or re.fullmatch(r"\d{1,4}\s*[-每〞]\s*\d{1,4}", cleaned)
+        or _ROMAN_PAGE_NUMBER_RE.fullmatch(cleaned)
+        or (len(cleaned) == 1 and cleaned.isalpha())
     )
 
 
@@ -289,6 +365,9 @@ def _filter_header_footer_text_blocks(
                 signature = _header_footer_signature(text)
                 repeated_signature = len(signature) >= 3 and signature_counts.get(signature, 0) >= 2
                 if repeated_signature or _looks_like_page_number(text):
+                    removed += 1
+                    continue
+                if _is_small_footer_block(block, page_height) and len(text) <= 2 and text.isalpha():
                     removed += 1
                     continue
             kept.append(block)
