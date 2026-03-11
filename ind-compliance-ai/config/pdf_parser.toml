@@ -1,10 +1,11 @@
-# Version: v1.1.0
+# Version: v1.1.2
 # Optimization Summary:
 # - Tunable thresholds for cross-page table stitching in enterprise IND scenarios.
 # - Adjust these values based on false-link vs miss-link trade-offs per corpus.
 # - Default to non-destructive table extraction (no supplement writeback).
 # - Add rule-engine policy switches for staged rollout.
 # - Add table-detection policy for supplemental merge and two-column guard.
+# - Configure preceding-text guard parameters that prevent false cross-page links before new tables.
 
 [cross_page_stitching]
 prev_near_bottom_ratio = 0.72
@@ -17,6 +18,10 @@ context_overlap_min = 0.45
 overlap_min_without_hint = 0.35
 low_similarity_guard_threshold = 0.50
 low_similarity_guard_overlap_min = 0.55
+preceding_text_gap_max = 32.0
+preceding_text_min_length = 12
+preceding_text_ignore_top_margin = 24.0
+preceding_text_overlap_min = 0.25
 
 [table_content_policy]
 enable_supplement_writeback = false
@@ -42,3 +47,9 @@ two_column_min_words = 120
 two_column_min_tabular_score = 0.72
 min_rows_for_supplemental_candidate = 3
 min_cols_for_supplemental_candidate = 2
+
+[same_page_merge_policy]
+gap_ratio_min = -0.1
+gap_ratio_max = 0.35
+header_similarity_threshold = 0.0
+respect_preceding_text_barrier = true

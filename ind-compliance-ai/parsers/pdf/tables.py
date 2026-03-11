@@ -35,6 +35,12 @@ Usage:
 修复历史 (Fix History)
 ================================================================================
 
+v1.1.0 - 增加领先段落文本识别并记录为 table 级 metadata，供 cross-page stitching guard 参考，防止段落隔断误判续表。
+    修复: 让 stitch_cross_page_tables() 在没有明确“continued”提示时，读取 preceding_text_block 并据此阻断续表连线。
+    位置: extract_tables_from_page() 第471-520行、stitch_cross_page_tables() 第60-200行
+v1.1.1 - 在 guard 拦截续表后，用 header 候选重建列、再据该列数处理 row_texts，避免原始 header 被错误继承导致 null 列。
+    说明：从页上方 words 提取 header 候选，group 并按列重建，然后在 _reset_continuation_flags() 重写 header/col_count 并记录 rebuild 标记。
+    位置: _build_context() 第486-544行、_reset_continuation_flags() 第288-305行
 v1.0.7 - 第21页续表列映射错误修复
     问题: 第21页作为第20页续表，列映射错误导致数据错位
     原因: 第20页表格不在页面底部(下面有脚注)，续表未被正确识别
@@ -148,7 +154,7 @@ from .table_modules.ast import (
 )
 
 from .shared import _Word
-from .settings import get_pdf_parser_settings
+from .settings import CrossPageStitchingThresholds, get_pdf_parser_settings
 
 
 # ============================================================================
@@ -216,6 +222,7 @@ def extract_tables_from_page(
     except Exception:
         pymupdf_table_count = 0
 
+    page_words = _extract_words_from_page(page)
     for table_index in range(pymupdf_table_count):
         raw_evidence = extract_raw_evidence_from_pymupdf(
             page=page,
@@ -246,6 +253,7 @@ def extract_tables_from_page(
             parent_col_count=parent_col_count,
             parent_header=parent_header,
             parent_bbox=parent_bbox,
+            words=page_words,
         )
 
         if table_ast:
@@ -256,7 +264,7 @@ def extract_tables_from_page(
 
     # Strategy 2: Word-clustering supplemental candidate (borderless-table support)
     # Run even when Strategy 1 succeeds, but only append when clearly distinct.
-    words = _extract_words_from_page(page)
+    words = page_words
     if words:
         raw_evidence_fallback = extract_raw_evidence_from_words(
             words=words,
@@ -284,6 +292,7 @@ def extract_tables_from_page(
                 parent_col_count=parent_col_count,
                 parent_header=parent_header,
                 parent_bbox=parent_bbox,
+                words=page_words,
             )
 
             accept_supplemental = _can_accept_supplemental_candidate(
@@ -366,6 +375,7 @@ def _process_raw_evidence(
     parent_col_count: int | None,
     parent_header: list[dict[str, Any]] | None,
     parent_bbox: tuple[float, float, float, float] | None = None,
+    words: list[tuple[float, float, float, float, str]] | None = None,
 ) -> dict[str, Any] | None:
     """Process raw evidence through the full pipeline."""
 
@@ -414,11 +424,18 @@ def _process_raw_evidence(
     )
 
     # Phase 3: Get context for Continuum Engine
+    context_words = words
+    if not context_words:
+        try:
+            context_words = [(w[0], w[1], w[2], w[3], w[4]) for w in page.get_text("words")]
+        except Exception:
+            context_words = []
     context = _build_context(
         instance=instance,
         text_blocks=text_blocks,
         page_drawings=page_drawings,
         page_height=page_height,
+        words=context_words,
     )
 
     # Phase 4: Continuum Engine
@@ -446,7 +463,18 @@ def _process_raw_evidence(
     # Post-process cells
     _postprocess_cells(ast)
 
+    table_bbox = tuple(ast.bbox)
     result = ast.to_dict()
+    result["header_candidates"] = context.get("header_candidates", [])
+    preceding_block = context.get("preceding_text_block")
+    if preceding_block:
+        block_bbox = tuple(preceding_block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+        gap = round(max(0.0, table_bbox[1] - block_bbox[3]), 3)
+        result["preceding_text_block"] = {
+            "text": str(preceding_block.get("text", "")).strip(),
+            "bbox": list(block_bbox),
+            "gap": gap,
+        }
     structural_empty_rows = _collect_structural_empty_rows(result.get("grid", []))
     if structural_empty_rows:
         result["structural_empty_rows"] = structural_empty_rows
@@ -473,6 +501,7 @@ def _build_context(
     text_blocks: list[dict[str, Any]] | None,
     page_drawings: list[dict[str, Any]] | None,
     page_height: float,
+    words: list[tuple[float, float, float, float, str]] | None,
 ) -> dict[str, Any]:
     """Build context for Continuum Engine."""
     context = {
@@ -518,6 +547,10 @@ def _build_context(
                 context["section_hint"] = block
                 break
 
+    cfg = get_pdf_parser_settings().cross_page_stitching
+    context["preceding_text_block"] = _find_preceding_text_block(text_blocks, bbox, cfg)
+    context["header_candidates"] = _extract_header_candidates(words, bbox)
+
     # Check TOC context
     table_top = bbox[1]
     for block in text_blocks:
@@ -547,6 +580,43 @@ def _build_context(
     return context
 
 
+def _extract_header_candidates(
+    words: list[tuple[float, float, float, float, str]] | None,
+    bbox: tuple[float, float, float, float],
+) -> list[str]:
+    if not words or not bbox:
+        return []
+    top = bbox[1]
+    def _word_coords(word):
+        if isinstance(word, tuple):
+            x0, y0, x1, y1, text = word[:5]
+        else:
+            x0, y0, x1, y1 = word.x0, word.y0, word.x1, word.y1
+            text = getattr(word, "text", "")
+        return x0, y0, x1, y1, text
+
+    header_words = []
+    for word in words:
+        x0, y0, x1, y1, text = _word_coords(word)
+        if abs(y0 - top) <= 8 and bbox[0] <= x0 <= bbox[2]:
+            header_words.append((x0, x1, text))
+    header_words.sort(key=lambda item: item[0])
+    grouped: list[list[str]] = []
+    current: list[str] = []
+    last_x1: float | None = None
+    header_gap_threshold = 15.0
+    for x0, x1, text in header_words:
+        if last_x1 is not None and x0 - last_x1 > header_gap_threshold:
+            if current:
+                grouped.append(current)
+            current = []
+        current.append(text)
+        last_x1 = x1
+    if current:
+        grouped.append(current)
+    return [" ".join(group) for group in grouped if group]
+
+
 def _horizontal_overlap_ratio(bbox_a: tuple, bbox_b: tuple) -> float:
     """Calculate horizontal overlap ratio."""
     x_overlap = max(0, min(bbox_a[2], bbox_b[2]) - max(bbox_a[0], bbox_b[0]))
@@ -555,6 +625,35 @@ def _horizontal_overlap_ratio(bbox_a: tuple, bbox_b: tuple) -> float:
     if width_a <= 0 or width_b <= 0:
         return 0.0
     return x_overlap / min(width_a, width_b)
+
+
+def _find_preceding_text_block(
+    text_blocks: list[dict[str, Any]] | None,
+    bbox: tuple[float, float, float, float],
+    cfg: CrossPageStitchingThresholds,
+) -> dict[str, Any] | None:
+    """Locate a text block immediately above a table within configurable bounds."""
+    if not text_blocks:
+        return None
+    best_block: dict[str, Any] | None = None
+    best_gap = float("inf")
+    for block in text_blocks:
+        block_bbox = tuple(block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+        gap = bbox[1] - block_bbox[3]
+        if gap <= 0 or gap > cfg.preceding_text_gap_max:
+            continue
+        if block_bbox[1] <= cfg.preceding_text_ignore_top_margin:
+            continue
+        overlap = _horizontal_overlap_ratio(bbox, block_bbox)
+        if overlap < cfg.preceding_text_overlap_min:
+            continue
+        text = str(block.get("text", "")).strip()
+        if len(text) < cfg.preceding_text_min_length:
+            continue
+        if gap < best_gap:
+            best_block = block
+            best_gap = gap
+    return best_block
 
 
 def _collect_structural_empty_rows(grid: list[list[str | None]]) -> list[int]:
@@ -765,6 +864,7 @@ def extract_tables_from_document(
         # Get context data
         text_blocks = _get_text_blocks(page)
         page_drawings = _get_drawings(page)
+        page_words = _extract_words_from_page(page)
 
         tables, table_counter = extract_tables_from_page(
             page=page,

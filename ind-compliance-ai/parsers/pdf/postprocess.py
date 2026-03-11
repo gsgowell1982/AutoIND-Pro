@@ -13,6 +13,7 @@ from typing import Any
 from parsers.common.atomic_fact_extractor import extract_atomic_facts
 
 from .settings import get_pdf_parser_settings
+from .table_modules.postprocess import _align_header_row, _refresh_row_texts_from_grid
 from .text_blocks import _suppress_table_text_blocks
 from .types import PDF_PARSER_HINT, PdfPipelineState
 
@@ -144,6 +145,9 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
     }
 
     table_nodes = state.table_asts
+    for table in table_nodes:
+        _align_header_row(table)
+        _refresh_row_texts_from_grid(table)
     continuation_tables = [t for t in table_nodes if t.get("is_continuation")]
     review_required_tables = [t for t in table_nodes if t.get("review_required")]
     low_confidence_tables = [t for t in table_nodes if float(t.get("confidence", 0.0) or 0.0) < 0.75]

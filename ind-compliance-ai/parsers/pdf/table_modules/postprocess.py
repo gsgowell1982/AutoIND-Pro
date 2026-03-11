@@ -1,9 +1,15 @@
 # Version: v1.0.9
+# Version: v1.0.13
+# Version: v1.0.14
 # Optimization Summary:
+# - Guard same-page fragment merging with the preceding-text barrier detected via continuation hints so captions break accidental merges.
+# - Rebuild header grid rows when header tokens spill across cells so row_texts keep the correct column labels.
 # - Strengthen cross-page stitching with title compatibility and horizontal overlap checks.
 # - Allow stitching when current page repeats the same title as previous continuation table.
 # - Add stricter gating for low-similarity continuation candidates to reduce false links.
 # - Externalize stitching thresholds to config/pdf_parser.toml for enterprise tuning.
+# - Add preceding-text guard and continuation metadata reset to avoid false cross-page links.
+# - Rebuild headers/column counts from the grid when guard prevents continuation, ensuring correct logical columns.
 
 """Post-processing Module - 表格后处理
 
@@ -23,6 +29,11 @@ import re
 from typing import Any
 
 from ..settings import get_pdf_parser_settings
+
+_CONTINUATION_HINT_KEYWORDS = ["continued", "continued from", "续表", "续页"]
+_DATE_PREFIX_RE = re.compile(
+    r"^(?P<date>\d{1,2}[/-][A-Za-z]{3,9}[/-]\d{2,4})\s+(?P<rest>.+)$", re.IGNORECASE
+)
 
 # ============================================================================
 # Utility Functions
@@ -81,6 +92,9 @@ def stitch_cross_page_tables(
 
     cfg = get_pdf_parser_settings().cross_page_stitching
     stitched_count = 0
+    for table in table_asts:
+        _apply_date_prefix_split(table)
+
     sorted_tables = sorted(table_asts, key=lambda item: (item["page"], item["bbox"][1]))
 
     for previous, current in zip(sorted_tables, sorted_tables[1:]):
@@ -155,6 +169,10 @@ def stitch_cross_page_tables(
         ):
             continue
 
+        if _has_preceding_text_block_for_continuation(current):
+            _reset_continuation_flags(current)
+            continue
+
         if current_title and _compact_text(current_title) != _compact_text(previous_title):
             continue
 
@@ -215,11 +233,16 @@ def can_merge_table_fragments_on_same_page(primary: dict[str, Any], secondary: d
     if int(primary.get("page", 0)) != int(secondary.get("page", 0)):
         return False
 
+    cfg = get_pdf_parser_settings().same_page_merge_policy
     primary_bbox = tuple(primary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
     secondary_bbox = tuple(secondary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
     vertical_gap = secondary_bbox[1] - primary_bbox[3]
 
-    if vertical_gap < -10 or vertical_gap > 52:
+    row_height = _estimate_row_height(primary) or _estimate_row_height(secondary)
+    fallback_height = max(primary_bbox[3] - primary_bbox[1], 1.0)
+    safe_row_height = row_height if row_height > 0 else fallback_height
+    gap_ratio = vertical_gap / safe_row_height
+    if gap_ratio < cfg.gap_ratio_min or gap_ratio > cfg.gap_ratio_max:
         return False
 
     overlap = _horizontal_overlap_ratio(primary_bbox, secondary_bbox)
@@ -231,6 +254,16 @@ def can_merge_table_fragments_on_same_page(primary: dict[str, Any], secondary: d
         list(secondary.get("column_signature", [])),
     )
     if similarity < 0.68:
+        return False
+
+    header_similarity_score = header_similarity(
+        primary.get("header", []) or [],
+        secondary.get("header", []) or [],
+    )
+    if cfg.header_similarity_threshold > 0.0 and header_similarity_score < cfg.header_similarity_threshold:
+        return False
+
+    if cfg.respect_preceding_text_barrier and _has_preceding_text_barrier(primary, secondary):
         return False
 
     if float(primary.get("toc_row_ratio", 0.0)) > 0.25 or float(secondary.get("toc_row_ratio", 0.0)) > 0.25:
@@ -247,6 +280,214 @@ def _horizontal_overlap_ratio(bbox_a: tuple, bbox_b: tuple) -> float:
     if width_a <= 0 or width_b <= 0:
         return 0.0
     return x_overlap / min(width_a, width_b)
+
+
+def _has_preceding_text_block_for_continuation(table: dict[str, Any]) -> bool:
+    """Return True if the table has a qualifying intervening text block."""
+    block = table.get("preceding_text_block")
+    if not block:
+        return False
+    text = str(block.get("text", "")).strip().lower()
+    if not text:
+        return False
+    for keyword in _CONTINUATION_HINT_KEYWORDS:
+        if keyword in text:
+            return False
+    return True
+
+
+def _has_preceding_text_barrier(primary: dict[str, Any], secondary: dict[str, Any]) -> bool:
+    """Detect textual captions between fragments that should stop same-page merging."""
+    block = secondary.get("preceding_text_block")
+    if not block:
+        return False
+    text = str(block.get("text", "")).strip().lower()
+    if not text:
+        return False
+    for keyword in _CONTINUATION_HINT_KEYWORDS:
+        if keyword in text:
+            return False
+
+    primary_bbox = tuple(primary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    secondary_bbox = tuple(secondary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    block_bbox = tuple(block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+
+    if block_bbox[1] <= primary_bbox[3]:
+        return False
+    if block_bbox[3] >= secondary_bbox[1]:
+        return False
+
+    return True
+
+
+def _reset_continuation_flags(table: dict[str, Any]) -> None:
+    """Clear continuation metadata when guard refuses stitching."""
+    table["is_continuation"] = False
+    table["header_inherited"] = False
+    table.pop("continued_from", None)
+    table.pop("continuation_source", None)
+    table.pop("cross_page_similarity", None)
+    table.pop("cross_page_overlap", None)
+    table.pop("continued_to", None)
+
+    if _apply_header_from_candidates(table):
+        return
+
+    grid = table.get("grid")
+    header_cells = _build_header_from_grid(grid)
+    if header_cells:
+        table["header"] = header_cells
+        table["col_count"] = len(header_cells)
+        table["header_rebuilt_by_guard"] = True
+
+
+def _translate_grid_value(value: str) -> str:
+    return value.strip() if isinstance(value, str) else value
+
+
+def _build_cells_from_grid(grid: list[list[str | None]]) -> list[dict[str, Any]]:
+    cells: list[dict[str, Any]] = []
+    for row_idx, row in enumerate(grid, start=1):
+        for col_idx, value in enumerate(row, start=1):
+            if value is None or (isinstance(value, str) and not value.strip()):
+                continue
+            text = value
+            cells.append(
+                {
+                    "row": row_idx,
+                    "col": col_idx,
+                    "logical_row": row_idx,
+                    "logical_col": col_idx,
+                    "physical_row": row_idx,
+                    "physical_col": col_idx,
+                    "text": text,
+                }
+            )
+    return cells
+
+
+def _build_header_from_grid(grid: list[list[str | None]] | None) -> list[dict[str, Any]]:
+    header_cells: list[dict[str, Any]] = []
+    if not grid:
+        return header_cells
+    first_row = grid[0]
+    for idx, value in enumerate(first_row):
+        text = _translate_grid_value(value)
+        if not text:
+            text = f"Column {idx + 1}"
+        header_cells.append({"col": idx + 1, "text": text})
+    return header_cells
+
+
+def _apply_header_from_candidates(table: dict[str, Any]) -> bool:
+    candidates = table.get("header_candidates") or []
+    if not candidates:
+        return False
+    table["header"] = [{"col": idx + 1, "text": text} for idx, text in enumerate(candidates)]
+    table["col_count"] = len(candidates)
+    table["header_rebuilt_by_guard"] = True
+    return True
+
+
+def _align_header_row(table: dict[str, Any]) -> None:
+    """Ensure the grid's first row mirrors header metadata when header tokens spill across cells."""
+    grid = table.get("grid")
+    header = table.get("header") or []
+    if not grid or not header:
+        return
+
+    first_row = grid[0]
+    header_texts = [str(item.get("text", "")).strip() for item in header]
+    normalized_headers = [text for text in (_compact_text(text) for text in header_texts) if text]
+    if not normalized_headers:
+        return
+
+    combined = _compact_text(" ".join(str(cell or "") for cell in first_row))
+    match_threshold = max(2, len(normalized_headers) // 2)
+    match_count = sum(1 for text in normalized_headers if text in combined)
+    if match_count < match_threshold:
+        return
+
+    updated = False
+    for idx, header_text in enumerate(header_texts):
+        normalized_header = _compact_text(header_text)
+        if not normalized_header:
+            continue
+        if idx >= len(first_row):
+            first_row.extend([None] * (idx - len(first_row) + 1))
+        current_value = first_row[idx]
+        normalized_current = _compact_text(str(current_value)) if current_value else ""
+        if not normalized_current:
+            first_row[idx] = header_text
+            updated = True
+            continue
+        if normalized_header in normalized_current and normalized_current != normalized_header:
+            first_row[idx] = header_text
+            updated = True
+
+    if updated:
+        grid[0] = first_row
+        table["grid"] = grid
+
+
+def _refresh_row_texts_from_grid(table: dict[str, Any]) -> None:
+    grid = table.get("grid") or []
+    table["row_texts"] = [
+        " | ".join("null" if cell is None else str(cell) for cell in row) for row in grid
+    ]
+
+
+def _apply_date_prefix_split(table: dict[str, Any]) -> bool:
+    """Split rows where the second column starts with a date + rest."""
+    grid = table.get("grid")
+    if not grid or not grid[0]:
+        return False
+    header_row = grid[0]
+    if header_row[0] not in (None, "", "null"):
+        return False
+    matched_rows = 0
+    for row in grid[1:]:
+        if len(row) < 2:
+            continue
+        second = row[1]
+        if not isinstance(second, str):
+            continue
+        if not second.strip():
+            continue
+        if not _DATE_PREFIX_RE.match(second.strip()):
+            continue
+        matched_rows += 1
+    if matched_rows < 3:
+        return False
+
+    for idx, row in enumerate(grid):
+        if len(row) < 2:
+            continue
+        text = row[1]
+        if not isinstance(text, str) or not text.strip():
+            continue
+        match = _DATE_PREFIX_RE.match(text.strip())
+        if not match:
+            continue
+        row[0] = match.group("date")
+        row[1] = match.group("rest")
+    table["grid"] = grid
+    _align_header_row(table)
+    _refresh_row_texts_from_grid(table)
+    table["cells"] = _build_cells_from_grid(grid)
+    return True
+
+
+def _estimate_row_height(table: dict[str, Any]) -> float:
+    """根据逻辑行数与 bbox 估算行高"""
+    row_count = int(table.get("row_count") or table.get("logical_row_count") or 0)
+    if row_count <= 0:
+        return 0.0
+    bbox = tuple(table.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    height = bbox[3] - bbox[1]
+    if height <= 0:
+        return 0.0
+    return height / row_count
 
 
 def merge_two_table_fragments(primary: dict[str, Any], secondary: dict[str, Any]) -> dict[str, Any]:
