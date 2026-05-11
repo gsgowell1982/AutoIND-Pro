@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MaterialReviewContract",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "document_count",
+    "documents",
+    "evidence_index",
+    "unit_index",
+    "navigation_index",
+    "section_index",
+    "paragraph_index",
+    "section_tree",
+    "fact_index",
+    "fact_signal_index",
+    "diagnostic_index",
+    "index_summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "document_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "document_order",
+          "filename",
+          "source_type",
+          "summary",
+          "parser_diagnostics_summary",
+          "structure_refs",
+          "navigation_sequence_ids",
+          "fact_keys"
+        ],
+        "properties": {
+          "document_id": { "type": "string" },
+          "document_order": { "type": "integer", "minimum": 1 },
+          "filename": { "type": ["string", "null"] },
+          "source_type": { "type": ["string", "null"] },
+          "source_path": { "type": ["string", "null"] },
+          "classification": { "type": "object" },
+          "summary": { "type": "object" },
+          "parser_diagnostics_summary": { "type": "object" },
+          "count_breakdown": { "type": "object" },
+          "structure_refs": { "type": "object" },
+          "navigation_sequence_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "fact_keys": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "evidence_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "document_order",
+          "evidence_id",
+          "source_type",
+          "source_id",
+          "page"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "unit_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "document_order",
+          "unit_id",
+          "source_type",
+          "source_id",
+          "page",
+          "unit_role",
+          "text"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "navigation_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "document_order",
+          "toc_sequence_id",
+          "pages",
+          "page_count",
+          "page_span",
+          "entry_count",
+          "root_entry_count",
+          "entries",
+          "navigation_summary"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "section_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "document_order",
+          "outline_index"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "paragraph_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "document_order",
+          "paragraph_id",
+          "text"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "section_tree": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "section_node_id",
+          "document_id",
+          "outline_index",
+          "children"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "fact_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "document_order",
+          "fact_key",
+          "fact_value",
+          "provenance"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "fact_signal_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "document_order",
+          "fact_key",
+          "fact_value",
+          "unit_id",
+          "source_type",
+          "source_id",
+          "page"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "diagnostic_index": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "document_order",
+          "source_type",
+          "source_id",
+          "diagnostic_scope",
+          "code",
+          "severity",
+          "message"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "index_summary": {
+      "type": "object",
+      "required": [
+        "document_count",
+        "evidence_count",
+        "unit_count",
+        "navigation_sequence_count",
+        "fact_count",
+        "fact_signal_count",
+        "diagnostic_count"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

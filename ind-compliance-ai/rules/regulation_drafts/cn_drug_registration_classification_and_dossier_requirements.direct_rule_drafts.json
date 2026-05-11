@@ -1,0 +1,84 @@
+{
+  "schema_version": "regulation-rule-draft-v1",
+  "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+  "regulation_title": "药品注册分类及申报资料要求",
+  "source_version": "unknown",
+  "draft_rule_count": 3,
+  "category_counts": {
+    "hard": 0,
+    "soft": 3
+  },
+  "rules": [
+    {
+      "rule_id": "DRAFT-SR-cn_drug_registration_classification_and_dossier_requirements-010",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "（三）",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_010",
+      "article_no": 10,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "reference_sample_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_registration_classification_and_dossier_requirements#art_010",
+        "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+        "source_regulation": "cn_drug_registration_classification_and_dossier_requirements",
+        "source_version": "unknown"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-SR-cn_drug_registration_classification_and_dossier_requirements-011",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "（四）",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_011",
+      "article_no": 11,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "reference_sample_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_registration_classification_and_dossier_requirements#art_011",
+        "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+        "source_regulation": "cn_drug_registration_classification_and_dossier_requirements",
+        "source_version": "unknown"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-SR-cn_drug_registration_classification_and_dossier_requirements-012",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "（五）",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_012",
+      "article_no": 12,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials",
+        "reference_sample_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_registration_classification_and_dossier_requirements#art_012",
+        "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+        "source_regulation": "cn_drug_registration_classification_and_dossier_requirements",
+        "source_version": "unknown"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    }
+  ]
+}

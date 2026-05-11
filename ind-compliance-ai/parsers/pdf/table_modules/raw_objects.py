@@ -413,21 +413,17 @@ def extract_raw_evidence_from_pymupdf(
             row_cells_bboxes = None
             if table_row_objects and row_idx < len(table_row_objects):
                 row_obj = table_row_objects[row_idx]
-                row_bbox = getattr(row_obj, "bbox", None)
+                row_bbox = _coerce_bbox(getattr(row_obj, "bbox", None))
                 row_cells_bboxes = getattr(row_obj, "cells", None)
             cells = []
             for col_idx, cell_text in enumerate(row_data):
                 # 优先用行内列 bbox；仅在致密网格时退回扁平索引。
                 cell_bbox = None
                 if isinstance(row_cells_bboxes, (list, tuple)) and col_idx < len(row_cells_bboxes):
-                    cell_bbox_raw = row_cells_bboxes[col_idx]
-                    if isinstance(cell_bbox_raw, (list, tuple)) and len(cell_bbox_raw) == 4:
-                        cell_bbox = tuple(cell_bbox_raw)
+                    cell_bbox = _coerce_bbox(row_cells_bboxes[col_idx])
                 elif table_cells_bboxes and len(table_cells_bboxes) == physical_col_count * physical_row_count:
                     cell_index = row_idx * physical_col_count + col_idx
-                    cell_bbox_raw = table_cells_bboxes[cell_index]
-                    if isinstance(cell_bbox_raw, (list, tuple)) and len(cell_bbox_raw) == 4:
-                        cell_bbox = tuple(cell_bbox_raw)
+                    cell_bbox = _coerce_bbox(table_cells_bboxes[cell_index])
                 cell = RawCell(
                     physical_col=col_idx,
                     physical_row=row_idx,
@@ -439,9 +435,9 @@ def extract_raw_evidence_from_pymupdf(
             row = RawRow(
                 physical_row=row_idx,
                 cells=cells,
-                bbox=tuple(row_bbox) if isinstance(row_bbox, (list, tuple)) and len(row_bbox) == 4 else None,
-                y0=float(row_bbox[1]) if isinstance(row_bbox, (list, tuple)) and len(row_bbox) == 4 else 0.0,
-                y1=float(row_bbox[3]) if isinstance(row_bbox, (list, tuple)) and len(row_bbox) == 4 else 0.0,
+                bbox=row_bbox,
+                y0=float(row_bbox[1]) if row_bbox else 0.0,
+                y1=float(row_bbox[3]) if row_bbox else 0.0,
             )
             rows.append(row)
         
@@ -471,6 +467,28 @@ def extract_raw_evidence_from_pymupdf(
         print(f"[Raw Objects Extraction Error] {e}")
         traceback.print_exc()
         return None
+
+
+def _coerce_bbox(value: Any) -> tuple[float, float, float, float] | None:
+    """Normalize PyMuPDF Rect-like and tuple-like bboxes."""
+    if value is None:
+        return None
+    if all(hasattr(value, attr) for attr in ("x0", "y0", "x1", "y1")):
+        try:
+            return (float(value.x0), float(value.y0), float(value.x1), float(value.y1))
+        except (TypeError, ValueError):
+            return None
+    if isinstance(value, (list, tuple)) and len(value) == 4:
+        try:
+            return (
+                float(value[0]),
+                float(value[1]),
+                float(value[2]),
+                float(value[3]),
+            )
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def _extract_chars_and_spans_from_page(
@@ -672,70 +690,31 @@ def extract_raw_evidence_from_words(
         if not table_groups:
             return None
         
-        # 取最大的表格组
-        largest_group = max(table_groups, key=len)
-        if len(largest_group) < 2:
+        # Step 3: 选择结构最强的候选组。无框线表格的关键不是“最大块”，
+        # 而是“跨多行保持稳定列锚点的二维文本网格”。
+        best_group = _select_best_table_group(table_groups)
+        if not best_group:
             return None
-        
-        # Step 3: 计算列中心
-        all_words_in_group = [w for row in largest_group for w in row.get("words", [])]
-        if not all_words_in_group:
+
+        raw_rows, raw_data, spans, grouped_words = _build_raw_rows_from_group(
+            best_group["rows"],
+            best_group["column_anchors"],
+        )
+        if len(raw_rows) < 2:
             return None
-        
-        column_centers = _detect_column_centers(all_words_in_group)
-        if not column_centers or len(column_centers) > 20:
-            return None
-        
-        col_count = len(column_centers)
-        
-        # Step 4: 构建原始数据
-        raw_data = []
-        spans = []
-        
-        for row in largest_group:
-            row_data = [None] * col_count
-            row_words = row.get("words", [])
-            
-            for word in row_words:
-                # 找到对应的列
-                word_x_center = (word.x0 + word.x1) / 2
-                col_idx = _find_column_for_word(word_x_center, column_centers)
-                
-                if col_idx is not None and col_idx < col_count:
-                    text = word.text if hasattr(word, 'text') else str(word)
-                    if row_data[col_idx] is None:
-                        row_data[col_idx] = text
-                    else:
-                        row_data[col_idx] += " " + text
-                    
-                    # 构建 span
-                    span = RawSpan(
-                        text=text,
-                        x0=word.x0,
-                        y0=word.y0,
-                        x1=word.x1,
-                        y1=word.y1,
-                    )
-                    spans.append(span)
-            
-            raw_data.append(row_data)
-        
-        # Step 5: 构建 bbox
-        all_x0 = [w.x0 for w in all_words_in_group]
-        all_y0 = [w.y0 for w in all_words_in_group]
-        all_x1 = [w.x1 for w in all_words_in_group]
-        all_y1 = [w.y1 for w in all_words_in_group]
-        
-        table_bbox = (min(all_x0), min(all_y0), max(all_x1), max(all_y1))
-        
-        # Step 6: 构建 RawTableEvidence
+
+        table_bbox = best_group["bbox"]
+
+        # Step 4: 构建 RawTableEvidence
         evidence = RawTableEvidence(
             page_number=page_number,
             bbox=table_bbox,
-            physical_col_count=col_count,
-            physical_row_count=len(raw_data),
+            physical_col_count=len(best_group["column_anchors"]),
+            physical_row_count=len(raw_rows),
+            rows=raw_rows,
             chars=[],
             spans=spans,
+            words=grouped_words,
             drawings=[],
             raw_data=raw_data,
             page_height=page_height,
@@ -752,6 +731,482 @@ def extract_raw_evidence_from_words(
         return None
 
 
+def _select_best_table_group(
+    table_groups: list[list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    """Select the strongest borderless-grid candidate from row groups."""
+    best_candidate: dict[str, Any] | None = None
+    best_score = 0.0
+
+    for group in table_groups:
+        segmented_rows = _segment_group_rows(group)
+        if len(segmented_rows) < 2:
+            continue
+
+        column_anchors = _detect_segment_column_anchors(segmented_rows)
+        col_count = len(column_anchors)
+        if col_count < 2:
+            continue
+
+        segment_counts = [len(row.get("segments", [])) for row in segmented_rows]
+        multi_segment_rows = sum(1 for count in segment_counts if count >= 2)
+        if multi_segment_rows < 2:
+            continue
+
+        row_anchor_matches = [
+            _count_row_segments_near_column_anchors(row.get("segments", []), column_anchors)
+            for row in segmented_rows
+        ]
+        strong_anchor_rows = sum(1 for count in row_anchor_matches if count >= max(2, int(col_count * 0.6)))
+        stable_anchor_ratio = strong_anchor_rows / max(1, len(segmented_rows))
+        if stable_anchor_ratio < 0.5:
+            continue
+
+        aligned_rows = sum(1 for count in segment_counts if count >= max(2, min(col_count, 3)))
+        coverage = sum(segment_counts) / max(1, len(segmented_rows) * col_count)
+        if coverage < 0.2:
+            continue
+
+        score = (
+            0.25 * min(1.0, len(segmented_rows) / 8.0)
+            + 0.25 * min(1.0, stable_anchor_ratio)
+            + 0.25 * (multi_segment_rows / max(1, len(segmented_rows)))
+            + 0.15 * (aligned_rows / max(1, len(segmented_rows)))
+            + 0.10 * min(1.0, coverage)
+        )
+
+        if score <= best_score:
+            continue
+
+        bbox = (
+            min(row["bbox"][0] for row in group),
+            min(row["bbox"][1] for row in group),
+            max(row["bbox"][2] for row in group),
+            max(row["bbox"][3] for row in group),
+        )
+        best_score = score
+        best_candidate = {
+            "rows": segmented_rows,
+            "column_anchors": column_anchors,
+            "bbox": bbox,
+            "score": score,
+        }
+
+    return best_candidate
+
+
+def _count_row_segments_near_column_anchors(
+    segments: list[dict[str, Any]],
+    column_anchors: list[float],
+) -> int:
+    """Count segments that corroborate the global column-anchor lattice."""
+    if not segments or not column_anchors:
+        return 0
+    if len(column_anchors) == 1:
+        tolerance = 12.0
+    else:
+        gaps = [
+            abs(float(right) - float(left))
+            for left, right in zip(column_anchors, column_anchors[1:])
+            if abs(float(right) - float(left)) > 0
+        ]
+        median_gap = _percentile(gaps, 0.5) if gaps else 24.0
+        tolerance = max(8.0, min(18.0, median_gap * 0.35))
+    matched_anchors: set[int] = set()
+    for segment in segments:
+        text = str(segment.get("text", "") or "").strip()
+        if not text:
+            continue
+        x0 = float((segment.get("bbox") or (0.0,))[0])
+        nearest = min(
+            range(len(column_anchors)),
+            key=lambda idx: abs(x0 - float(column_anchors[idx])),
+        )
+        if abs(x0 - float(column_anchors[nearest])) <= tolerance:
+            matched_anchors.add(nearest)
+    return len(matched_anchors)
+
+
+def _segment_group_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Split each visual row into cell-like segments using adaptive gap evidence."""
+    import statistics
+
+    if not rows:
+        return []
+
+    positive_gaps: list[float] = []
+    heights: list[float] = []
+    for row in rows:
+        row_words = row.get("words", [])
+        heights.extend(_word_height(word) for word in row_words if _word_height(word) > 0)
+        for previous, current in zip(row_words, row_words[1:]):
+            gap = _word_x0(current) - _word_x1(previous)
+            if gap > 0:
+                positive_gaps.append(gap)
+
+    lower_gap = _percentile(positive_gaps, 0.25) if positive_gaps else 0.0
+    median_height = statistics.median(heights) if heights else 8.0
+    gap_threshold = max(8.0, median_height * 0.8, lower_gap * 2.5)
+
+    segmented_rows: list[dict[str, Any]] = []
+    for row in rows:
+        row_words = list(row.get("words", []))
+        segments = _segment_row_words(row_words, gap_threshold)
+        if len(segments) == 1 and len(row_words) >= 4:
+            positive_row_gaps = [
+                (_word_x0(current) - _word_x1(previous))
+                for previous, current in zip(row_words, row_words[1:])
+                if (_word_x0(current) - _word_x1(previous)) > 0
+            ]
+            large_gap_floor = max(18.0, median_height * 2.2)
+            large_gap_count = sum(1 for gap in positive_row_gaps if gap >= large_gap_floor)
+            if large_gap_count >= 2 and positive_row_gaps:
+                refined_gap_threshold = max(
+                    12.0,
+                    min(gap_threshold * 0.6, statistics.median(positive_row_gaps) * 0.82),
+                )
+                if refined_gap_threshold < gap_threshold:
+                    refined_segments = _segment_row_words(row_words, refined_gap_threshold)
+                    if len(refined_segments) > len(segments):
+                        segments = refined_segments
+        segmented_rows.append({
+            "segments": segments,
+            "bbox": row.get("bbox", (0.0, 0.0, 0.0, 0.0)),
+            "y0": float(row.get("y0", 0.0)),
+            "y1": float(row.get("y1", 0.0)),
+        })
+
+    return segmented_rows
+
+
+def _segment_row_words(
+    row_words: list[Any],
+    gap_threshold: float,
+) -> list[dict[str, Any]]:
+    """Group adjacent words on the same row into cell-like text segments."""
+    if not row_words:
+        return []
+
+    ordered_words = sorted(row_words, key=lambda item: (_word_x0(item), _word_y0(item)))
+    segments: list[list[Any]] = []
+    current_segment: list[Any] = [ordered_words[0]]
+
+    for previous, current in zip(ordered_words, ordered_words[1:]):
+        gap = _word_x0(current) - _word_x1(previous)
+        if gap > gap_threshold:
+            segments.append(current_segment)
+            current_segment = [current]
+            continue
+        current_segment.append(current)
+
+    if current_segment:
+        segments.append(current_segment)
+
+    return [_build_segment(segment_words) for segment_words in segments if segment_words]
+
+
+def _build_segment(segment_words: list[Any]) -> dict[str, Any]:
+    """Convert grouped words into a segment record."""
+    # Segment words originate from a single clustered visual row, so horizontal
+    # reading order is the most stable primary key for rebuilding line text.
+    ordered_words = sorted(segment_words, key=lambda item: (_word_x0(item), _word_y0(item)))
+    bbox = (
+        min(_word_x0(word) for word in ordered_words),
+        min(_word_y0(word) for word in ordered_words),
+        max(_word_x1(word) for word in ordered_words),
+        max(_word_y1(word) for word in ordered_words),
+    )
+    return {
+        "words": ordered_words,
+        "bbox": bbox,
+        "text": " ".join(_word_text(word) for word in ordered_words).strip(),
+    }
+
+
+def _detect_segment_column_anchors(
+    segmented_rows: list[dict[str, Any]],
+) -> list[float]:
+    """Detect stable column anchors from segment left edges."""
+    import statistics
+
+    segments = [
+        segment
+        for row in segmented_rows
+        for segment in row.get("segments", [])
+        if segment.get("text")
+    ]
+    if not segments:
+        return []
+
+    heights = [
+        max(0.1, float(segment["bbox"][3]) - float(segment["bbox"][1]))
+        for segment in segments
+    ]
+    anchor_tolerance = max(12.0, statistics.median(heights) * 1.4)
+    anchors: list[list[float]] = []
+
+    for x0 in sorted(float(segment["bbox"][0]) for segment in segments):
+        if not anchors or abs(x0 - anchors[-1][-1]) > anchor_tolerance:
+            anchors.append([x0])
+            continue
+        anchors[-1].append(x0)
+
+    return [sum(cluster) / len(cluster) for cluster in anchors if cluster]
+
+
+def _build_raw_rows_from_group(
+    segmented_rows: list[dict[str, Any]],
+    column_anchors: list[float],
+) -> tuple[list[RawRow], list[list[str | None]], list[RawSpan], list[RawWord]]:
+    """Project segmented rows onto stable column anchors."""
+    raw_rows: list[RawRow] = []
+    raw_data: list[list[str | None]] = []
+    spans: list[RawSpan] = []
+    grouped_words: list[RawWord] = []
+    col_count = len(column_anchors)
+
+    for row_idx, row in enumerate(segmented_rows):
+        row_segments = _refine_row_segments_against_column_anchors(
+            row.get("segments", []),
+            column_anchors,
+        )
+        cell_segments: list[list[dict[str, Any]]] = [[] for _ in range(col_count)]
+        for segment in row_segments:
+            col_idx = _find_column_for_segment(segment, column_anchors)
+            if col_idx is None:
+                continue
+            cell_segments[col_idx].append(segment)
+
+        row_cells: list[RawCell] = []
+        row_data_row: list[str | None] = [None] * col_count
+        for col_idx, segments in enumerate(cell_segments):
+            cell_text: str | None = None
+            cell_bbox: tuple[float, float, float, float] | None = None
+            if segments:
+                ordered_segments = sorted(segments, key=lambda item: (item["bbox"][1], item["bbox"][0]))
+                cell_text = " ".join(
+                    segment.get("text", "").strip()
+                    for segment in ordered_segments
+                    if str(segment.get("text", "")).strip()
+                ).strip() or None
+                cell_bbox = (
+                    min(float(segment["bbox"][0]) for segment in ordered_segments),
+                    min(float(segment["bbox"][1]) for segment in ordered_segments),
+                    max(float(segment["bbox"][2]) for segment in ordered_segments),
+                    max(float(segment["bbox"][3]) for segment in ordered_segments),
+                )
+                for segment in ordered_segments:
+                    for word in segment.get("words", []):
+                        text = _word_text(word).strip()
+                        if not text:
+                            continue
+                        spans.append(
+                            RawSpan(
+                                text=text,
+                                x0=_word_x0(word),
+                                y0=_word_y0(word),
+                                x1=_word_x1(word),
+                                y1=_word_y1(word),
+                            )
+                        )
+                        grouped_words.append(
+                            RawWord(
+                                text=text,
+                                x0=_word_x0(word),
+                                y0=_word_y0(word),
+                                x1=_word_x1(word),
+                                y1=_word_y1(word),
+                            )
+                        )
+            row_cells.append(
+                RawCell(
+                    physical_col=col_idx,
+                    physical_row=row_idx,
+                    text=cell_text,
+                    bbox=cell_bbox,
+                )
+            )
+            row_data_row[col_idx] = cell_text
+
+        row_bbox = tuple(row.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+        raw_rows.append(
+            RawRow(
+                physical_row=row_idx,
+                cells=row_cells,
+                bbox=row_bbox,
+                y0=float(row.get("y0", row_bbox[1] if len(row_bbox) == 4 else 0.0)),
+                y1=float(row.get("y1", row_bbox[3] if len(row_bbox) == 4 else 0.0)),
+            )
+        )
+        raw_data.append(row_data_row)
+
+    return raw_rows, raw_data, spans, grouped_words
+
+
+def _refine_row_segments_against_column_anchors(
+    segments: list[dict[str, Any]],
+    column_anchors: list[float],
+) -> list[dict[str, Any]]:
+    """Split under-segmented rows using stable column anchors and large-gap cues."""
+    if len(segments) <= 1 or not column_anchors or len(segments) >= len(column_anchors):
+        return list(segments)
+
+    refined_segments: list[dict[str, Any]] = []
+    for segment in segments:
+        refined_segments.extend(_split_segment_on_anchor_transitions(segment, column_anchors))
+
+    if len(refined_segments) <= len(segments) or len(refined_segments) > len(column_anchors):
+        return list(segments)
+    return refined_segments
+
+
+def _split_segment_on_anchor_transitions(
+    segment: dict[str, Any],
+    column_anchors: list[float],
+) -> list[dict[str, Any]]:
+    """Split a segment when its words show large gaps across distinct column anchors."""
+    import statistics
+
+    words = list(segment.get("words", []))
+    if len(words) < 2 or not column_anchors:
+        return [segment]
+
+    heights = [_word_height(word) for word in words if _word_height(word) > 0]
+    median_height = statistics.median(heights) if heights else 8.0
+    large_gap_floor = max(18.0, median_height * 2.2)
+    word_anchor_indices = [_find_nearest_column_anchor(_word_x0(word), column_anchors) for word in words]
+
+    split_words: list[list[Any]] = []
+    current_chunk: list[Any] = [words[0]]
+    current_anchor = word_anchor_indices[0]
+
+    for previous_word, current_word, next_anchor in zip(words, words[1:], word_anchor_indices[1:]):
+        gap = _word_x0(current_word) - _word_x1(previous_word)
+        if gap >= large_gap_floor and next_anchor != current_anchor:
+            split_words.append(current_chunk)
+            current_chunk = [current_word]
+            current_anchor = next_anchor
+            continue
+        current_chunk.append(current_word)
+        current_anchor = next_anchor
+
+    if current_chunk:
+        split_words.append(current_chunk)
+
+    if len(split_words) <= 1:
+        return [segment]
+
+    split_segments = [_build_segment(chunk) for chunk in split_words if chunk]
+    populated_columns = {
+        _find_column_for_segment(split_segment, column_anchors)
+        for split_segment in split_segments
+        if _find_column_for_segment(split_segment, column_anchors) is not None
+    }
+    if len(populated_columns) <= 1:
+        return [segment]
+    return split_segments
+
+
+def _find_column_for_segment(
+    segment: dict[str, Any],
+    column_anchors: list[float],
+) -> int | None:
+    """Assign a segment to the nearest left-edge column anchor."""
+    if not column_anchors:
+        return None
+
+    segment_x0 = float(segment.get("bbox", (0.0, 0.0, 0.0, 0.0))[0])
+    min_dist = float("inf")
+    closest_col: int | None = None
+    for col_idx, anchor in enumerate(column_anchors):
+        dist = abs(segment_x0 - anchor)
+        if dist < min_dist:
+            min_dist = dist
+            closest_col = col_idx
+
+    return closest_col
+
+
+def _find_nearest_column_anchor(
+    x0: float,
+    column_anchors: list[float],
+) -> int | None:
+    if not column_anchors:
+        return None
+
+    min_dist = float("inf")
+    closest_col: int | None = None
+    for col_idx, anchor in enumerate(column_anchors):
+        dist = abs(float(x0) - float(anchor))
+        if dist < min_dist:
+            min_dist = dist
+            closest_col = col_idx
+
+    return closest_col
+
+
+def _word_x0(word: Any) -> float:
+    if hasattr(word, "x0"):
+        return float(word.x0)
+    if isinstance(word, (list, tuple)) and len(word) >= 1:
+        return float(word[0])
+    return 0.0
+
+
+def _word_y0(word: Any) -> float:
+    if hasattr(word, "y0"):
+        return float(word.y0)
+    if isinstance(word, (list, tuple)) and len(word) >= 2:
+        return float(word[1])
+    return 0.0
+
+
+def _word_x1(word: Any) -> float:
+    if hasattr(word, "x1"):
+        return float(word.x1)
+    if isinstance(word, (list, tuple)) and len(word) >= 3:
+        return float(word[2])
+    return 0.0
+
+
+def _word_y1(word: Any) -> float:
+    if hasattr(word, "y1"):
+        return float(word.y1)
+    if isinstance(word, (list, tuple)) and len(word) >= 4:
+        return float(word[3])
+    return 0.0
+
+
+def _word_text(word: Any) -> str:
+    if hasattr(word, "text"):
+        return str(word.text)
+    if isinstance(word, (list, tuple)) and len(word) >= 5:
+        return str(word[4])
+    return str(word)
+
+
+def _word_height(word: Any) -> float:
+    return max(0.0, _word_y1(word) - _word_y0(word))
+
+
+def _percentile(values: list[float], ratio: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(float(value) for value in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    ratio = max(0.0, min(1.0, ratio))
+    position = ratio * (len(ordered) - 1)
+    lower = int(position)
+    upper = min(len(ordered) - 1, lower + 1)
+    if lower == upper:
+        return ordered[lower]
+    weight = position - lower
+    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+
 def _cluster_words_into_rows(words: list[Any]) -> list[dict[str, Any]]:
     """将单词聚类为行
     
@@ -765,8 +1220,9 @@ def _cluster_words_into_rows(words: list[Any]) -> list[dict[str, Any]]:
     # 获取高度信息
     heights = []
     for w in words:
-        if hasattr(w, 'y1') and hasattr(w, 'y0'):
-            heights.append(w.y1 - w.y0)
+        height = _word_height(w)
+        if height > 0:
+            heights.append(height)
     
     median_height = statistics.median(heights) if heights else 8.0
     row_tol = max(2.5, median_height * 0.55)
@@ -774,10 +1230,10 @@ def _cluster_words_into_rows(words: list[Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     
     for word in sorted(words, key=lambda item: (
-        (item.y0 + item.y1) / 2 if hasattr(item, 'y0') else 0,
-        item.x0 if hasattr(item, 'x0') else 0
+        (_word_y0(item) + _word_y1(item)) / 2,
+        _word_x0(item),
     )):
-        word_yc = (word.y0 + word.y1) / 2 if hasattr(word, 'y0') else 0
+        word_yc = (_word_y0(word) + _word_y1(word)) / 2
         
         placed = False
         for row in rows:
@@ -798,13 +1254,13 @@ def _cluster_words_into_rows(words: list[Any]) -> list[dict[str, Any]]:
     # 规范化行
     normalized_rows = []
     for row in rows:
-        row_words = sorted(row["words"], key=lambda item: item.x0 if hasattr(item, 'x0') else 0)
+        row_words = sorted(row["words"], key=lambda item: _word_x0(item))
         
         # 计算 bbox
-        x0 = min((w.x0 for w in row_words), default=0)
-        y0 = min((w.y0 for w in row_words), default=0)
-        x1 = max((w.x1 for w in row_words), default=0)
-        y1 = max((w.y1 for w in row_words), default=0)
+        x0 = min((_word_x0(w) for w in row_words), default=0.0)
+        y0 = min((_word_y0(w) for w in row_words), default=0.0)
+        x1 = max((_word_x1(w) for w in row_words), default=0.0)
+        y1 = max((_word_y1(w) for w in row_words), default=0.0)
         
         normalized_rows.append({
             "words": row_words,

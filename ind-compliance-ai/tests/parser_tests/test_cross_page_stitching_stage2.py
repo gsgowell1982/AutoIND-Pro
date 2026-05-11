@@ -18,8 +18,9 @@ def _table(
     col_sig: list[float],
     col_count: int,
     title: str = "",
+    **extra: object,
 ) -> dict:
-    return {
+    table = {
         "table_id": table_id,
         "page": page,
         "bbox": list(bbox),
@@ -28,6 +29,8 @@ def _table(
         "title": title,
         "header": [],
     }
+    table.update(extra)
+    return table
 
 
 class CrossPageStitchingStage2Tests(unittest.TestCase):
@@ -57,7 +60,49 @@ class CrossPageStitchingStage2Tests(unittest.TestCase):
         self.assertEqual(links, 0)
         self.assertNotIn("continued_from", curr_tbl)
 
+    def test_preserve_early_confirmed_continuation_with_running_header(self) -> None:
+        prev_tbl = _table("tbl_001", 1, (50, 600, 560, 780), [0.25, 0.75], 2, title="Table A")
+        curr_tbl = _table(
+            "tbl_002",
+            2,
+            (52, 40, 558, 230),
+            [0.25, 0.75],
+            2,
+            title="",
+            is_continuation=True,
+            continued_from="tbl_001",
+            local_context_signal="running_header",
+            preceding_text_block={"text": "Template Header V1.0", "bbox": [40, 15, 560, 30], "gap": 10},
+            continuation_assessment={"is_continuation": True, "selected_parent_id": "tbl_001", "decision_type": "multi_evidence"},
+        )
+        tables = [prev_tbl, curr_tbl]
+        links = stitch_cross_page_tables(tables, {1: 800.0, 2: 800.0})
+        self.assertEqual(links, 1)
+        self.assertEqual(curr_tbl.get("continued_from"), "tbl_001")
+        self.assertTrue(curr_tbl.get("is_continuation"))
+        self.assertIn("tbl_002", prev_tbl.get("continued_to", []))
+
+    def test_reset_early_confirmed_continuation_when_local_barrier_exists(self) -> None:
+        prev_tbl = _table("tbl_001", 1, (50, 600, 560, 780), [0.25, 0.75], 2, title="Table A")
+        curr_tbl = _table(
+            "tbl_002",
+            2,
+            (52, 40, 558, 230),
+            [0.25, 0.75],
+            2,
+            title="",
+            is_continuation=True,
+            continued_from="tbl_001",
+            local_context_signal="narrative_barrier",
+            preceding_text_block={"text": "A narrative paragraph introducing a new table.", "bbox": [40, 80, 560, 95], "gap": 10},
+            continuation_assessment={"is_continuation": True, "selected_parent_id": "tbl_001", "decision_type": "multi_evidence"},
+        )
+        tables = [prev_tbl, curr_tbl]
+        links = stitch_cross_page_tables(tables, {1: 800.0, 2: 800.0})
+        self.assertEqual(links, 0)
+        self.assertFalse(curr_tbl.get("is_continuation"))
+        self.assertNotIn("continued_from", curr_tbl)
+
 
 if __name__ == "__main__":
     unittest.main()
-

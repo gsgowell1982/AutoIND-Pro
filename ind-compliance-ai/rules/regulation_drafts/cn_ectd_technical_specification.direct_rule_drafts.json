@@ -1,0 +1,174 @@
+{
+  "schema_version": "regulation-rule-draft-v1",
+  "regulation_id": "cn_ectd_technical_specification",
+  "regulation_title": "eCTD技术规范",
+  "source_version": "2021-09-v1.0",
+  "draft_rule_count": 7,
+  "category_counts": {
+    "hard": 2,
+    "soft": 5
+  },
+  "rules": [
+    {
+      "rule_id": "DRAFT-SR-cn_ectd_technical_specification-004",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "2.1 申请信息",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_1",
+      "article_no": 4,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_ectd_technical_specification#sec_2_1",
+        "source_path": "data\\regulations\\eCTD技术规范.pdf",
+        "source_regulation": "cn_ectd_technical_specification",
+        "source_version": "2021-09-v1.0"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-SR-cn_ectd_technical_specification-005",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "2.1.1 申请编号",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_1",
+      "article_no": 5,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_ectd_technical_specification#sec_2_1_1",
+        "source_path": "data\\regulations\\eCTD技术规范.pdf",
+        "source_regulation": "cn_ectd_technical_specification",
+        "source_version": "2021-09-v1.0"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-SR-cn_ectd_technical_specification-009",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "2.2 注册行为信息",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_2",
+      "article_no": 9,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_ectd_technical_specification#sec_2_2",
+        "source_path": "data\\regulations\\eCTD技术规范.pdf",
+        "source_regulation": "cn_ectd_technical_specification",
+        "source_version": "2021-09-v1.0"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-SR-cn_ectd_technical_specification-011",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "2.2.2 相关序列",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_2_2",
+      "article_no": 11,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_ectd_technical_specification#sec_2_2_2",
+        "source_path": "data\\regulations\\eCTD技术规范.pdf",
+        "source_regulation": "cn_ectd_technical_specification",
+        "source_version": "2021-09-v1.0"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-SR-cn_ectd_technical_specification-012",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "2.3 序列信息",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_3",
+      "article_no": 12,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_ectd_technical_specification#sec_2_3",
+        "source_path": "data\\regulations\\eCTD技术规范.pdf",
+        "source_regulation": "cn_ectd_technical_specification",
+        "source_version": "2021-09-v1.0"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-HR-cn_ectd_technical_specification-013",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "hard",
+      "title": "2.3.1 序列号",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_1",
+      "article_no": 13,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_ectd_technical_specification#sec_2_3_1",
+        "source_path": "data\\regulations\\eCTD技术规范.pdf",
+        "source_regulation": "cn_ectd_technical_specification",
+        "source_version": "2021-09-v1.0"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-HR-cn_ectd_technical_specification-015",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "hard",
+      "title": "2.3.3 序列描述",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_3",
+      "article_no": 15,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "api_supporting_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_ectd_technical_specification#sec_2_3_3",
+        "source_path": "data\\regulations\\eCTD技术规范.pdf",
+        "source_regulation": "cn_ectd_technical_specification",
+        "source_version": "2021-09-v1.0"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    }
+  ]
+}

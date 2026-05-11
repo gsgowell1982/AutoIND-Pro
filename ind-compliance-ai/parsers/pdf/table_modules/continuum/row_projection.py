@@ -52,16 +52,22 @@ def normalize_rows_and_cells(
         normalized_cells: list[Any] = [None] * logical_col_count
         grid_row: list[str | None] = [None] * logical_col_count
         cell_texts: dict[int, list[str]] = {i: [] for i in range(logical_col_count)}
+        cell_bboxes: dict[int, list[tuple[float, float, float, float]]] = {
+            i: [] for i in range(logical_col_count)
+        }
 
         for raw_cell in raw_row.cells:
             physical_col = raw_cell.physical_col
             logical_col = physical_to_logical.get(physical_col, physical_col)
             if raw_cell.text:
                 cell_texts[logical_col].append(raw_cell.text)
+                if raw_cell.bbox:
+                    cell_bboxes[logical_col].append(tuple(raw_cell.bbox))
 
         for logical_col in range(logical_col_count):
             physical_cols = column_mapping[logical_col] if logical_col < len(column_mapping) else []
             text = " ".join(cell_texts[logical_col]) if cell_texts[logical_col] else None
+            bbox = _merge_bboxes(cell_bboxes[logical_col]) if cell_bboxes[logical_col] else None
             cell = cell_cls(
                 logical_row=raw_row.physical_row,
                 logical_col=logical_col,
@@ -70,6 +76,7 @@ def normalize_rows_and_cells(
                 physical_col_end=physical_cols[-1] if physical_cols else logical_col,
                 physical_colspan=len(physical_cols),
                 text=text,
+                bbox=bbox,
             )
             normalized_cells[logical_col] = cell
             grid_row[logical_col] = text
@@ -84,6 +91,19 @@ def normalize_rows_and_cells(
         grid.append(grid_row)
 
     return rows, grid
+
+
+def _merge_bboxes(
+    bboxes: list[tuple[float, float, float, float]],
+) -> tuple[float, float, float, float] | None:
+    if not bboxes:
+        return None
+    return (
+        min(float(bbox[0]) for bbox in bboxes),
+        min(float(bbox[1]) for bbox in bboxes),
+        max(float(bbox[2]) for bbox in bboxes),
+        max(float(bbox[3]) for bbox in bboxes),
+    )
 
 
 __all__ = [

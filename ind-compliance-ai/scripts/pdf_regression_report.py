@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from parsers.pdf_parser import parse_pdf
+from parsers.pdf.table_contracts import summarize_document_tables
 
 
 def _discover_pdfs(input_path: Path, glob_pattern: str) -> list[Path]:
@@ -46,6 +47,7 @@ def _doc_record(pdf_path: Path) -> dict[str, Any]:
     result = parse_pdf(pdf_path)
     metadata = result.get("metadata", {})
     table_asts = result.get("table_asts", []) or []
+    table_contract = summarize_document_tables(result)
 
     return {
         "file": str(pdf_path),
@@ -64,6 +66,7 @@ def _doc_record(pdf_path: Path) -> dict[str, Any]:
         "continuation_similarity_min": metadata.get("continuation_similarity_min"),
         "continuation_similarity_max": metadata.get("continuation_similarity_max"),
         "table_confidence_stats": _table_conf_stats(table_asts),
+        "table_contract": table_contract,
     }
 
 
@@ -137,6 +140,26 @@ def _render_markdown(report: dict[str, Any]) -> str:
             f"{ratio} | {item.get('rejected_table_candidates')} | {item.get('cross_page_table_links')} | "
             f"{item.get('low_confidence_table_count')} | {item.get('possible_missing_content_table_count')} | "
             f"{item.get('possible_missing_content_candidate_count')} | {item.get('continuation_similarity_avg')} |"
+        )
+
+    lines.append("")
+    lines.append("## Table Contract Summary")
+    lines.append("")
+    lines.append("| File | Tables | Continued | ReviewRequired | Shape Fingerprints |")
+    lines.append("| --- | ---: | ---: | ---: | --- |")
+    for item in docs:
+        contract = item.get("table_contract") or {}
+        table_items = contract.get("tables") or []
+        fingerprints = ", ".join(
+            f"{table.get('table_id')}:{(table.get('fingerprints') or {}).get('data_grid') or (table.get('fingerprints') or {}).get('raw_grid')}"
+            for table in table_items[:8]
+        )
+        if len(table_items) > 8:
+            fingerprints = f"{fingerprints}, ..."
+        lines.append(
+            f"| {item.get('file')} | {contract.get('table_count')} | "
+            f"{contract.get('continued_table_count')} | {contract.get('review_required_table_count')} | "
+            f"{fingerprints} |"
         )
 
     errors = report.get("errors", [])

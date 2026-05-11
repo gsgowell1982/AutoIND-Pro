@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RegulatoryRequirementMatrix",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "matrix_schema_version",
+    "regulation_id",
+    "regulation_title",
+    "requirement_count",
+    "requirements"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "matrix_schema_version": { "type": "string" },
+    "regulation_id": { "type": "string" },
+    "regulation_title": { "type": ["string", "null"] },
+    "requirement_count": { "type": "integer", "minimum": 0 },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "requirement_id",
+          "regulation_id",
+          "source_clause_id",
+          "source_article_no",
+          "section_no",
+          "section_title",
+          "source_heading",
+          "registration_classes",
+          "applicable_stage",
+          "requirement_type",
+          "requirement_level",
+          "requirement_text",
+          "expected_material_evidence",
+          "citation_anchor",
+          "source_path",
+          "source_filename"
+        ],
+        "properties": {
+          "requirement_id": { "type": "string" },
+          "regulation_id": { "type": "string" },
+          "source_clause_id": { "type": "string" },
+          "source_article_no": { "type": "integer", "minimum": 1 },
+          "section_no": { "type": "integer", "minimum": 1 },
+          "section_title": { "type": "string" },
+          "source_heading": { "type": "string" },
+          "registration_classes": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "applicable_stage": {
+            "type": "string",
+            "enum": [
+              "registration_classification",
+              "clinical_and_marketing",
+              "marketing_registration"
+            ]
+          },
+          "requirement_type": {
+            "type": "string",
+            "enum": [
+              "classification_eligibility",
+              "reference_consistency",
+              "submission_structure",
+              "research_governance",
+              "clinical_data_submission"
+            ]
+          },
+          "requirement_level": {
+            "type": "string",
+            "enum": ["required", "conditional", "reference"]
+          },
+          "requirement_text": { "type": "string" },
+          "expected_material_evidence": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "review_focus": { "type": ["string", "null"] },
+          "citation_anchor": { "type": "string" },
+          "source_path": { "type": "string" },
+          "source_filename": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -20,6 +20,19 @@ const statusColorMap: Record<string, string> = {
   failed: 'error',
 }
 
+const statusLabelMap: Record<string, string> = {
+  queued: '等待处理',
+  processing: '处理中',
+  completed: '已完成',
+  completed_with_warnings: '已完成，有提示',
+  failed: '处理失败',
+  idle: '未开始',
+}
+
+function getStatusLabel(status: string | null | undefined): string {
+  return statusLabelMap[status ?? 'idle'] ?? status ?? '未开始'
+}
+
 export function UploadPreprocessPanel({
   onSubmit,
   processing,
@@ -47,8 +60,8 @@ export function UploadPreprocessPanel({
 
   return (
     <ProCard
-      title="1) 文件上传与预处理区"
-      subTitle="支持 PDF / Word / PPT 通用解析，并展示实时解析进度"
+      title="资料上传"
+      subTitle="支持 PDF、Word、PPT；上传后生成审阅工作台。"
       bordered
       headerBordered
     >
@@ -59,7 +72,7 @@ export function UploadPreprocessPanel({
               <InboxOutlined />
             </p>
             <p className="ant-upload-text">拖拽或点击上传 IND 材料</p>
-            <p className="ant-upload-hint">Phase 1 仅做通用解析，专项 IND 语义解析将在下一阶段扩展</p>
+            <p className="ant-upload-hint">当前阶段优先呈现结构解析、资料清单和证据边界。</p>
           </Upload.Dragger>
           <Space style={{ marginTop: 16 }}>
             <Button
@@ -69,7 +82,7 @@ export function UploadPreprocessPanel({
               loading={processing}
               onClick={() => void onSubmit(selectedFiles)}
             >
-              开始解析
+              开始审阅
             </Button>
             <Typography.Text type="secondary">已选择 {selectedFiles.length} 个文件</Typography.Text>
           </Space>
@@ -77,9 +90,25 @@ export function UploadPreprocessPanel({
         <Col xs={24} lg={12}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             <div>
-              <Typography.Text strong>任务状态：</Typography.Text>{' '}
-              <Tag color={statusColorMap[jobStatus?.status ?? 'queued']}>{jobStatus?.status ?? 'idle'}</Tag>
+              <Typography.Text strong>处理状态：</Typography.Text>{' '}
+              <Tag color={statusColorMap[jobStatus?.status ?? 'queued']}>{getStatusLabel(jobStatus?.status)}</Tag>
             </div>
+            {jobStatus?.upload_scope_overview ? (
+              <div>
+                <Space wrap size={[8, 8]}>
+                  <Tag color="cyan">上传预判: {jobStatus.upload_scope_overview.upload_mode_label}</Tag>
+                  <Tag color="blue">
+                    可能作用域: {jobStatus.upload_scope_overview.likely_scope_labels.join(' / ')}
+                  </Tag>
+                  <Tag>文件 {jobStatus.upload_scope_overview.file_count}</Tag>
+                  <Tag>序列根 {jobStatus.upload_scope_overview.sequence_root_count}</Tag>
+                  <Tag>申请根 {jobStatus.upload_scope_overview.application_root_count}</Tag>
+                </Space>
+                <Typography.Text type="secondary">
+                  {jobStatus.upload_scope_overview.scope_notice}
+                </Typography.Text>
+              </div>
+            ) : null}
             <Progress percent={jobStatus?.progress ?? 0} status={processing ? 'active' : undefined} />
             <List
               bordered
@@ -89,8 +118,8 @@ export function UploadPreprocessPanel({
                 <List.Item>
                   <Space direction="vertical" size={4} style={{ width: '100%' }}>
                     <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                      <Typography.Text>{item.filename}</Typography.Text>
-                      <Tag color={statusColorMap[item.status]}>{item.status}</Tag>
+                      <Typography.Text>{item.relative_path || item.filename}</Typography.Text>
+                      <Tag color={statusColorMap[item.status]}>{getStatusLabel(item.status)}</Tag>
                     </Space>
                     <Progress percent={item.progress} size="small" />
                     {item.message ? <Typography.Text type="secondary">{item.message}</Typography.Text> : null}

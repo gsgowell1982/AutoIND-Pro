@@ -1,0 +1,511 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from functools import lru_cache
+import statistics
+from typing import Any
+
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - optional runtime dependency
+    np = None  # type: ignore[assignment]
+
+try:
+    import pymupdf
+except ImportError:  # pragma: no cover - optional runtime dependency
+    pymupdf = None  # type: ignore[assignment]
+
+try:
+    from rapidocr_onnxruntime import RapidOCR
+except ImportError:  # pragma: no cover - optional runtime dependency
+    RapidOCR = None  # type: ignore[assignment]
+
+from .shared import _Word, _bbox_union, _clean_text
+from .table_modules.raw_objects import (
+    RawCell,
+    RawDrawing,
+    RawRow,
+    RawSpan,
+    RawTableEvidence,
+    RawWord,
+    _extract_drawings_from_page,
+)
+
+_VECTOR_OCR_SHORT_TABLE_EDGE_THRESHOLD = 90.0
+_VECTOR_OCR_SHORT_TABLE_SCALE = 4.0
+_VECTOR_OCR_STANDARD_TABLE_SCALE = 3.5
+
+
+@dataclass(slots=True)
+class _OcrEntry:
+    text: str
+    confidence: float
+    bbox: tuple[float, float, float, float]
+
+    @property
+    def x0(self) -> float:
+        return float(self.bbox[0])
+
+    @property
+    def y0(self) -> float:
+        return float(self.bbox[1])
+
+    @property
+    def x1(self) -> float:
+        return float(self.bbox[2])
+
+    @property
+    def y1(self) -> float:
+        return float(self.bbox[3])
+
+    @property
+    def x_center(self) -> float:
+        return (self.x0 + self.x1) / 2.0
+
+    @property
+    def y_center(self) -> float:
+        return (self.y0 + self.y1) / 2.0
+
+    @property
+    def height(self) -> float:
+        return max(0.0, self.y1 - self.y0)
+
+
+def _compute_vector_ocr_render_scale(clip_width: float, clip_height: float) -> float:
+    if clip_width <= 0 or clip_height <= 0:
+        return _VECTOR_OCR_SHORT_TABLE_SCALE
+
+    short_edge = min(clip_width, clip_height)
+    # Short, wide borderless tables lose token separation quickly below 4.0x.
+    if short_edge < _VECTOR_OCR_SHORT_TABLE_EDGE_THRESHOLD:
+        return _VECTOR_OCR_SHORT_TABLE_SCALE
+    return _VECTOR_OCR_STANDARD_TABLE_SCALE
+
+
+def extract_vector_ocr_table_candidates(
+    page: Any,
+    page_number: int,
+    page_height: float,
+    page_width: float,
+    title_blocks: list[dict[str, Any]],
+    page_drawings: list[dict[str, Any]],
+    page_words: list[_Word],
+    occupied_bboxes: list[tuple[float, float, float, float]] | None = None,
+) -> list[RawTableEvidence]:
+    if (
+        RapidOCR is None
+        or np is None
+        or pymupdf is None
+        or not title_blocks
+        or not page_drawings
+    ):
+        return []
+
+    results: list[RawTableEvidence] = []
+    claimed_bboxes = list(occupied_bboxes or [])
+    for title_block in sorted(title_blocks, key=lambda item: (item["bbox"][1], item["bbox"][0])):
+        table_region = _find_vector_table_region_below_title(
+            title_block=title_block,
+            page_drawings=page_drawings,
+            page_words=page_words,
+            page_width=page_width,
+            page_height=page_height,
+            occupied_bboxes=claimed_bboxes,
+        )
+        if table_region is None:
+            continue
+        raw_evidence = _build_vector_ocr_raw_evidence(
+            page=page,
+            table_bbox=table_region,
+            page_number=page_number,
+            page_height=page_height,
+            page_width=page_width,
+        )
+        if raw_evidence is None:
+            continue
+        results.append(raw_evidence)
+        claimed_bboxes.append(raw_evidence.bbox)
+    return results
+
+
+@lru_cache(maxsize=1)
+def _get_vector_ocr_engine() -> Any:
+    if RapidOCR is None:
+        return None
+    try:
+        return RapidOCR()
+    except Exception:
+        return None
+
+
+def _find_vector_table_region_below_title(
+    title_block: dict[str, Any],
+    page_drawings: list[dict[str, Any]],
+    page_words: list[_Word],
+    page_width: float,
+    page_height: float,
+    occupied_bboxes: list[tuple[float, float, float, float]],
+) -> tuple[float, float, float, float] | None:
+    title_bbox = tuple(float(item) for item in title_block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    if len(title_bbox) != 4:
+        return None
+
+    scan_bottom = min(page_height - 6.0, title_bbox[3] + min(380.0, page_height * 0.48))
+    horizontal_lines = [
+        bbox
+        for bbox in (
+            _drawing_bbox(draw)
+            for draw in page_drawings
+        )
+        if bbox
+        and bbox[1] >= title_bbox[3] - 4.0
+        and bbox[1] <= scan_bottom
+        and _is_wide_horizontal_rule_bbox(bbox, page_width)
+        and _horizontal_overlap_ratio(bbox, title_bbox) >= 0.25
+    ]
+    if len(horizontal_lines) < 2:
+        return None
+
+    horizontal_lines.sort(key=lambda bbox: (bbox[1], bbox[0]))
+    seed = horizontal_lines[0]
+    aligned_lines = [
+        bbox
+        for bbox in horizontal_lines
+        if abs(bbox[0] - seed[0]) <= 24.0 and abs(bbox[2] - seed[2]) <= 24.0
+    ]
+    if len(aligned_lines) < 2:
+        return None
+
+    table_bbox = (
+        min(bbox[0] for bbox in aligned_lines),
+        min(bbox[1] for bbox in aligned_lines),
+        max(bbox[2] for bbox in aligned_lines),
+        max(bbox[3] for bbox in aligned_lines),
+    )
+    if _bbox_height(table_bbox) < 48.0 or _bbox_width(table_bbox) < page_width * 0.35:
+        return None
+    if any(_bbox_overlap_ratio(table_bbox, occupied) >= 0.35 for occupied in occupied_bboxes):
+        return None
+
+    glyph_like_drawings = [
+        bbox
+        for bbox in (
+            _drawing_bbox(draw)
+            for draw in page_drawings
+        )
+        if bbox and _bbox_overlap_ratio(bbox, table_bbox) >= 0.7 and _is_dense_dark_glyph_rect(bbox)
+    ]
+    if len(glyph_like_drawings) < 25:
+        return None
+
+    text_layer_words = [
+        word
+        for word in page_words
+        if _bbox_contains_word(table_bbox, word)
+    ]
+    if len(text_layer_words) > 6:
+        return None
+
+    return table_bbox
+
+
+def _build_vector_ocr_raw_evidence(
+    page: Any,
+    table_bbox: tuple[float, float, float, float],
+    page_number: int,
+    page_height: float,
+    page_width: float,
+) -> RawTableEvidence | None:
+    ocr_engine = _get_vector_ocr_engine()
+    if ocr_engine is None or np is None or pymupdf is None:
+        return None
+
+    clip = pymupdf.Rect(*table_bbox)
+    if clip.width < 24 or clip.height < 24:
+        return None
+    render_scale = _compute_vector_ocr_render_scale(float(clip.width), float(clip.height))
+
+    try:
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(render_scale, render_scale), clip=clip, alpha=False)
+        image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+        result, _ = ocr_engine(image)
+    except Exception:
+        return None
+
+    entries = _normalize_ocr_result_entries(result, clip, pix.width, pix.height)
+    if len(entries) < 8:
+        return None
+
+    column_anchors = _detect_ocr_column_anchors(entries, table_bbox)
+    if len(column_anchors) < 2 or len(column_anchors) > 8:
+        return None
+
+    row_groups = _group_ocr_entries_into_rows(entries)
+    if len(row_groups) < 4:
+        return None
+
+    raw_rows, raw_data, spans, words = _build_raw_rows_from_ocr_entries(row_groups, column_anchors)
+    if len(raw_rows) < 4:
+        return None
+
+    drawings = _extract_drawings_from_page(page, table_bbox)
+    return RawTableEvidence(
+        page_number=page_number,
+        bbox=table_bbox,
+        physical_col_count=len(column_anchors),
+        physical_row_count=len(raw_rows),
+        rows=raw_rows,
+        chars=[],
+        spans=spans,
+        words=words,
+        drawings=drawings,
+        raw_data=raw_data,
+        page_height=page_height,
+        page_width=page_width,
+        near_page_top=table_bbox[1] <= page_height * 0.28,
+        near_page_bottom=table_bbox[3] >= page_height * 0.72,
+        source="vector_ocr",
+    )
+
+
+def _normalize_ocr_result_entries(
+    result: Any,
+    clip: Any,
+    image_width: int,
+    image_height: int,
+) -> list[_OcrEntry]:
+    entries: list[_OcrEntry] = []
+    if not result:
+        return entries
+
+    scale_x = image_width / max(1.0, float(clip.width))
+    scale_y = image_height / max(1.0, float(clip.height))
+    for item in result:
+        if not isinstance(item, (list, tuple)) or len(item) < 3:
+            continue
+        box, text, confidence = item[0], _clean_text(str(item[1])), float(item[2] or 0.0)
+        if not text or confidence < 0.35:
+            continue
+        try:
+            xs = [float(point[0]) for point in box]
+            ys = [float(point[1]) for point in box]
+        except Exception:
+            continue
+        bbox = (
+            float(clip.x0) + min(xs) / max(1.0, scale_x),
+            float(clip.y0) + min(ys) / max(1.0, scale_y),
+            float(clip.x0) + max(xs) / max(1.0, scale_x),
+            float(clip.y0) + max(ys) / max(1.0, scale_y),
+        )
+        entries.append(_OcrEntry(text=text, confidence=confidence, bbox=bbox))
+
+    entries.sort(key=lambda entry: (entry.y_center, entry.x0))
+    return entries
+
+
+def _detect_ocr_column_anchors(
+    entries: list[_OcrEntry],
+    table_bbox: tuple[float, float, float, float],
+) -> list[float]:
+    if not entries:
+        return []
+    tolerance = max(12.0, _bbox_width(table_bbox) * 0.035)
+    clusters: list[list[float]] = []
+    for x0 in sorted(entry.x0 for entry in entries):
+        if not clusters or abs(x0 - statistics.mean(clusters[-1])) > tolerance:
+            clusters.append([x0])
+            continue
+        clusters[-1].append(x0)
+    return [statistics.mean(cluster) for cluster in clusters if cluster]
+
+
+def _group_ocr_entries_into_rows(entries: list[_OcrEntry]) -> list[list[_OcrEntry]]:
+    if not entries:
+        return []
+
+    row_height_basis = [entry.height for entry in entries if entry.height > 0]
+    row_tolerance = max(4.0, statistics.median(row_height_basis) * 0.65) if row_height_basis else 4.0
+    rows: list[dict[str, Any]] = []
+    for entry in sorted(entries, key=lambda item: (item.y_center, item.x0)):
+        target_row: dict[str, Any] | None = None
+        for row in rows:
+            if abs(entry.y_center - float(row["center_y"])) <= row_tolerance:
+                target_row = row
+                break
+        if target_row is None:
+            rows.append({"center_y": entry.y_center, "entries": [entry]})
+            continue
+        target_row["entries"].append(entry)
+        target_row["center_y"] = statistics.mean(item.y_center for item in target_row["entries"])
+
+    grouped_rows = [
+        sorted(list(row["entries"]), key=lambda item: item.x0)
+        for row in rows
+    ]
+    grouped_rows.sort(key=lambda row: min(item.y0 for item in row))
+    return grouped_rows
+
+
+def _build_raw_rows_from_ocr_entries(
+    row_groups: list[list[_OcrEntry]],
+    column_anchors: list[float],
+) -> tuple[list[RawRow], list[list[str | None]], list[RawSpan], list[RawWord]]:
+    raw_rows: list[RawRow] = []
+    raw_data: list[list[str | None]] = []
+    spans: list[RawSpan] = []
+    words: list[RawWord] = []
+
+    for row_index, entries in enumerate(row_groups):
+        grouped_by_column: list[list[_OcrEntry]] = [[] for _ in column_anchors]
+        for entry in entries:
+            column_index = min(
+                range(len(column_anchors)),
+                key=lambda idx: abs(entry.x0 - column_anchors[idx]),
+            )
+            grouped_by_column[column_index].append(entry)
+
+        row_cells: list[RawCell] = []
+        row_bbox_components: list[tuple[float, float, float, float]] = []
+        row_texts: list[str | None] = []
+        for column_index, column_entries in enumerate(grouped_by_column):
+            column_entries.sort(key=lambda item: (item.y0, item.x0))
+            cell_text = _join_ocr_cell_text(column_entries)
+            cell_bbox = _bbox_union([entry.bbox for entry in column_entries]) if column_entries else None
+            cell_spans = [
+                RawSpan(
+                    text=entry.text,
+                    x0=entry.x0,
+                    y0=entry.y0,
+                    x1=entry.x1,
+                    y1=entry.y1,
+                    size=max(0.0, entry.height),
+                    font="ocr-vector",
+                    flags=0,
+                    chars=[],
+                    origin=(entry.x0, entry.y0),
+                )
+                for entry in column_entries
+            ]
+            spans.extend(cell_spans)
+            words.extend(
+                RawWord(
+                    text=entry.text,
+                    x0=entry.x0,
+                    y0=entry.y0,
+                    x1=entry.x1,
+                    y1=entry.y1,
+                )
+                for entry in column_entries
+            )
+            if cell_bbox is not None:
+                row_bbox_components.append(cell_bbox)
+            row_cells.append(
+                RawCell(
+                    physical_col=column_index,
+                    physical_row=row_index,
+                    text=cell_text or None,
+                    spans=cell_spans,
+                    bbox=cell_bbox,
+                )
+            )
+            row_texts.append(cell_text or None)
+
+        if not any(text for text in row_texts):
+            continue
+        row_bbox = _bbox_union(row_bbox_components) if row_bbox_components else None
+        raw_rows.append(
+            RawRow(
+                physical_row=len(raw_rows),
+                cells=row_cells,
+                bbox=row_bbox,
+                y0=float(row_bbox[1]) if row_bbox else 0.0,
+                y1=float(row_bbox[3]) if row_bbox else 0.0,
+            )
+        )
+        raw_data.append(row_texts)
+
+    return raw_rows, raw_data, spans, words
+
+
+def _join_ocr_cell_text(entries: list[_OcrEntry]) -> str:
+    if not entries:
+        return ""
+    parts: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        text = _clean_text(entry.text)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        parts.append(text)
+    return " ".join(parts).strip()
+
+
+def _drawing_bbox(draw: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    rect = draw.get("rect")
+    if rect is None:
+        return None
+    try:
+        return (
+            float(rect[0]),
+            float(rect[1]),
+            float(rect[2]),
+            float(rect[3]),
+        )
+    except Exception:
+        return None
+
+
+def _is_wide_horizontal_rule_bbox(
+    bbox: tuple[float, float, float, float],
+    page_width: float,
+) -> bool:
+    return _bbox_width(bbox) >= page_width * 0.35 and _bbox_height(bbox) <= 2.5
+
+
+def _is_dense_dark_glyph_rect(bbox: tuple[float, float, float, float]) -> bool:
+    width = _bbox_width(bbox)
+    height = _bbox_height(bbox)
+    area = width * height
+    return width <= 180.0 and height <= 20.0 and area <= 900.0
+
+
+def _bbox_contains_word(
+    bbox: tuple[float, float, float, float],
+    word: _Word,
+) -> bool:
+    word_bbox = (float(word.x0), float(word.y0), float(word.x1), float(word.y1))
+    return _bbox_overlap_ratio(bbox, word_bbox) >= 0.75
+
+
+def _horizontal_overlap_ratio(
+    a_bbox: tuple[float, float, float, float],
+    b_bbox: tuple[float, float, float, float],
+) -> float:
+    overlap = max(0.0, min(a_bbox[2], b_bbox[2]) - max(a_bbox[0], b_bbox[0]))
+    min_width = max(1.0, min(_bbox_width(a_bbox), _bbox_width(b_bbox)))
+    return overlap / min_width
+
+
+def _bbox_overlap_ratio(
+    a_bbox: tuple[float, float, float, float],
+    b_bbox: tuple[float, float, float, float],
+) -> float:
+    x0 = max(a_bbox[0], b_bbox[0])
+    y0 = max(a_bbox[1], b_bbox[1])
+    x1 = min(a_bbox[2], b_bbox[2])
+    y1 = min(a_bbox[3], b_bbox[3])
+    intersection = max(0.0, x1 - x0) * max(0.0, y1 - y0)
+    min_area = max(
+        1.0,
+        min(_bbox_width(a_bbox) * _bbox_height(a_bbox), _bbox_width(b_bbox) * _bbox_height(b_bbox)),
+    )
+    return intersection / min_area
+
+
+def _bbox_width(bbox: tuple[float, float, float, float]) -> float:
+    return max(0.0, float(bbox[2]) - float(bbox[0]))
+
+
+def _bbox_height(bbox: tuple[float, float, float, float]) -> float:
+    return max(0.0, float(bbox[3]) - float(bbox[1]))

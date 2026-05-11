@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from core.material_review_contract import build_material_review_contract
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -30,6 +32,7 @@ class RunContext:
     project_root: Path
     table_counter: int = 0
     image_counter: int = 0
+    algorithm_counter: int = 0
 
 
 def create_run_context(project_root: Path, job_id: str, file_records: list[dict[str, Any]]) -> RunContext:
@@ -45,6 +48,8 @@ def create_run_context(project_root: Path, job_id: str, file_records: list[dict[
         run_dir / "artifacts" / "ast" / "ectd",
         run_dir / "artifacts" / "tables",
         run_dir / "artifacts" / "images",
+        run_dir / "artifacts" / "algorithms",
+        run_dir / "artifacts" / "equations",
         run_dir / "artifacts" / "normalized",
         run_dir / "artifacts" / "atomic_facts",
         run_dir / "output",
@@ -78,6 +83,8 @@ def create_run_context(project_root: Path, job_id: str, file_records: list[dict[
             "ast": [],
             "tables": [],
             "images": [],
+            "algorithms": [],
+            "equations": [],
             "normalized": [],
             "atomic_facts": [],
         },
@@ -144,6 +151,12 @@ def persist_document_artifacts(
         "source_type": source_type,
         "metadata": parsed_document.get("metadata", {}),
         "document_ast": parsed_document.get("document_ast", {}),
+        "algorithm_blocks": parsed_document.get("algorithm_blocks", []),
+        "toc_blocks": parsed_document.get("toc_blocks", []),
+        "toc_sequences": parsed_document.get("toc_sequences", []),
+        "content_evidence": parsed_document.get("content_evidence", []),
+        "content_units": parsed_document.get("content_units", []),
+        "atomic_facts": parsed_document.get("atomic_facts", {}),
         "text_excerpt": str(parsed_document.get("text", ""))[:2000],
     }
     _json_dump(ast_path, ast_payload)
@@ -166,11 +179,34 @@ def persist_document_artifacts(
         _json_dump(image_path, image)
         context.manifest["artifacts_index"]["images"].append(_relative(image_path, context.run_dir))
 
+    for algorithm in parsed_document.get("algorithm_blocks", []):
+        algorithm_id = str(algorithm.get("algorithm_id", "")).strip()
+        if algorithm_id:
+            algorithm_filename = f"{algorithm_id}.json"
+        else:
+            context.algorithm_counter += 1
+            algorithm_filename = f"alg_{context.algorithm_counter:03d}.json"
+        algorithm_path = context.run_dir / "artifacts" / "algorithms" / algorithm_filename
+        _json_dump(algorithm_path, algorithm)
+        context.manifest["artifacts_index"]["algorithms"].append(_relative(algorithm_path, context.run_dir))
+
+    for equation in parsed_document.get("equation_blocks", []):
+        equation_id = str(equation.get("equation_id", "")).strip()
+        if equation_id:
+            equation_filename = f"{equation_id}.json"
+        else:
+            context.image_counter += 1
+            equation_filename = f"eq_{context.image_counter:03d}.json"
+        equation_path = context.run_dir / "artifacts" / "equations" / equation_filename
+        _json_dump(equation_path, equation)
+        context.manifest["artifacts_index"]["equations"].append(_relative(equation_path, context.run_dir))
+
     _json_dump(context.manifest_path, context.manifest)
 
 
 def persist_normalized_artifacts(context: RunContext, parsed_documents: list[dict[str, Any]]) -> None:
     normalized_path = context.run_dir / "artifacts" / "normalized" / "material_normalized.json"
+    review_contract_path = context.run_dir / "artifacts" / "normalized" / "material_review_contract.json"
     normalized_payload = {
         "generated_at": _utc_now(),
         "documents": [
@@ -182,13 +218,23 @@ def persist_normalized_artifacts(context: RunContext, parsed_documents: list[dic
                 "atomic_facts": document.get("atomic_facts", {}),
                 "text_length": len(str(document.get("text", ""))),
                 "image_count": len(document.get("image_blocks", [])),
+                "algorithm_count": len(document.get("algorithm_blocks", [])),
                 "table_count": len(document.get("table_asts", [])),
+                "toc_count": len(document.get("toc_blocks", [])),
+                "toc_sequence_count": len(document.get("toc_sequences", [])),
+                "content_evidence_count": len(document.get("content_evidence", [])),
+                "content_unit_count": len(document.get("content_units", [])),
             }
             for index, document in enumerate(parsed_documents)
         ],
     }
     _json_dump(normalized_path, normalized_payload)
-    context.manifest["artifacts_index"]["normalized"] = [_relative(normalized_path, context.run_dir)]
+    review_contract_payload = build_material_review_contract(parsed_documents)
+    _json_dump(review_contract_path, review_contract_payload)
+    context.manifest["artifacts_index"]["normalized"] = [
+        _relative(normalized_path, context.run_dir),
+        _relative(review_contract_path, context.run_dir),
+    ]
 
     atomic_path = context.run_dir / "artifacts" / "atomic_facts" / "atomic_facts.json"
     atomic_payload = {

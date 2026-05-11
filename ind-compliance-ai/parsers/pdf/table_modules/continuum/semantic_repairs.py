@@ -1,5 +1,9 @@
-# Version: v1.0.1
+# Version: v1.0.2
 # Optimization Summary:
+# - Preserve single ownership when directory filename tails are promoted into the
+#   filename column by trimming duplicated filename prefixes from descriptions.
+# - Keep semantic repairs non-destructive to observed facts unless a promoted
+#   value has an exact matching prefix in the companion description cell.
 # - Migrate semantic repair logic out of normalization for maintainability.
 # - Keep rules evidence-driven and non-destructive (fill-empty / merge-broken only).
 # - Provide reusable functions for rule-engine apply and shadow execution.
@@ -8,6 +12,9 @@ from __future__ import annotations
 
 import re
 from typing import Any
+
+
+_FILENAME_PREFIX_STRIP_RE_TEMPLATE = r"^{prefix}(?:[\s\u3000:：-]+)(?P<rest>.+)$"
 
 
 def recover_key_identifier_cells(
@@ -168,6 +175,93 @@ def repair_directory_listing_structure(
                 break
         return True
 
+    def _rewrite_cell(row_idx: int, col_idx: int, text: str, reason: str) -> bool:
+        if not (0 <= row_idx < len(grid) and 0 <= col_idx < logical_col_count):
+            return False
+        text = text.strip()
+        if not text:
+            return False
+        current = str(grid[row_idx][col_idx] or "").strip()
+        if current == text:
+            return False
+        grid[row_idx][col_idx] = text
+        for norm_cell in rows[row_idx].cells:
+            if norm_cell.logical_col == col_idx:
+                norm_cell.text = text
+                norm_cell.supplemented = True
+                norm_cell.supplement_reason = reason
+                break
+        return True
+
+    def _clear_cell(row_idx: int, col_idx: int, reason: str) -> bool:
+        if not (0 <= row_idx < len(grid) and 0 <= col_idx < logical_col_count):
+            return False
+        current = str(grid[row_idx][col_idx] or "").strip()
+        if not current:
+            return False
+        grid[row_idx][col_idx] = None
+        for norm_cell in rows[row_idx].cells:
+            if norm_cell.logical_col == col_idx:
+                norm_cell.text = None
+                norm_cell.supplemented = True
+                norm_cell.supplement_reason = reason
+                break
+        return True
+
+    def _line_tokens(text: str | None) -> list[str]:
+        return [line.strip() for line in str(text or "").splitlines() if line.strip()]
+
+    def _subsequent_same_column_values(row_idx: int, col_idx: int) -> set[str]:
+        values: set[str] = set()
+        for later in grid[row_idx + 1 :]:
+            if col_idx >= len(later):
+                continue
+            value = str(later[col_idx] or "").strip()
+            if value:
+                values.add(value.lower())
+        return values
+
+    def _remove_embedded_child_filename_lists() -> int:
+        changed = 0
+        for row_idx, row in enumerate(grid):
+            if len(row) < 3:
+                continue
+            folder_key = str(row[0] or "").strip().lower()
+            if folder_key not in {"dtd", "util", "style"}:
+                continue
+            for col_idx in range(1, min(logical_col_count, len(row) - 1)):
+                lines = _line_tokens(row[col_idx])
+                if len(lines) < 2:
+                    continue
+                subsequent_values = _subsequent_same_column_values(row_idx, col_idx)
+                if not subsequent_values:
+                    continue
+                embedded_children = [line for line in lines[1:] if line.lower() in subsequent_values]
+                if len(embedded_children) < 2:
+                    continue
+                if len(embedded_children) != len(lines) - 1:
+                    continue
+                if lines[0].lower() and lines[0].lower() != folder_key:
+                    continue
+                if _clear_cell(row_idx, col_idx, "directory_embedded_child_filename_list_removed"):
+                    changed += 1
+        return changed
+
+    def _strip_promoted_filename_prefix(description: str, filename: str) -> str:
+        desc = description.strip()
+        name = filename.strip()
+        if not desc or not name:
+            return desc
+        pattern = re.compile(
+            _FILENAME_PREFIX_STRIP_RE_TEMPLATE.format(prefix=re.escape(name)),
+            re.IGNORECASE | re.DOTALL,
+        )
+        match = pattern.match(desc)
+        if not match:
+            return desc
+        rest = str(match.group("rest") or "").strip()
+        return rest or desc
+
     def _smart_join_tokens(items: list[tuple[float, float, str]]) -> str:
         if not items:
             return ""
@@ -236,6 +330,8 @@ def repair_directory_listing_structure(
         if _set_cell(idx, 2, text, "directory_row_desc_from_evidence"):
             repaired += 1
 
+    repaired += _remove_embedded_child_filename_lists()
+
     for idx, row in enumerate(grid):
         head = row[0] if len(row) > 0 else None
         if not head or "\n" not in str(head):
@@ -278,6 +374,19 @@ def repair_directory_listing_structure(
             if _set_cell(cursor, 1, item, "directory_multiline_tail_split"):
                 repaired += 1
             cursor += 1
+
+    for idx, row in enumerate(grid):
+        if len(row) < 3:
+            continue
+        filename = str(row[1] or "").strip()
+        description = str(row[2] or "").strip()
+        if not filename or not description:
+            continue
+        trimmed_description = _strip_promoted_filename_prefix(description, filename)
+        if trimmed_description == description:
+            continue
+        if _rewrite_cell(idx, 2, trimmed_description, "directory_desc_prefix_trim"):
+            repaired += 1
 
     return repaired
 

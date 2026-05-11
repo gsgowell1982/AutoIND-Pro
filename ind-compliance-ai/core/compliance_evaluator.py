@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from core.material_assessment import evaluate_parsed_documents
 from core.rule_engine import RuleEngine, RuleResult
 from parsers.parser_registry import parse_file
 
@@ -21,7 +22,9 @@ class ComplianceEvaluator:
 
     def evaluate(self, file_path: Path, submission_profile: str) -> EvaluationResult:
         parsed_material = parse_file(file_path)
-        rule_results = self._rule_engine.run(parsed_material)
+        _, default_rule_results = evaluate_parsed_documents([parsed_material], submission_profile)
+        custom_rule_results = self._rule_engine.run(parsed_material, submission_profile=submission_profile)
+        rule_results = default_rule_results + custom_rule_results
         risks = [
             {
                 "risk_id": f"RISK-{index + 1:03d}",

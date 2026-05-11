@@ -15,6 +15,7 @@ PARSER_REGISTRY: dict[str, ParserFn] = {
     ".pptx": parse_pptx,
     ".ppt": parse_pptx,
     ".xml": parse_xml,
+    ".xsd": parse_xml,
 }
 
 

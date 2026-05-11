@@ -13,4 +13,9 @@ class ExplanationAgent:
             "Explain the regulatory risk in neutral language with citations required: "
             f"{risk_statement}"
         )
-        return self._llm_client.generate(prompt)
+        system_prompt = (
+            "You are a regulatory explanation assistant. "
+            "Do not make approval decisions. "
+            "Keep the output factual, neutral, and auditable."
+        )
+        return self._llm_client.generate(prompt, system_prompt=system_prompt)

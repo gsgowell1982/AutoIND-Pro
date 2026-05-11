@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RegulatoryDirectRuleDraftCatalog",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "regulation_id",
+    "regulation_title",
+    "source_version",
+    "draft_rule_count",
+    "category_counts",
+    "rules"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "regulation_id": { "type": "string" },
+    "regulation_title": { "type": "string" },
+    "source_version": { "type": "string" },
+    "draft_rule_count": { "type": "integer", "minimum": 0 },
+    "category_counts": {
+      "type": "object",
+      "required": ["hard", "soft"],
+      "properties": {
+        "hard": { "type": "integer", "minimum": 0 },
+        "soft": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "rule_id",
+          "status",
+          "implementation_state",
+          "category",
+          "title",
+          "regulation_id",
+          "clause_id",
+          "article_no",
+          "material_checkability",
+          "ind_relevance",
+          "expected_material_evidence",
+          "candidate_reason",
+          "citation",
+          "implementation_notes"
+        ],
+        "properties": {
+          "rule_id": { "type": "string" },
+          "status": { "type": "string", "const": "draft" },
+          "implementation_state": { "type": "string", "const": "planned" },
+          "category": { "type": "string", "enum": ["hard", "soft"] },
+          "title": { "type": "string" },
+          "regulation_id": { "type": "string" },
+          "clause_id": { "type": "string" },
+          "article_no": { "type": "integer", "minimum": 1 },
+          "material_checkability": { "type": "string", "const": "direct" },
+          "ind_relevance": { "type": "string", "enum": ["high", "medium", "low"] },
+          "expected_material_evidence": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "candidate_reason": { "type": "string" },
+          "citation": {
+            "type": "object",
+            "required": ["anchor", "source_path", "source_regulation", "source_version"],
+            "properties": {
+              "anchor": { "type": "string" },
+              "source_path": { "type": "string" },
+              "source_regulation": { "type": "string" },
+              "source_version": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "implementation_notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

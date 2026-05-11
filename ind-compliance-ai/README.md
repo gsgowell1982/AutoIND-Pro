@@ -1,4 +1,4 @@
-# IND Compliance AI
+﻿# IND Compliance AI
 
 IND Compliance AI is an engineering platform for IND submission compliance support.
 It focuses on structured parsing, auditable artifacts, and explainable risk signals.
@@ -115,28 +115,28 @@ Each run creates an immutable folder under `runs/`, e.g.
 
 ```text
 ind-compliance-ai/
-├── api/                         # FastAPI service and job orchestration
-├── core/
-│   └── run_manager.py           # run evidence package lifecycle
-├── parsers/
-│   ├── pdf_parser.py            # stable PDF parser entrypoint
-│   ├── pdf/                     # modular PDF implementation
-│   │   ├── pipeline.py
-│   │   ├── postprocess.py
-│   │   ├── tables.py
-│   │   ├── image_blocks.py
-│   │   ├── text_blocks.py
-│   │   ├── layout.py
-│   │   ├── shared.py
-│   │   └── types.py
-│   ├── docx_parser.py
-│   ├── pptx_parser.py
-│   ├── xml_parser.py
-│   └── common/
-├── ui/frontend/                 # React + Vite workbench UI
-├── runs/                        # generated run artifacts (git ignored)
-├── output/parsed_markdown/      # generated markdown outputs
-└── main.py                      # dev bootstrap / API mode entry
+鈹溾攢鈹€ api/                         # FastAPI service and job orchestration
+鈹溾攢鈹€ core/
+鈹?  鈹斺攢鈹€ run_manager.py           # run evidence package lifecycle
+鈹溾攢鈹€ parsers/
+鈹?  鈹溾攢鈹€ pdf_parser.py            # stable PDF parser entrypoint
+鈹?  鈹溾攢鈹€ pdf/                     # modular PDF implementation
+鈹?  鈹?  鈹溾攢鈹€ pipeline.py
+鈹?  鈹?  鈹溾攢鈹€ postprocess.py
+鈹?  鈹?  鈹溾攢鈹€ tables.py
+鈹?  鈹?  鈹溾攢鈹€ image_blocks.py
+鈹?  鈹?  鈹溾攢鈹€ text_blocks.py
+鈹?  鈹?  鈹溾攢鈹€ layout.py
+鈹?  鈹?  鈹溾攢鈹€ shared.py
+鈹?  鈹?  鈹斺攢鈹€ types.py
+鈹?  鈹溾攢鈹€ docx_parser.py
+鈹?  鈹溾攢鈹€ pptx_parser.py
+鈹?  鈹溾攢鈹€ xml_parser.py
+鈹?  鈹斺攢鈹€ common/
+鈹溾攢鈹€ ui/frontend/                 # React + Vite workbench UI
+鈹溾攢鈹€ runs/                        # generated run artifacts (git ignored)
+鈹溾攢鈹€ output/parsed_markdown/      # generated markdown outputs
+鈹斺攢鈹€ main.py                      # dev bootstrap / API mode entry
 ```
 
 ## Quick start
@@ -147,10 +147,59 @@ poetry install
 python3 main.py
 ```
 
+### Windows bootstrap without Poetry
+
+If you are running this project from `D:\AutoIND-Pro` on Windows and do not have Poetry installed:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python .\scripts\validate_environment.py
+.\.venv\Scripts\python .\main.py
+```
+
+For API-only validation without frontend tooling:
+
+```powershell
+.\.venv\Scripts\python .\scripts\validate_environment.py --skip-frontend
+.\.venv\Scripts\python .\main.py --mode api
+```
+
+Or use the repository-level launcher:
+
+```powershell
+..\scripts\run-ind-compliance-ai.ps1
+```
+
 Default dev endpoints:
 
 - UI: `http://localhost:5173`
 - API: `http://localhost:8000`
+
+### PDF regression gate
+
+Before merging parser changes that affect PDF layout, reading order, footer filtering,
+TOC extraction, or table detection, run the standing PDF regression gate:
+
+```powershell
+.\.venv\Scripts\python .\scripts\run_pdf_sample_regression.py
+```
+
+This gate covers the current enterprise anchor samples:
+
+- `A-tst.pdf` for journal-style two-column parsing, numbered display equations, vector-drawn figures, and algorithm/pseudocode structure regression
+- `2-column-tst.pdf` for literature-style double-column parsing
+- `test-ind.pdf` for figure/footer/TOC protection
+- `eCTD鎶€鏈鑼?pdf` for eCTD TOC and cross-page structure regression
+
+The current `A-tst.pdf` protected expectations include:
+
+- page-3 two-column top-body integrity plus 7 numbered display equations `(1)` to `(7)`
+- page-3 inline-math prose preservation for the `Y = [...] ... d ≫ n` sentence
+- page-4 six numbered display equations `(8)` to `(13)` with continuation cleanup, symbol-fragment absorption for `(11)` / `(13)`, and no lower-right equation residue
+- page-4/page-5 algorithm pseudocode emitted as `algorithm_blocks` and kept out of TOC/table false positives
+- page-7 figure bbox isolation from caption/footer/body-tail text while still covering the real top portion of the chart
+- page-8/page-9 vector-drawn `Fig. 2` / `Fig. 3` figure recovery as full multi-row panel figures, even without raw raster image blocks
 
 ## API-only mode
 
@@ -174,9 +223,10 @@ If local startup appears stuck at `Syncing frontend dependencies (npm install) .
 ## Environment notes
 
 - Ensure `node`/`npm` are in PATH for local frontend startup.
+- Use `Python 3.11` or `Python 3.12`. `Python 3.14` is not supported by this project.
 - If parser dependencies are missing:
   ```bash
-  pip install python-docx python-pptx pymupdf fastapi uvicorn python-multipart
+  pip install -r requirements.txt
   ```
 - For legacy `.doc`, convert to `.docx` for best quality when possible.
 
@@ -185,3 +235,4 @@ If local startup appears stuck at `Syncing frontend dependencies (npm install) .
 Upload -> Parse -> Normalize -> Atomic Facts -> Consistency Checks -> Output
 
 See `docs/architecture.md` and `docs/phase1_scope.md` for broader context.
+

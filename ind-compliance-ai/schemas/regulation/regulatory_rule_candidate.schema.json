@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RegulatoryRuleCandidate",
+  "type": "object",
+  "required": [
+    "rule_candidate_id",
+    "regulation_id",
+    "clause_id",
+    "article_no",
+    "title",
+    "recommended_rule_mode",
+    "material_checkability",
+    "ind_relevance",
+    "automation_ready",
+    "candidate_reason",
+    "expected_material_evidence",
+    "citation_anchor",
+    "source_path"
+  ],
+  "properties": {
+    "rule_candidate_id": { "type": "string" },
+    "regulation_id": { "type": "string" },
+    "clause_id": { "type": "string" },
+    "article_no": { "type": "integer", "minimum": 1 },
+    "title": { "type": "string" },
+    "recommended_rule_mode": {
+      "type": "string",
+      "enum": ["hard", "soft", "review_only", "citation_only"]
+    },
+    "material_checkability": {
+      "type": "string",
+      "enum": ["direct", "partial", "external_only"]
+    },
+    "ind_relevance": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "automation_ready": { "type": "boolean" },
+    "candidate_reason": { "type": "string" },
+    "expected_material_evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "citation_anchor": { "type": "string" },
+    "source_path": { "type": "string" }
+  },
+  "additionalProperties": false
+}

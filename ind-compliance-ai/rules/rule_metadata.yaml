@@ -1,12 +1,998 @@
 version: 0.1.0
 rules:
+  - rule_id: HR-PARSE-001
+    category: hard
+    title: Parsed material exposes review-ready evidence units
+    source_regulation: material_review_contract
+    source_version: v1
+  - rule_id: HR-PARSE-002
+    category: hard
+    title: Parser diagnostics do not block deterministic rule execution
+    source_regulation: material_review_contract
+    source_version: v1
+  - rule_id: HR-NAV-001
+    category: hard
+    title: TOC navigation metadata is internally consistent when present
+    source_regulation: material_review_contract
+    source_version: v1
   - rule_id: HR-CTD-001
     category: hard
-    title: Module 3 quality overview exists
+    title: Explicit Module 3 / CMC material is paired with a quality overview / QOS document
     source_regulation: NMPA_IND_guidance
     source_version: 2024-01
+  - rule_id: HR-ECTD-001
+    category: hard
+    title: eCTD 序列号应为 4 位数字且满足起始值/递增约束
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-002
+    category: hard
+    title: eCTD 申请编号应符合 x/y/l + 年份 + 流水号格式
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-003
+    category: hard
+    title: eCTD 叶元素 checksum-type 必须为 MD5 或 md5
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-004
+    category: hard
+    title: eCTD 信封元素应包含核心必填属性且仅出现一次
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-005
+    category: hard
+    title: eCTD leaf 路径应满足字符集与长度约束
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-006
+    category: hard
+    title: eCTD leaf 引用地址应解析到当前提交包中的实际文件
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-007
+    category: hard
+    title: cn-regional.xml 与 index.xml 的核心 envelope 字段应保持一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-008
+    category: hard
+    title: cn-regional.xml 与 index.xml 的 leaf 引用集合应保持一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-009
+    category: hard
+    title: cn-regional.xml 与 index.xml 的相同 leaf 应保持相同 checksum 描述
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-010
+    category: hard
+    title: 当前提交包中的实际文件应被 XML leaf 声明完整覆盖
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-011
+    category: hard
+    title: envelope 中使用受控词汇的字段值应出自对应 cv XML 文件
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-012
+    category: hard
+    title: eCTD 注册行为类型字段应存在于 envelope 中
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-013
+    category: hard
+    title: eCTD 序列类型字段应存在于 envelope 中
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-014
+    category: hard
+    title: eCTD 序列联系人信息应包含姓名、电话和邮箱
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-015
+    category: hard
+    title: eCTD 核心包结构应包含序列目录、索引文件、模块目录及 util 配置文件
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-016
+    category: hard
+    title: eCTD 应用根与序列根命名链应和申请编号、序列号一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-017
+    category: hard
+    title: eCTD util 目录应包含关键受控词汇文件和申请注册序列关系文件
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-018
+    category: hard
+    title: eCTD 申请类型、注册行为类型和序列类型组合应符合 depend-apt-rat-sqt.xml
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-019
+    category: hard
+    title: eCTD XML 骨架声明的内容文件应使用允许的五类格式
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-020
+    category: hard
+    title: eCTD 实际目录结构应被 XML 骨架路径前缀覆盖
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-021
+    category: hard
+    title: eCTD 序列包中不应存在非 scaffold 空文件夹
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-022
+    category: hard
+    title: eCTD 已声明 PDF 内容文件中不应存在明显占位文档
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-023
+    category: hard
+    title: eCTD leaf 的 xml:lang 非空值应遵循 ISO639-1，并按 3.5.1 规则完成中文或外文归类
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-024
+    category: hard
+    title: eCTD 外文参考资料 leaf 应与对应中文资料处于同一目录元素下，且顺序位于中文之后
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-025
+    category: hard
+    title: eCTD leaf 的生命周期操作值应属于 new、replace、delete、append
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-026
+    category: hard
+    title: eCTD replace 生命周期操作在可唯一匹配前序 leaf 时应保持语言属性类别一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-009
+    category: soft
+    title: eCTD 非 STF 场景下的 append 生命周期操作应作为警告处理
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-010
+    category: soft
+    title: eCTD STF 必需章节中的 leaf 应嵌套在研究标签结构下，而非直接挂在章节节点下
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-008
+    category: soft
+    title: 扩展节点仅允许用于生物制品提交序列的3.2.R章节
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-011
+    category: soft
+    title: eCTD 同一序列中相同 checksum 的不同实体文件应优先采用文件复用而非重复提交
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-012
+    category: soft
+    title: 长 PDF 在无显式目录/书签时应保留可消费的超文本导航链接
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-013
+    category: soft
+    title: 同一申请内可解析的 PDF 外部文件超链接目标应指向真实存在的文件
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-014
+    category: soft
+    title: PDF 外部文件超链接目标应保持可解析以避免链接失效或定位错误
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-015
+    category: soft
+    title: eCTD 包内单个文件大小应在验证标准允许范围内
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-030
+    category: soft
+    title: STF XML should not use content-block elements
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-088
+    category: hard
+    title: STF XML xlink href values must not contain backslashes
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-089
+    category: hard
+    title: 5.3.7 case report form leafs must not be used when the sequence uses STF
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-090
+    category: hard
+    title: STF XML files must validate against ich-stf-v2-2.dtd
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-091
+    category: hard
+    title: 非豁免 PDF 书签动作仅允许 GoTo、GoToR 或 Launch
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-092
+    category: hard
+    title: 非豁免 PDF 书签不应包含网页、邮箱或其他 URI 外部链接
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-093
+    category: hard
+    title: cn-regional.xml content references must stay within the same application and current or prior sequence
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-094
+    category: hard
+    title: cn-regional.xml append operations must not target a replaced leaf
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-095
+    category: hard
+    title: cn-regional.xml delete operations must not target a replaced leaf
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-096
+    category: hard
+    title: cn-regional.xml replace operations must not target a replaced leaf
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-097
+    category: hard
+    title: cn-regional.xml lifecycle operations must not target a deleted leaf
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-098
+    category: hard
+    title: cn-regional.xml append operations must not target an append leaf
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-099
+    category: hard
+    title: cn-regional.xml sequence-description must be non-empty and no longer than 120 Chinese characters
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-100
+    category: hard
+    title: cn-regional.xml non-initial and non-reformat sequence types must not self-reference related-sequence
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-101
+    category: hard
+    title: cn-regional.xml initial submission and reformat sequence types must self-reference related-sequence
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-102
+    category: hard
+    title: cn-regional.xml related-sequence must be four digits and not after the current sequence-number
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-103
+    category: hard
+    title: cn-regional.xml original-number product-number value must be non-empty
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-104
+    category: hard
+    title: Development safety report first submissions must include one required module-1 safety element
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-105
+    category: hard
+    title: Development safety report first submissions must not include both module-1 safety elements
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-106
+    category: hard
+    title: New drug initial or new-indication first submissions must include required module-1 elements
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-107
+    category: hard
+    title: New drug initial or new-indication first submissions must not include listed forbidden module-1 elements
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-108
+    category: hard
+    title: Generic drug initial or new-indication first submissions must include required module-1 elements
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-109
+    category: hard
+    title: Generic drug initial or new-indication first submissions must not include listed forbidden module-1 elements
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-110
+    category: hard
+    title: Clinical trial initial or new-indication-and-combination first submissions must include required module-1 elements
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-111
+    category: hard
+    title: Clinical trial initial or new-indication-and-combination first submissions must not include listed forbidden module-1 elements
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-112
+    category: hard
+    title: cn-regional.xml schema references must point to local util schema files
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-113
+    category: hard
+    title: cn-regional.xml must validate against the resolved local schema
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-114
+    category: hard
+    title: Current sequence cn-regional.xml schema-version must not be lower than prior sequences
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-115
+    category: hard
+    title: Application-level cn-regional.xml envelope values must remain unchanged from the initial sequence
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-116
+    category: hard
+    title: Regulatory-activity-type must remain unchanged within the same regulatory activity
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-037
+    category: hard
+    title: cn-regional.xml application-type must match controlled vocabulary
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-038
+    category: hard
+    title: cn-regional.xml product-type must match controlled vocabulary
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-039
+    category: hard
+    title: cn-regional.xml regulatory-activity-type must match controlled vocabulary
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-040
+    category: hard
+    title: cn-regional.xml sequence-type must match controlled vocabulary
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-054
+    category: hard
+    title: cn-regional.xml leaf titles must be non-empty
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-055
+    category: hard
+    title: cn-regional.xml new, replace, and append leafs must have xlink:href
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-056
+    category: hard
+    title: cn-regional.xml delete leafs must not have xlink:href
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-057
+    category: hard
+    title: cn-regional.xml replace, delete, and append leafs must reference modified-file targets
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-058
+    category: hard
+    title: Initial-sequence cn-regional.xml leaf operations must be new
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-059
+    category: hard
+    title: cn-regional.xml target files must not map to multiple lifecycle operations in one sequence
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-060
+    category: hard
+    title: cn-regional.xml delete leaf titles must match deleted leaf titles
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-061
+    category: hard
+    title: cn-regional.xml cn-content elements must contain descendant leafs
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-062
+    category: hard
+    title: index.xml module elements must contain descendant leafs
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-063
+    category: hard
+    title: index.xml replace or append content must differ from the modified file
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-064
+    category: hard
+    title: cn-regional.xml replace or append content must differ from the modified file
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-065
+    category: hard
+    title: index.xml target files must not map to multiple lifecycle operations in one sequence
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-066
+    category: hard
+    title: index.xml new, replace, and append leafs must have xlink:href
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-067
+    category: hard
+    title: index.xml delete leafs must not have xlink:href
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-068
+    category: hard
+    title: index.xml replace, delete, and append leafs must reference modified-file targets
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-069
+    category: hard
+    title: index.xml leaf titles must be non-empty
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-070
+    category: hard
+    title: index.xml delete leaf titles must match deleted leaf titles
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-071
+    category: hard
+    title: Initial-sequence index.xml leaf operations must be new
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-072
+    category: hard
+    title: index.xml modified-file targets must exist when comparable history is available
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-073
+    category: hard
+    title: index.xml href and modified-file references must use relative paths
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-074
+    category: hard
+    title: index.xml node-extension usage must satisfy validation-standard constraints
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-075
+    category: hard
+    title: index.xml indication attributes must be present where required
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-076
+    category: hard
+    title: index.xml manufacturer attributes must be present where required
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-077
+    category: hard
+    title: index.xml substance attributes must be present where required
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-078
+    category: hard
+    title: index.xml DTD reference must point to the local util DTD
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-079
+    category: hard
+    title: index.xml must be valid against the resolved local DTD
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-080
+    category: hard
+    title: index.xml append operations must not branch replaced leaf lifecycle
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-081
+    category: hard
+    title: index.xml delete operations must not branch replaced leaf lifecycle
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-082
+    category: hard
+    title: index.xml replace operations must not branch replaced leaf lifecycle
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-083
+    category: hard
+    title: index.xml operations must not target already deleted leafs
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-084
+    category: hard
+    title: index.xml non-STF append operations must not target append leafs
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-085
+    category: hard
+    title: index.xml STF append operations must target latest known STF leafs
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-086
+    category: hard
+    title: index.xml m1 administrative information element must exist
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-087
+    category: hard
+    title: index.xml content references must stay within the same application and current or prior sequence
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-024
+    category: soft
+    title: cn-regional.xml leaf titles should not have leading or trailing whitespace
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-025
+    category: soft
+    title: index.xml leaf titles should not have leading or trailing whitespace
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-026
+    category: soft
+    title: index.xml node-extension titles should follow naming requirements
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-027
+    category: soft
+    title: index.xml attribute values should not have leading or trailing whitespace
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-028
+    category: soft
+    title: index.xml append operations outside explicit STF scope should be warned
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-029
+    category: soft
+    title: index.xml lifecycle operations should not relocate file position
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-031
+    category: soft
+    title: STF study-identifier category values should be non-empty
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-032
+    category: soft
+    title: STF study-identifier study-id values should be non-empty
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-033
+    category: soft
+    title: STF doc-content elements should contain exactly one file-tag
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-034
+    category: soft
+    title: STF XML files should reference at least one leaf element
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-035
+    category: soft
+    title: STF XML files should be located only under allowed module sections
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-036
+    category: soft
+    title: STF file-tag and category values should match valid-values.xml
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-037
+    category: soft
+    title: STF study-identifier title should match the referenced index leaf title
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-038
+    category: soft
+    title: STF in category-required CTD sections should provide category information
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-039
+    category: soft
+    title: STF study-id should remain consistent across local lifecycle replacements or appends
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-040
+    category: soft
+    title: STF clinical dataset references should use the correct dataset file-tags
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-041
+    category: soft
+    title: STF clinical dataset packages should include required dm/adsl datasets and data definitions
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-042
+    category: soft
+    title: STF clinical dataset names should be unique within the same study
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-043
+    category: soft
+    title: STF append modified-file targets should be another STF leaf
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-044
+    category: soft
+    title: STF documents should not reference another STF document
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-053
+    category: hard
+    title: cn-regional.xml 区域骨架文件中不允许使用 node-extension
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-016
+    category: soft
+    title: 大于 5 页的非豁免 PDF 应包含可用书签
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-041
+    category: hard
+    title: 非豁免 PDF 不允许包含嵌入附件
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-017
+    category: soft
+    title: 非豁免 PDF 除超文本链接外不应包含其他注释
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-042
+    category: hard
+    title: 非豁免 PDF 不允许包含任何安全设置
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-043
+    category: hard
+    title: 非豁免 PDF 不允许需要密码才能打开
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-044
+    category: hard
+    title: 非豁免 PDF 文件必须可读且不能是零页损坏文件
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-045
+    category: hard
+    title: 非豁免 PDF 超链接动作仅允许 GoTo、GoToR 或 Launch
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-046
+    category: hard
+    title: eCTD m1 文件夹下不允许直接存放单个文件
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-047
+    category: hard
+    title: eCTD util 关键支持文件应与权威附件文件的 MD5 校验值一致
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-048
+    category: hard
+    title: index.xml 骨架文件的 MD5 值应与 index-md5.txt 中声明的值一致
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-018
+    category: soft
+    title: 非豁免 PDF 版本应在验证标准允许范围内
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-019
+    category: soft
+    title: 非豁免 PDF 初始视图应满足默认显示要求
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-020
+    category: soft
+    title: 非豁免 PDF 不应包含 JavaScript、3D 或动态内容标记
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-021
+    category: soft
+    title: 非豁免 PDF 外部文件超链接应使用相对路径
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-022
+    category: soft
+    title: 非豁免 PDF 不应包含网页、邮箱或其他 URI 外部超链接
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-023
+    category: soft
+    title: 非豁免 PDF 超链接不应处于失效或无动作状态
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-045
+    category: soft
+    title: 非豁免 PDF 应提供可搜索文本或 OCR 文本
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-046
+    category: soft
+    title: 非豁免 PDF 应启用快速 Web 访问线性化
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-047
+    category: soft
+    title: 非豁免 PDF 使用非标准字体时应嵌入字体
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-048
+    category: soft
+    title: 非豁免 PDF 超文本链接不能有多个动作
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-049
+    category: soft
+    title: 非豁免 PDF 书签不能有多个动作
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-050
+    category: soft
+    title: 非豁免 PDF 书签外部文件目标应使用相对路径
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-051
+    category: soft
+    title: 非豁免 PDF 书签不应处于未分配动作或目标的失效状态
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-052
+    category: soft
+    title: 非豁免 PDF 书签内部目标不应为空、畸形或指向非页面对象
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-053
+    category: soft
+    title: 非豁免 PDF 书签目标应使用承前缩放
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-054
+    category: soft
+    title: 非豁免 PDF 超文本链接目标应使用承前缩放
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-055
+    category: soft
+    title: 模块一指定元素包含的叶元素数量建议不超过一个
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-LAW-007
+  - rule_id: HR-ECTD-027
+    category: hard
+    title: eCTD 不允许通过 xlink:href 引用另一个申请中提交的文件
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-028
+    category: hard
+    title: eCTD PDF 不允许通过外部文件超链接引用另一申请中的文件
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-029
+    category: hard
+    title: cn-regional.xml 的模块一叶元素目录前缀应与附件1-4模块一文件组织结构一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-030
+    category: hard
+    title: cn-regional.xml 根元素及其直接子元素应与附件1-1区域Schema定义一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-031
+    category: hard
+    title: cn-envelope 的直接子字段结构应与附件1-1区域Schema定义一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-032
+    category: hard
+    title: cn-content 的顶层章节结构应与附件1-1区域Schema定义一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-033
+    category: hard
+    title: 模块一 leaf 仅应挂载在附件1-4定义为文件的节点上，不应直接挂在目录节点上
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-034
+    category: hard
+    title: 模块一章节节点的父子层级应与附件1-4定义的章节结构一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-035
+    category: hard
+    title: sequence-contact 的内部字段结构应与附件1-1区域Schema中的cn-contact定义一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-036
+    category: hard
+    title: cn_ectd 根元素属性应与附件1-1区域Schema定义一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-LAW-007
+    category: hard
+    title: Nonclinical qualification signals are paired with registration and nonclinical study materials
+    source_regulation: cn_drug_administration_law_implementation_regulation
+    source_version: 2026-01-16-828
+  - rule_id: HR-LAW-010
+    category: hard
+    title: Overseas research data registration signals are paired with registration dossier materials
+    source_regulation: cn_drug_administration_law_implementation_regulation
+    source_version: 2026-01-16-828
+  - rule_id: SR-LAW-011
+    category: soft
+    title: Imported control drug or sample signals expose reference sample materials
+    source_regulation: cn_drug_administration_law_implementation_regulation
+    source_version: 2026-01-16-828
+  - rule_id: SR-LAW-012
+    category: soft
+    title: Generic-drug comparison signals expose reference sample materials
+    source_regulation: cn_drug_administration_law_implementation_regulation
+    source_version: 2026-01-16-828
+  - rule_id: HR-LAW-017
+    category: hard
+    title: Reregistration signals expose registration, certificate, and API supporting materials
+    source_regulation: cn_drug_administration_law_implementation_regulation
+    source_version: 2026-01-16-828
+  - rule_id: SR-LAW-019
+    category: soft
+    title: Registration-standard signals expose quality standard materials
+    source_regulation: cn_drug_administration_law_implementation_regulation
+    source_version: 2026-01-16-828
+  - rule_id: HR-LAW-020
+    category: hard
+    title: Standard reference signals expose registration and quality standard materials
+    source_regulation: cn_drug_administration_law_implementation_regulation
+    source_version: 2026-01-16-828
+  - rule_id: HR-LAW-022
+    category: hard
+    title: Data-protection signals expose registration dossier materials
+    source_regulation: cn_drug_administration_law_implementation_regulation
+    source_version: 2026-01-16-828
+  - rule_id: SR-CTD-002
+    category: soft
+    title: Current material set preserves consumable CTD base-submission structure signals
+    source_regulation: cn_drug_registration_classification_and_dossier_requirements
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-001
+    category: soft
+    title: 长篇 PDF 申报文件应提供可消费的导航结构
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-002
+    category: soft
+    title: eCTD 序列描述长度不应超过 120 个中文字符
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-003
+    category: soft
+    title: eCTD 相关序列应形成有效的注册行为引用关系
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-004
+    category: soft
+    title: eCTD 序列信息应完整提供序列号、序列类型、序列描述和联系人信息
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-005
+    category: soft
+    title: eCTD 注册行为信息应完整提供注册行为类型和相关序列信息
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-006
+    category: soft
+    title: eCTD 申请信息应完整提供申请编号、申请类型和产品类型
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-ECTD-007
+    category: soft
+    title: eCTD 3.2.R 扩展节点结构与标题命名应符合技术规范
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-REG-007
+    category: soft
+    title: Class 3 reference-consistency applications expose reference sample materials
+    source_regulation: cn_drug_registration_classification_and_dossier_requirements
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-REG-008
+    category: soft
+    title: Class 4 reference-consistency applications expose reference sample materials
+    source_regulation: cn_drug_registration_classification_and_dossier_requirements
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-REG-009
+    category: soft
+    title: Class 5.2 reference-consistency applications expose reference sample materials
+    source_regulation: cn_drug_registration_classification_and_dossier_requirements
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-REG-010
+    category: soft
+    title: Class 5.1 applications expose clinical-advantage supporting materials
+    source_regulation: cn_drug_registration_classification_and_dossier_requirements
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-REG-011
+    category: soft
+    title: Marketing-registration materials expose an electronic clinical trial database
+    source_regulation: cn_drug_registration_classification_and_dossier_requirements
+    source_version: regulation-requirement-matrix-v1
+  - rule_id: SR-REG-006
+    category: soft
+    title: 材料证据链支持《药品管理法实施条例》第六条的数据真实、准确、完整、可追溯要求
+    source_regulation: cn_drug_administration_law_implementation_regulation
+    source_version: 2026-01-16-828
   - rule_id: SR-CMC-001
     category: soft
     title: Batch comparability narrative completeness
     source_regulation: ICH_Q8_Q9_Q10
     source_version: 2023-12
+  - rule_id: SR-FACT-001
+    category: soft
+    title: Cross-document atomic facts remain consistent when comparable evidence exists
+    source_regulation: material_review_contract
+    source_version: v1
+  - rule_id: SR-EVID-001
+    category: soft
+    title: Detected tables and images project into review-ready evidence and units
+    source_regulation: material_review_contract
+    source_version: v1
+  - rule_id: SR-STRUCT-001
+    category: soft
+    title: Parsed material exposes consumable section and module anchoring for downstream review
+    source_regulation: material_review_contract
+    source_version: v1
+  - rule_id: SR-TOC-001
+    category: soft
+    title: TOC outline entries retain verifiable overlap with the body section tree
+    source_regulation: material_review_contract
+    source_version: v1
+  - rule_id: SR-FACT-002
+    category: soft
+    title: Extracted atomic facts retain unit-level provenance to content units
+    source_regulation: material_review_contract
+    source_version: v1
+  - rule_id: SR-FACT-003
+    category: soft
+    title: Unit-level fact signals align with normalized atomic facts
+    source_regulation: material_review_contract
+    source_version: v1
+  - rule_id: SR-FACT-004
+    category: soft
+    title: Repeated unit-level fact signals remain internally consistent within each document
+    source_regulation: material_review_contract
+    source_version: v1
+  - rule_id: SR-FACT-005
+    category: soft
+    title: Extracted atomic facts are supported by content-bearing units, not context-only roles
+    source_regulation: material_review_contract
+    source_version: v1
+  - rule_id: HR-ECTD-049
+    category: hard
+    title: index.xml 中声明的文件 MD5 值应与实际目标文件一致
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-050
+    category: hard
+    title: cn-regional.xml 中声明的文件 MD5 值应与实际目标文件一致
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-051
+    category: hard
+    title: 说明函叶元素的 operation 属性必须为 new
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-052
+    category: hard
+    title: 首次提交序列中的申请表叶元素 operation 属性必须为 new
+    source_regulation: cn_ectd_validation_standard
+    source_version: 2021-09-v1.0

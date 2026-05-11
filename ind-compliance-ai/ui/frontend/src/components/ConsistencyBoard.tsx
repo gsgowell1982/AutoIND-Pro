@@ -11,12 +11,12 @@ export function ConsistencyBoard({ rows }: ConsistencyBoardProps) {
   return (
     <ProCard
       title="3) 一致性检查看板"
-      subTitle="展示跨模块数据比对（例如 M3 批号与 M5 临床样本批号）"
+      subTitle="呈现检测项目的内容一致性，包含跨模块、跨资料或跨序列字段比对"
       bordered
       headerBordered
     >
       {rows.length === 0 ? (
-        <Empty description="当前无可比对原子事实，请上传包含关键字段的文档" />
+        <Empty description="当前无可比对字段；需要多个模块、资料或序列中出现可比检测项目后再展示一致性结果" />
       ) : (
         <Table<ConsistencyRow>
           rowKey={(row) => row.fact}
@@ -25,7 +25,7 @@ export function ConsistencyBoard({ rows }: ConsistencyBoardProps) {
           dataSource={rows}
           columns={[
             {
-              title: '原子事实',
+              title: '检测项目',
               dataIndex: 'fact',
               key: 'fact',
               width: 180,
@@ -35,10 +35,12 @@ export function ConsistencyBoard({ rows }: ConsistencyBoardProps) {
               title: '模块取值',
               dataIndex: 'module_values',
               key: 'module_values',
-              render: (moduleValues: Array<{ module: string; value: string }>) => (
+              render: (
+                moduleValues: Array<{ module: string; value: string; document_id?: string; filename?: string }>,
+              ) => (
                 <Space direction="vertical" size={4}>
-                  {moduleValues.map((item) => (
-                    <Space key={`${item.module}-${item.value}`}>
+                  {moduleValues.map((item, index) => (
+                    <Space key={`${item.document_id ?? item.module}-${item.value}-${index}`}>
                       <Tag>{item.module}</Tag>
                       <Typography.Text>{item.value || 'N/A'}</Typography.Text>
                     </Space>

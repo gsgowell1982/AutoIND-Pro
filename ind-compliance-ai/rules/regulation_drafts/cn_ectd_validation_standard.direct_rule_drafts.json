@@ -1,0 +1,34 @@
+{
+  "schema_version": "regulation-rule-draft-v1",
+  "regulation_id": "cn_ectd_validation_standard",
+  "regulation_title": "eCTD验证标准",
+  "source_version": "2021-09-v1.0",
+  "draft_rule_count": 1,
+  "category_counts": {
+    "hard": 0,
+    "soft": 1
+  },
+  "rules": [
+    {
+      "rule_id": "DRAFT-SR-cn_ectd_validation_standard-013",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "2.10 序列编号",
+      "regulation_id": "cn_ectd_validation_standard",
+      "clause_id": "cn_ectd_validation_standard:sec_2_10",
+      "article_no": 13,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_ectd_validation_standard#sec_2_10",
+        "source_path": "data\\regulations\\eCTD验证标准.pdf",
+        "source_regulation": "cn_ectd_validation_standard",
+        "source_version": "2021-09-v1.0"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    }
+  ]
+}

@@ -8,6 +8,8 @@ import type {
 } from './types'
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+export const WORKSPACE_LABEL = import.meta.env.VITE_WORKSPACE_LABEL ?? ''
+export const RUNTIME_WARNING = import.meta.env.VITE_RUNTIME_WARNING ?? ''
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -16,9 +18,17 @@ const client = axios.create({
 
 export async function uploadFiles(files: File[]): Promise<UploadJobResponse> {
   const formData = new FormData()
-  files.forEach((file) => formData.append('files', file))
+  files.forEach((file) => {
+    formData.append('files', file)
+    formData.append('relative_paths', (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name)
+  })
   // Let browser set multipart boundary automatically.
   const { data } = await client.post<UploadJobResponse>('/api/v1/uploads', formData)
+  return data
+}
+
+export async function startControlledDemoSample(): Promise<UploadJobResponse> {
+  const { data } = await client.post<UploadJobResponse>('/api/v1/demo/controlled-sample/job')
   return data
 }
 

@@ -1,0 +1,228 @@
+{
+  "schema_version": "regulation-rule-draft-v1",
+  "regulation_id": "cn_drug_administration_law_implementation_regulation",
+  "regulation_title": "中华人民共和国药品管理法实施条例",
+  "source_version": "2026-01-16-828",
+  "draft_rule_count": 9,
+  "category_counts": {
+    "hard": 6,
+    "soft": 3
+  },
+  "rules": [
+    {
+      "rule_id": "DRAFT-HR-cn_drug_administration_law_implementation_regulation-006",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "hard",
+      "title": "第六条",
+      "regulation_id": "cn_drug_administration_law_implementation_regulation",
+      "clause_id": "cn_drug_administration_law_implementation_regulation:art_006",
+      "article_no": 6,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "clinical_trial_materials",
+        "nonclinical_study_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_administration_law_implementation_regulation#art_006",
+        "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\中华人民共和国药品管理法实施条例.doc",
+        "source_regulation": "cn_drug_administration_law_implementation_regulation",
+        "source_version": "2026-01-16-828"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-HR-cn_drug_administration_law_implementation_regulation-007",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "hard",
+      "title": "第七条",
+      "regulation_id": "cn_drug_administration_law_implementation_regulation",
+      "clause_id": "cn_drug_administration_law_implementation_regulation:art_007",
+      "article_no": 7,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "nonclinical_study_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_administration_law_implementation_regulation#art_007",
+        "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\中华人民共和国药品管理法实施条例.doc",
+        "source_regulation": "cn_drug_administration_law_implementation_regulation",
+        "source_version": "2026-01-16-828"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-HR-cn_drug_administration_law_implementation_regulation-010",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "hard",
+      "title": "第十条",
+      "regulation_id": "cn_drug_administration_law_implementation_regulation",
+      "clause_id": "cn_drug_administration_law_implementation_regulation:art_010",
+      "article_no": 10,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_administration_law_implementation_regulation#art_010",
+        "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\中华人民共和国药品管理法实施条例.doc",
+        "source_regulation": "cn_drug_administration_law_implementation_regulation",
+        "source_version": "2026-01-16-828"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-SR-cn_drug_administration_law_implementation_regulation-011",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "第十一条",
+      "regulation_id": "cn_drug_administration_law_implementation_regulation",
+      "clause_id": "cn_drug_administration_law_implementation_regulation:art_011",
+      "article_no": 11,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials",
+        "reference_sample_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_administration_law_implementation_regulation#art_011",
+        "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\中华人民共和国药品管理法实施条例.doc",
+        "source_regulation": "cn_drug_administration_law_implementation_regulation",
+        "source_version": "2026-01-16-828"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-SR-cn_drug_administration_law_implementation_regulation-012",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "第十二条",
+      "regulation_id": "cn_drug_administration_law_implementation_regulation",
+      "clause_id": "cn_drug_administration_law_implementation_regulation:art_012",
+      "article_no": 12,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "reference_sample_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_administration_law_implementation_regulation#art_012",
+        "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\中华人民共和国药品管理法实施条例.doc",
+        "source_regulation": "cn_drug_administration_law_implementation_regulation",
+        "source_version": "2026-01-16-828"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-HR-cn_drug_administration_law_implementation_regulation-017",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "hard",
+      "title": "第十七条",
+      "regulation_id": "cn_drug_administration_law_implementation_regulation",
+      "clause_id": "cn_drug_administration_law_implementation_regulation:art_017",
+      "article_no": 17,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "certificate_or_license_materials",
+        "api_supporting_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_administration_law_implementation_regulation#art_017",
+        "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\中华人民共和国药品管理法实施条例.doc",
+        "source_regulation": "cn_drug_administration_law_implementation_regulation",
+        "source_version": "2026-01-16-828"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-SR-cn_drug_administration_law_implementation_regulation-019",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "soft",
+      "title": "第十九条",
+      "regulation_id": "cn_drug_administration_law_implementation_regulation",
+      "clause_id": "cn_drug_administration_law_implementation_regulation:art_019",
+      "article_no": 19,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "quality_standard_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_administration_law_implementation_regulation#art_019",
+        "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\中华人民共和国药品管理法实施条例.doc",
+        "source_regulation": "cn_drug_administration_law_implementation_regulation",
+        "source_version": "2026-01-16-828"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-HR-cn_drug_administration_law_implementation_regulation-020",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "hard",
+      "title": "第二十条",
+      "regulation_id": "cn_drug_administration_law_implementation_regulation",
+      "clause_id": "cn_drug_administration_law_implementation_regulation:art_020",
+      "article_no": 20,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "quality_standard_materials"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_administration_law_implementation_regulation#art_020",
+        "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\中华人民共和国药品管理法实施条例.doc",
+        "source_regulation": "cn_drug_administration_law_implementation_regulation",
+        "source_version": "2026-01-16-828"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    },
+    {
+      "rule_id": "DRAFT-HR-cn_drug_administration_law_implementation_regulation-022",
+      "status": "draft",
+      "implementation_state": "planned",
+      "category": "hard",
+      "title": "第二十二条",
+      "regulation_id": "cn_drug_administration_law_implementation_regulation",
+      "clause_id": "cn_drug_administration_law_implementation_regulation:art_022",
+      "article_no": 22,
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "citation": {
+        "anchor": "cn_drug_administration_law_implementation_regulation#art_022",
+        "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\中华人民共和国药品管理法实施条例.doc",
+        "source_regulation": "cn_drug_administration_law_implementation_regulation",
+        "source_version": "2026-01-16-828"
+      },
+      "implementation_notes": "Promoted from direct dossier-checkable regulation clause. Still needs explicit evaluator logic over material_review_contract evidence."
+    }
+  ]
+}

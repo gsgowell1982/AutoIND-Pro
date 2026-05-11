@@ -1,12 +1,90 @@
-# Version: v1.0.0
+# Version: v1.0.1
 # Optimization Summary:
 # - Extract column inference and column mapping logic from normalization layer.
 # - Preserve existing algorithms and return values to keep parser output stable.
 # - Provide reusable layout utilities for continuum-oriented rule evolution.
+#
+# v1.0.1 (2026-03-12):
+# - Fix column mapping bug in build_column_mapping_with_parent_bbox().
+# - Change max(1, ...) to max(0, ...) to allow mapping to first column.
+# - This fixes the issue where continuation table's first column was always empty.
 
 from __future__ import annotations
 
 from typing import Any
+
+
+def _textual_cell_length(cell: Any) -> int:
+    return len(str(getattr(cell, "text", "") or "").strip())
+
+
+def _select_dense_content_anchor_pattern(
+    *,
+    row_patterns: list[tuple[int, ...]],
+    physical_col_count: int,
+    rows: list[Any] | None = None,
+) -> tuple[int, ...] | None:
+    if not row_patterns or physical_col_count <= 0:
+        return None
+
+    max_cols_in_any_row = max((len(pattern) for pattern in row_patterns if pattern), default=0)
+    if max_cols_in_any_row < 4 or physical_col_count <= max_cols_in_any_row:
+        return None
+
+    dense_candidates: list[tuple[float, int, tuple[int, ...]]] = []
+    evidence_rows = rows or []
+    for row_index, pattern in enumerate(row_patterns):
+        if len(pattern) != max_cols_in_any_row:
+            continue
+        if len(set(pattern)) != len(pattern):
+            continue
+        if any(col < 0 or col >= physical_col_count for col in pattern):
+            continue
+
+        content_length = 0
+        if row_index < len(evidence_rows):
+            for cell in getattr(evidence_rows[row_index], "cells", []) or []:
+                if getattr(cell, "physical_col", None) in pattern:
+                    content_length += _textual_cell_length(cell)
+
+        frequency = sum(1 for other in row_patterns if tuple(other) == tuple(pattern))
+        later_row_weight = row_index / max(1, len(row_patterns) - 1)
+        score = frequency * 1000 + content_length + later_row_weight
+        dense_candidates.append((score, row_index, tuple(pattern)))
+
+    if not dense_candidates:
+        return None
+
+    dense_candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return dense_candidates[0][2]
+
+
+def _build_mapping_from_anchor_pattern(
+    physical_col_count: int,
+    logical_col_count: int,
+    anchor_pattern: tuple[int, ...] | None,
+) -> list[list[int]] | None:
+    if not anchor_pattern or len(anchor_pattern) != logical_col_count:
+        return None
+    if physical_col_count <= 0 or logical_col_count <= 0:
+        return None
+
+    anchors = list(anchor_pattern)
+    mapping: list[list[int]] = [[anchor] for anchor in anchors]
+    anchor_to_logical = {anchor: idx for idx, anchor in enumerate(anchors)}
+
+    for physical_col in range(physical_col_count):
+        if physical_col in anchor_to_logical:
+            continue
+        nearest_logical = min(
+            range(logical_col_count),
+            key=lambda idx: (abs(physical_col - anchors[idx]), idx),
+        )
+        mapping[nearest_logical].append(physical_col)
+
+    for cols in mapping:
+        cols.sort()
+    return mapping
 
 
 def infer_logical_column_count(
@@ -29,6 +107,14 @@ def infer_logical_column_count(
 
     if parent_col_count is not None and parent_col_count > 0:
         return parent_col_count, "inherit"
+
+    anchor_pattern = _select_dense_content_anchor_pattern(
+        row_patterns=row_patterns,
+        physical_col_count=physical_col_count,
+        rows=list(getattr(raw_evidence, "rows", []) or []),
+    )
+    if anchor_pattern:
+        return len(anchor_pattern), "content_anchor_columns"
 
     all_content_cols: set[int] = set()
     for pattern in row_patterns:
@@ -170,6 +256,17 @@ def build_column_mapping(
             mapping[logical_col].append(physical_col)
         return mapping
 
+    anchor_mapping = _build_mapping_from_anchor_pattern(
+        physical_col_count,
+        logical_col_count,
+        _select_dense_content_anchor_pattern(
+            row_patterns=list(row_patterns),
+            physical_col_count=physical_col_count,
+        ),
+    )
+    if anchor_mapping is not None:
+        return anchor_mapping
+
     sorted_content_cols = sorted(all_content_cols)
     clusters: list[list[int]] = []
     current_cluster: list[int] = []
@@ -243,7 +340,10 @@ def build_column_mapping_with_parent_bbox(
             col_x_center = (col_x_start + col_x_end) / 2
             rel_x = (col_x_center - parent_bbox[0]) / parent_width
             logical_col = int(rel_x * logical_col_count)
-            logical_col = max(1, min(logical_col, logical_col_count - 1))
+            # v1.0.1: Changed max(1, ...) to max(0, ...) to allow mapping to first column
+            # Previously, max(1, ...) forced skipping the first column when first_col_truncated=True,
+            # causing mapping[0] = [] and resulting in empty first column in the grid.
+            logical_col = max(0, min(logical_col, logical_col_count - 1))
             mapping[logical_col].append(physical_col)
     else:
         parent_col_boundaries = []

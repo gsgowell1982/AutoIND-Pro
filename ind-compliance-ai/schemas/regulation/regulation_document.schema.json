@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RegulationDocument",
+  "type": "object",
+  "required": ["schema_version", "regulation", "chapters"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "regulation": {
+      "type": "object",
+      "required": [
+        "regulation_id",
+        "title",
+        "source_filename",
+        "source_path",
+        "source_type",
+        "parser_hint",
+        "chapter_count",
+        "article_count",
+        "chapter_refs",
+        "clause_refs",
+        "rule_candidate_refs"
+      ],
+      "properties": {
+        "regulation_id": { "type": "string" },
+        "title": { "type": "string" },
+        "issuer": { "type": ["string", "null"] },
+        "jurisdiction": { "type": "string" },
+        "domain": { "type": "string" },
+        "version_label": { "type": "string" },
+        "source_filename": { "type": "string" },
+        "source_path": { "type": "string" },
+        "source_type": { "type": ["string", "null"] },
+        "parser_hint": { "type": ["string", "null"] },
+        "paragraph_count": { "type": ["integer", "null"], "minimum": 0 },
+        "chapter_count": { "type": "integer", "minimum": 0 },
+        "article_count": { "type": "integer", "minimum": 0 },
+        "chapter_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "clause_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "rule_candidate_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "chapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "chapter_id",
+          "chapter_no_raw",
+          "chapter_no",
+          "chapter_title",
+          "heading",
+          "line_index"
+        ],
+        "properties": {
+          "chapter_id": { "type": "string" },
+          "chapter_no_raw": { "type": "string" },
+          "chapter_no": { "type": "integer", "minimum": 1 },
+          "chapter_title": { "type": "string" },
+          "heading": { "type": "string" },
+          "line_index": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

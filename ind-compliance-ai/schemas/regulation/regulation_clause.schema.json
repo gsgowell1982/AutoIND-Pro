@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RegulationClause",
+  "type": "object",
+  "required": [
+    "clause_id",
+    "regulation_id",
+    "regulation_title",
+    "version_label",
+    "chapter_no_raw",
+    "chapter_no",
+    "chapter_title",
+    "article_no_raw",
+    "article_no",
+    "heading",
+    "original_text",
+    "normalized_text",
+    "clause_type",
+    "source_path",
+    "source_filename",
+    "source_locator",
+    "classification"
+  ],
+  "properties": {
+    "clause_id": { "type": "string" },
+    "regulation_id": { "type": "string" },
+    "regulation_title": { "type": "string" },
+    "version_label": { "type": "string" },
+    "chapter_no_raw": { "type": "string" },
+    "chapter_no": { "type": "integer", "minimum": 1 },
+    "chapter_title": { "type": "string" },
+    "article_no_raw": { "type": "string" },
+    "article_no": { "type": "integer", "minimum": 1 },
+    "heading": { "type": "string" },
+    "original_text": { "type": "string" },
+    "normalized_text": { "type": "string" },
+    "clause_type": {
+      "type": "string",
+      "enum": ["definition", "obligation", "prohibition", "scope", "exception", "penalty", "procedure"]
+    },
+    "source_path": { "type": "string" },
+    "source_filename": { "type": "string" },
+    "source_locator": {
+      "type": "object",
+      "required": ["line_index", "citation_anchor"],
+      "properties": {
+        "line_index": { "type": "integer", "minimum": 1 },
+        "citation_anchor": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "classification": {
+      "type": "object",
+      "required": [
+        "ind_relevance",
+        "material_checkability",
+        "recommended_rule_mode",
+        "automation_ready",
+        "candidate_reason",
+        "expected_material_evidence"
+      ],
+      "properties": {
+        "ind_relevance": {
+          "type": "string",
+          "enum": ["high", "medium", "low"]
+        },
+        "material_checkability": {
+          "type": "string",
+          "enum": ["direct", "partial", "external_only"]
+        },
+        "recommended_rule_mode": {
+          "type": "string",
+          "enum": ["hard", "soft", "review_only", "citation_only"]
+        },
+        "automation_ready": { "type": "boolean" },
+        "candidate_reason": { "type": "string" },
+        "expected_material_evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

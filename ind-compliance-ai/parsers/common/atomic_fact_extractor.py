@@ -1,5 +1,5 @@
 import re
-from typing import Pattern
+from typing import Any, Pattern
 
 
 FACT_PATTERNS: dict[str, Pattern[str]] = {
@@ -25,3 +25,19 @@ def extract_atomic_facts(text: str) -> dict[str, str]:
         if match:
             facts[fact_key] = match.group(1).strip()
     return facts
+
+
+def extract_atomic_fact_matches(text: str) -> dict[str, dict[str, Any]]:
+    """Return extracted fact values together with match metadata for provenance linking."""
+    matches: dict[str, dict[str, Any]] = {}
+    for fact_key, pattern in FACT_PATTERNS.items():
+        match = pattern.search(text)
+        if not match:
+            continue
+        matches[fact_key] = {
+            "fact_key": fact_key,
+            "fact_value": match.group(1).strip(),
+            "matched_text": match.group(0).strip(),
+            "value_span": [match.start(1), match.end(1)],
+        }
+    return matches

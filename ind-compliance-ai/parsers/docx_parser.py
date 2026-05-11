@@ -179,12 +179,14 @@ def _extract_doc_with_antiword(path: Path) -> str | None:
 def _extract_doc_with_windows_word(path: Path) -> str | None:
     if os.name != "nt":
         return None
+    resolved_path = path.resolve()
     powershell_binary = shutil.which("powershell") or shutil.which("pwsh")
     if powershell_binary is None:
         return None
     script = (
         "$ErrorActionPreference = 'Stop';"
-        "$inputPath = $args[0];"
+        "$inputPath = $env:IND_COM_DOC_INPUT_PATH;"
+        "if (-not $inputPath) { throw 'Missing IND_COM_DOC_INPUT_PATH'; }"
         "$word = New-Object -ComObject Word.Application;"
         "$word.Visible = $false;"
         "$doc = $word.Documents.Open($inputPath, $false, $true);"
@@ -192,12 +194,15 @@ def _extract_doc_with_windows_word(path: Path) -> str | None:
         "finally { $doc.Close(); $word.Quit(); }"
     )
     try:
+        env = dict(os.environ)
+        env["IND_COM_DOC_INPUT_PATH"] = str(resolved_path)
         process = subprocess.run(
-            [powershell_binary, "-NoProfile", "-Command", script, str(path)],
+            [powershell_binary, "-NoProfile", "-Command", script],
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="ignore",
+            env=env,
             timeout=120,
             check=False,
         )
@@ -266,6 +271,7 @@ def parse_docx(path: Path) -> dict[str, Any]:
         for index, paragraph in enumerate(paragraphs)
     ]
     return {
+        "filename": path.name,
         "source_path": str(path),
         "source_type": "word",
         "headings": [],
