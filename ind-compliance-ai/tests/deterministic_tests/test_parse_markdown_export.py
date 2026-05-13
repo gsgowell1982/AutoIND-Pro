@@ -389,6 +389,161 @@ class ParseMarkdownExportTests(unittest.TestCase):
         self.assertNotIn("#### Page 1", markdown)
         self.assertNotIn("#### Page 2", markdown)
 
+    def test_full_markdown_uses_semantic_header_when_sparse_header_continuation_rows_exist(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        document = {
+            "filename": "roadmap-table.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {
+                "pages": [
+                    {"page": 1, "blocks": [{"block_type": "table", "block_id": "tbl_001", "table_id": "tbl_001"}]},
+                ]
+            },
+            "pages": [{"page_number": 1, "block_count": 1}],
+            "table_asts": [
+                {
+                    "table_id": "tbl_001",
+                    "header": [
+                        {"text": "IND Submission", "col": 1},
+                        {"text": "Submission Date", "col": 2},
+                        {"text": "Submission Content", "col": 3},
+                        {"text": "CD-ROM", "col": 4},
+                        {"text": "Hypertext link Destination", "col": 5},
+                    ],
+                    "display_grid": [
+                        ["IND Submission", "Submission Date", "Submission", "CD-ROM", "Hypertext link"],
+                        [None, None, "Content", None, "Destination"],
+                        ["IND 12345.0003", "04-Jul-2001", "Cover letter", "3.01", "amendtoc.pdf"],
+                    ],
+                    "data_grid": [
+                        ["IND 12345.0003", "04-Jul-2001", "Cover letter", "3.01", "amendtoc.pdf"],
+                        ["IND 12345.0003", "04-Jul-2001", "1571", "3.01", None],
+                    ],
+                    "data_start_row": 2,
+                }
+            ],
+            "image_blocks": [],
+            "text": "",
+        }
+
+        markdown = api_main._build_full_markdown([document])
+
+        self.assertIn(
+            "| IND Submission | Submission Date | Submission Content | CD-ROM | Hypertext link Destination |",
+            markdown,
+        )
+        self.assertIn("| IND 12345.0003 | 04-Jul-2001 | Cover letter | 3.01 | amendtoc.pdf |", markdown)
+        self.assertIn("| IND 12345.0003 | 04-Jul-2001 | 1571 | 3.01 |  |", markdown)
+        self.assertNotIn("| IND Submission | Submission Date | Submission | CD-ROM | Hypertext link |", markdown)
+        self.assertNotIn("|  |  | Content |  | Destination |", markdown)
+
+    def test_full_markdown_preserves_internal_table_title_when_using_semantic_header(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        document = {
+            "filename": "test-ind.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {
+                "pages": [
+                    {"page": 1, "blocks": [{"block_type": "table", "block_id": "tbl_001", "table_id": "tbl_001"}]},
+                ]
+            },
+            "pages": [{"page_number": 1, "block_count": 1}],
+            "table_asts": [
+                {
+                    "table_id": "tbl_001",
+                    "title": "Main IND Table of Contents",
+                    "title_row_index": 0,
+                    "header_row_index": 1,
+                    "data_start_row": 2,
+                    "header": [
+                        {"text": "Section", "col": 1},
+                        {"text": "Description", "col": 2},
+                        {"text": "Electronic folder/filename", "col": 3},
+                    ],
+                    "display_grid": [
+                        ["Main IND Table of Contents", None, None],
+                        ["Section", "Description", "Electronic folder/filename"],
+                        ["-", "Coverletter", "0000_coverletter.pdf"],
+                    ],
+                    "data_grid": [
+                        ["-", "Coverletter", "0000_coverletter.pdf"],
+                    ],
+                }
+            ],
+            "image_blocks": [],
+            "text": "",
+        }
+
+        markdown = api_main._build_full_markdown([document])
+
+        self.assertIn("**Main IND Table of Contents**", markdown)
+        self.assertIn("| Section | Description | Electronic folder/filename |", markdown)
+        self.assertIn("| - | Coverletter | 0000_coverletter.pdf |", markdown)
+        self.assertNotIn("| Main IND Table of Contents |  |  |", markdown)
+
+    def test_full_markdown_uses_display_rows_with_semantic_header_to_preserve_visual_empty_cells(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        document = {
+            "filename": "ectd-technical-spec.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {
+                "pages": [
+                    {"page": 1, "blocks": [{"block_type": "table", "block_id": "tbl_001", "table_id": "tbl_001"}]},
+                ]
+            },
+            "pages": [{"page_number": 1, "block_count": 1}],
+            "table_asts": [
+                {
+                    "table_id": "tbl_001",
+                    "header": [
+                        {"text": "文件夹", "col": 1},
+                        {"text": "文件", "col": 2},
+                        {"text": "命名规则", "col": 3},
+                    ],
+                    "display_grid": [
+                        ["文件夹", "文件", "命名规则"],
+                        ["0000", None, "4 位数字组成的序列文件夹"],
+                        [None, "index.xml", "符合 ICH 要求的骨架文件"],
+                        [None, "index-md5.txt", "符合 ICH 要求的 MD5 校验和文件"],
+                    ],
+                    "data_grid": [
+                        ["0000", None, "4 位数字组成的序列文件夹"],
+                        ["0000", "index.xml", "符合 ICH 要求的骨架文件"],
+                        ["0000", "index-md5.txt", "符合 ICH 要求的 MD5 校验和文件"],
+                    ],
+                    "semantic_compaction": {
+                        "applied": True,
+                        "strategy": "leading_key_carry_forward",
+                    },
+                }
+            ],
+            "image_blocks": [],
+            "text": "",
+        }
+
+        markdown = api_main._build_full_markdown([document])
+
+        self.assertIn("| 文件夹 | 文件 | 命名规则 |", markdown)
+        self.assertIn("| 0000 |  | 4 位数字组成的序列文件夹 |", markdown)
+        self.assertIn("|  | index.xml | 符合 ICH 要求的骨架文件 |", markdown)
+        self.assertIn("|  | index-md5.txt | 符合 ICH 要求的 MD5 校验和文件 |", markdown)
+        self.assertNotIn("| 0000 | index.xml | 符合 ICH 要求的骨架文件 |", markdown)
+
     def test_full_markdown_renders_merged_section_group_rows_as_separators(self) -> None:
         try:
             api_main = importlib.import_module("api.main")

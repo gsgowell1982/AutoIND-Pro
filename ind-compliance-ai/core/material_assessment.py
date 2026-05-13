@@ -82,7 +82,14 @@ _ECTD_VALIDATION_STANDARD_REGIONAL_SCHEMA_VALIDITY_CITATION = (
     "cn_ectd_validation_standard#sec_4_1_3"
 )
 
-_NUMBERED_BODY_HEADING_RE = re.compile(r"^\s*(?P<outline>\d+(?:\.\d+)*)(?:\.)?\s+(?P<title>\S.*)$")
+_OUTLINED_BODY_HEADING_RE = re.compile(
+    r"^\s*(?P<outline>APPENDIX\s+[A-Z]+|\d+(?:\.\d+)*|[IVXLCDM]+|[A-Z])(?:[.):])?\s+(?P<title>\S.*)$",
+    re.IGNORECASE,
+)
+_APPENDIX_BODY_HEADING_RE = re.compile(
+    r"^\s*(?P<outline>APPENDIX\s+[A-Z]+)(?:[.):])?\s*(?P<title>.*)$",
+    re.IGNORECASE,
+)
 _ECTD_VALIDATION_STANDARD_REGIONAL_SCHEMA_VERSION_ORDER_REQUIREMENT_ID = (
     "cn_ectd_validation_standard:req_current_sequence_schema_version_not_lower_than_prior_sequence"
 )
@@ -942,6 +949,20 @@ _ECTD_NAVIGATION_EXEMPT_PATTERN = re.compile(
 )
 _ECTD_VALIDATION_STANDARD_PDF_EXEMPT_PATTERN = re.compile(
     r"外文参考资料|参考文献|foreign[\s._/-]*reference|reference",
+    re.IGNORECASE,
+)
+_ECTD_SUBMISSION_PDF_PATH_PATTERN = re.compile(
+    r"(?:^|[\\/])(?:x?\d{6,}|sequence[-_ ]?\d+|\d{4})(?:[\\/])(?:m[1-5])(?:[\\/]|$)",
+    re.IGNORECASE,
+)
+_ECTD_SUBMISSION_MODULE_PATH_PATTERN = re.compile(
+    r"(?:^|[\\/])m[1-5](?:[\\/]|$)",
+    re.IGNORECASE,
+)
+_REFERENCE_OR_GUIDANCE_PDF_PATTERN = re.compile(
+    r"regulations?|guidance|guide|specification|validation[\s._/-]*standard|technical[\s._/-]*spec|"
+    r"journal|article|literature|paper|sample|regression|test[-_ ]?fixture|"
+    r"法规|规范|指南|指导原则|验证标准|技术规范|论文|文献|样本|回归",
     re.IGNORECASE,
 )
 _ECTD_REQUIRED_ENVELOPE_ATTRS = {
@@ -2896,18 +2917,24 @@ def build_toc_body_alignment_rows(
     paragraph_index = list(material_contract.get("paragraph_index", []) or [])
     section_tree = list(material_contract.get("section_tree", []) or [])
 
-    toc_outline_keys_by_document: dict[str, set[str]] = {}
-    toc_outline_labels_by_document: dict[str, dict[str, str]] = {}
-    toc_root_outline_keys_by_document: dict[str, set[str]] = {}
-    toc_root_outline_labels_by_document: dict[str, dict[str, str]] = {}
-    toc_direct_child_keys_by_document_root: dict[str, dict[str, set[str]]] = {}
-    toc_bounded_subtree_keys_by_document_root: dict[str, dict[str, set[str]]] = {}
-    toc_entry_details_by_document: dict[str, dict[str, dict[str, Any]]] = {}
-    toc_path_entry_details_by_document: dict[str, list[dict[str, Any]]] = {}
+    toc_sequence_contexts: list[dict[str, Any]] = []
+    all_toc_entry_details_by_document: dict[str, dict[str, dict[str, Any]]] = {}
+    all_toc_outline_labels_by_document: dict[str, dict[str, str]] = {}
+    all_toc_root_outline_keys_by_document: dict[str, set[str]] = {}
+    all_toc_root_outline_labels_by_document: dict[str, dict[str, str]] = {}
     for sequence in navigation_index:
         document_id = str(sequence.get("document_id") or "").strip()
         if not document_id:
             continue
+        sequence_id = str(sequence.get("toc_sequence_id") or "").strip()
+        toc_outline_keys: set[str] = set()
+        toc_outline_labels: dict[str, str] = {}
+        toc_root_outline_keys: set[str] = set()
+        toc_root_outline_labels: dict[str, str] = {}
+        toc_direct_child_keys_by_root: dict[str, set[str]] = {}
+        toc_bounded_subtree_keys_by_root: dict[str, set[str]] = {}
+        toc_entry_details_lookup: dict[str, dict[str, Any]] = {}
+        toc_path_entry_details: list[dict[str, Any]] = []
         entry_by_index = {
             int(entry.get("sequence_entry_index", 0) or 0): entry
             for entry in sequence.get("entries", []) or []
@@ -2995,28 +3022,35 @@ def build_toc_body_alignment_rows(
             return details
 
         for entry in sequence.get("entries", []) or []:
+            _resolve_entry_path_details(entry)
+
+        duplicate_outline_counts: dict[str, int] = {}
+        for details in entry_path_cache.values():
+            key = str(details.get("normalized_outline_index") or "").strip()
+            if key:
+                duplicate_outline_counts[key] = duplicate_outline_counts.get(key, 0) + 1
+
+        for entry in sequence.get("entries", []) or []:
             outline_index = str(entry.get("outline_index") or "").strip()
-            normalized_key = _normalize_outline_comparison_key(outline_index)
-            entry_details = _resolve_entry_path_details(entry)
+            entry_details = _with_toc_path_qualified_comparison_keys(
+                _resolve_entry_path_details(entry),
+                duplicate_outline_counts,
+            )
+            normalized_key = str(entry_details.get("normalized_outline_index") or "").strip()
             if entry_details.get("text") and _coerce_int(entry_details.get("page_locator_value")) is not None:
-                toc_path_entry_details_by_document.setdefault(document_id, []).append(entry_details)
+                toc_path_entry_details.append(entry_details)
             if not normalized_key:
                 continue
-            toc_entry_details_by_document.setdefault(document_id, {}).setdefault(
-                normalized_key,
-                entry_details,
-            )
-            toc_outline_keys_by_document.setdefault(document_id, set()).add(normalized_key)
-            toc_outline_labels_by_document.setdefault(document_id, {}).setdefault(normalized_key, outline_index)
+            toc_entry_details_lookup.setdefault(normalized_key, entry_details)
+            all_toc_entry_details_by_document.setdefault(document_id, {}).setdefault(normalized_key, entry_details)
+            toc_outline_keys.add(normalized_key)
+            toc_outline_labels.setdefault(normalized_key, outline_index)
             implied_root_outline_key = str(entry_details.get("root_normalized_outline_index") or "").strip()
             implied_root_outline_label = str(entry_details.get("root_outline_index") or implied_root_outline_key).strip()
             if implied_root_outline_key:
-                toc_root_outline_keys_by_document.setdefault(document_id, set()).add(implied_root_outline_key)
+                toc_root_outline_keys.add(implied_root_outline_key)
                 if implied_root_outline_label:
-                    toc_root_outline_labels_by_document.setdefault(document_id, {}).setdefault(
-                        implied_root_outline_key,
-                        implied_root_outline_label,
-                    )
+                    toc_root_outline_labels.setdefault(implied_root_outline_key, implied_root_outline_label)
             explicit_parent_outline_index = str(entry_details.get("parent_normalized_outline_index") or "").strip()
             is_root_entry = (
                 entry.get("parent_sequence_entry_index") is None
@@ -3024,8 +3058,8 @@ def build_toc_body_alignment_rows(
                 and not explicit_parent_outline_index
             ) or int(entry.get("level", 0) or 0) <= 1
             if is_root_entry:
-                toc_root_outline_keys_by_document.setdefault(document_id, set()).add(normalized_key)
-                toc_root_outline_labels_by_document.setdefault(document_id, {}).setdefault(normalized_key, outline_index)
+                toc_root_outline_keys.add(normalized_key)
+                toc_root_outline_labels.setdefault(normalized_key, outline_index)
                 continue
             parent_entry_index = int(entry.get("parent_sequence_entry_index", 0) or 0)
             parent_entry = entry_by_index.get(parent_entry_index)
@@ -3040,18 +3074,12 @@ def build_toc_body_alignment_rows(
             if not parent_outline_key:
                 continue
             if parent_is_root_entry:
-                toc_direct_child_keys_by_document_root.setdefault(document_id, {}).setdefault(parent_outline_key, set()).add(
-                    normalized_key
-                )
-                toc_bounded_subtree_keys_by_document_root.setdefault(document_id, {}).setdefault(parent_outline_key, set()).add(
-                    normalized_key
-                )
+                toc_direct_child_keys_by_root.setdefault(parent_outline_key, set()).add(normalized_key)
+                toc_bounded_subtree_keys_by_root.setdefault(parent_outline_key, set()).add(normalized_key)
                 continue
 
             if implied_root_outline_key:
-                toc_bounded_subtree_keys_by_document_root.setdefault(document_id, {}).setdefault(
-                    implied_root_outline_key, set()
-                ).add(normalized_key)
+                toc_bounded_subtree_keys_by_root.setdefault(implied_root_outline_key, set()).add(normalized_key)
             ancestor_entry = parent_entry
             ancestor_depth = 1
             while ancestor_depth < 3:
@@ -3067,17 +3095,39 @@ def build_toc_body_alignment_rows(
                     and not str(ancestor_parent.get("parent_toc_id") or "").strip()
                 ) or int(ancestor_parent.get("level", 0) or 0) <= 1
                 if ancestor_parent_is_root:
-                    toc_bounded_subtree_keys_by_document_root.setdefault(document_id, {}).setdefault(
-                        ancestor_parent_outline_key, set()
-                    ).add(normalized_key)
+                    toc_bounded_subtree_keys_by_root.setdefault(ancestor_parent_outline_key, set()).add(normalized_key)
                     break
                 ancestor_entry = ancestor_parent
                 ancestor_depth += 1
+
+        toc_sequence_contexts.append(
+            {
+                "document_id": document_id,
+                "toc_sequence_id": sequence_id or None,
+                "title": sequence.get("title"),
+                "pages": list(sequence.get("pages", []) or []),
+                "page_span": list(sequence.get("page_span", []) or []),
+                "toc_outline_keys": toc_outline_keys,
+                "toc_outline_labels": toc_outline_labels,
+                "toc_root_outline_keys": toc_root_outline_keys,
+                "toc_root_outline_labels": toc_root_outline_labels,
+                "toc_direct_child_keys_by_root": toc_direct_child_keys_by_root,
+                "toc_bounded_subtree_keys_by_root": toc_bounded_subtree_keys_by_root,
+                "toc_entry_details": toc_entry_details_lookup,
+                "toc_path_entry_details": toc_path_entry_details,
+            }
+        )
+        for key, label in toc_outline_labels.items():
+            all_toc_outline_labels_by_document.setdefault(document_id, {}).setdefault(key, label)
+        all_toc_root_outline_keys_by_document.setdefault(document_id, set()).update(toc_root_outline_keys)
+        for key, label in toc_root_outline_labels.items():
+            all_toc_root_outline_labels_by_document.setdefault(document_id, {}).setdefault(key, label)
 
     body_outline_keys_by_document: dict[str, set[str]] = {}
     body_outline_labels_by_document: dict[str, dict[str, str]] = {}
     body_outline_page_values_by_document: dict[str, dict[str, list[int]]] = {}
     body_outline_heading_page_values_by_document: dict[str, dict[str, list[int]]] = {}
+    body_outline_heading_title_pages_by_document: dict[str, dict[str, list[dict[str, Any]]]] = {}
     body_text_page_values_by_document: dict[str, dict[str, list[int]]] = {}
     toc_confirmed_body_heading_pages_by_document: dict[str, dict[str, list[int]]] = {}
     toc_confirmed_body_heading_labels_by_document: dict[str, dict[str, str]] = {}
@@ -3099,12 +3149,20 @@ def build_toc_body_alignment_rows(
                     body_outline_heading_page_values_by_document.setdefault(document_id, {}).setdefault(
                         normalized_key, []
                     ).append(page_start)
+                    body_outline_heading_title_pages_by_document.setdefault(document_id, {}).setdefault(
+                        normalized_key, []
+                    ).append(
+                        {
+                            "page": page_start,
+                            "title": _resolve_body_heading_title(row),
+                        }
+                    )
         text_key = _normalize_heading_title_for_comparison(row.get("text"))
         if text_key and page_start is not None and page_start > 0:
             body_text_page_values_by_document.setdefault(document_id, {}).setdefault(text_key, []).append(page_start)
         toc_confirmed_heading = _resolve_toc_confirmed_body_heading(
             row,
-            toc_entry_details_by_document.get(document_id, {}),
+            all_toc_entry_details_by_document.get(document_id, {}),
         )
         if not toc_confirmed_heading:
             continue
@@ -3119,6 +3177,14 @@ def build_toc_body_alignment_rows(
         body_outline_heading_page_values_by_document.setdefault(document_id, {}).setdefault(
             confirmed_key, []
         ).append(confirmed_page)
+        body_outline_heading_title_pages_by_document.setdefault(document_id, {}).setdefault(
+            confirmed_key, []
+        ).append(
+            {
+                "page": confirmed_page,
+                "title": str(toc_confirmed_heading.get("title") or "").strip(),
+            }
+        )
         toc_confirmed_body_heading_pages_by_document.setdefault(document_id, {}).setdefault(
             confirmed_key, []
         ).append(confirmed_page)
@@ -3174,27 +3240,28 @@ def build_toc_body_alignment_rows(
                     ).add(great_grandchild_outline_key)
 
     for document_id, confirmed_pages_by_key in toc_confirmed_body_heading_pages_by_document.items():
-        toc_entry_details_lookup = toc_entry_details_by_document.get(document_id, {})
+        toc_entry_details_lookup = all_toc_entry_details_by_document.get(document_id, {})
         for confirmed_key, confirmed_pages in confirmed_pages_by_key.items():
             details = dict(toc_entry_details_lookup.get(confirmed_key, {}) or {})
             root_key = str(details.get("root_normalized_outline_index") or "").strip()
             parent_key = str(details.get("parent_normalized_outline_index") or "").strip()
             label = (
                 toc_confirmed_body_heading_labels_by_document.get(document_id, {}).get(confirmed_key)
-                or toc_outline_labels_by_document.get(document_id, {}).get(confirmed_key)
+                or all_toc_outline_labels_by_document.get(document_id, {}).get(confirmed_key)
                 or confirmed_key
             )
-            if confirmed_key in toc_root_outline_keys_by_document.get(document_id, set()):
+            if confirmed_key in all_toc_root_outline_keys_by_document.get(document_id, set()):
                 body_root_outline_keys_by_document.setdefault(document_id, set()).add(confirmed_key)
                 body_root_outline_labels_by_document.setdefault(document_id, {}).setdefault(confirmed_key, label)
                 toc_page = _coerce_int(details.get("page_locator_value"))
                 existing_span = list(body_root_page_spans_by_document.get(document_id, {}).get(confirmed_key, [None, None]))
                 existing_start = _coerce_int(existing_span[0] if len(existing_span) > 0 else None)
+                existing_end = _coerce_int(existing_span[1] if len(existing_span) > 1 else None)
                 confirmed_start = _select_best_body_anchor_page(toc_page, confirmed_pages, existing_start)
                 if confirmed_start is not None and confirmed_start > 0:
                     body_root_page_spans_by_document.setdefault(document_id, {})[confirmed_key] = [
                         confirmed_start,
-                        confirmed_start,
+                        existing_end if existing_end is not None and existing_end >= confirmed_start else confirmed_start,
                     ]
             if root_key and confirmed_key != root_key:
                 body_bounded_subtree_keys_by_document_root.setdefault(document_id, {}).setdefault(root_key, set()).add(
@@ -3212,10 +3279,38 @@ def build_toc_body_alignment_rows(
     for document in documents:
         document_id = str(document.get("document_id") or "").strip()
         filename = str(document.get("filename") or document_id).strip()
-        toc_outline_keys = sorted(toc_outline_keys_by_document.get(document_id, set()))
         body_outline_keys = sorted(body_outline_keys_by_document.get(document_id, set()))
         body_root_outline_keys = sorted(body_root_outline_keys_by_document.get(document_id, set()))
-        raw_toc_root_outline_keys = sorted(toc_root_outline_keys_by_document.get(document_id, set()))
+        selected_toc_context, _excluded_toc_contexts = _select_document_toc_sequence_context(
+            document_id,
+            toc_sequence_contexts,
+            set(body_outline_keys),
+            set(body_root_outline_keys),
+            body_outline_page_values_by_document.get(document_id, {}),
+            body_outline_heading_page_values_by_document.get(document_id, {}),
+            body_outline_heading_title_pages_by_document.get(document_id, {}),
+            body_root_page_spans_by_document.get(document_id, {}),
+        )
+        toc_outline_labels_by_document = {
+            document_id: dict(selected_toc_context.get("toc_outline_labels", {}) or {})
+        }
+        toc_root_outline_labels_by_document = {
+            document_id: dict(selected_toc_context.get("toc_root_outline_labels", {}) or {})
+        }
+        toc_entry_details_by_document = {
+            document_id: dict(selected_toc_context.get("toc_entry_details", {}) or {})
+        }
+        toc_direct_child_keys_by_document_root = {
+            document_id: dict(selected_toc_context.get("toc_direct_child_keys_by_root", {}) or {})
+        }
+        toc_bounded_subtree_keys_by_document_root = {
+            document_id: dict(selected_toc_context.get("toc_bounded_subtree_keys_by_root", {}) or {})
+        }
+        toc_path_entry_details_by_document = {
+            document_id: list(selected_toc_context.get("toc_path_entry_details", []) or [])
+        }
+        toc_outline_keys = sorted(set(selected_toc_context.get("toc_outline_keys", set()) or set()))
+        raw_toc_root_outline_keys = sorted(set(selected_toc_context.get("toc_root_outline_keys", set()) or set()))
         effective_toc_root_outline_keys: set[str] = set()
         effective_toc_root_outline_labels: dict[str, str] = {}
         for root_key in raw_toc_root_outline_keys:
@@ -3276,13 +3371,36 @@ def build_toc_body_alignment_rows(
                 if outline_key == root_key or not str(outline_key).startswith(f"{root_key}."):
                     continue
                 descendant_page_candidates.extend(list(page_values or []))
+            root_heading_page_values = list(
+                body_outline_heading_page_values_by_document.get(document_id, {}).get(root_key, []) or []
+            )
+            root_heading_title_page_values = list(
+                body_outline_heading_title_pages_by_document.get(document_id, {}).get(root_key, []) or []
+            )
+            root_outline_page_values = list(body_outline_page_values_by_document.get(document_id, {}).get(root_key, []) or [])
+            direct_child_page_values = list(
+                body_direct_child_page_values_by_document_root.get(document_id, {}).get(root_key, []) or []
+            )
+            toc_root_details = dict(toc_entry_details_by_document.get(document_id, {}).get(root_key, {}) or {})
+            toc_root_title = _resolve_toc_entry_title(toc_root_details)
+            compatible_root_heading_page_values = _resolve_compatible_heading_page_values(
+                root_heading_title_page_values,
+                toc_root_title,
+            )
+            root_non_heading_page_values = [
+                page
+                for page in root_outline_page_values
+                if page not in set(_dedupe_positive_page_values(root_heading_page_values))
+            ]
             body_page_start = _select_best_body_anchor_page(
                 toc_entry_page_value,
                 (
-                    list(body_outline_heading_page_values_by_document.get(document_id, {}).get(root_key, []) or [])
-                    + list(body_outline_page_values_by_document.get(document_id, {}).get(root_key, []) or [])
-                    + list(body_direct_child_page_values_by_document_root.get(document_id, {}).get(root_key, []) or [])
+                    compatible_root_heading_page_values
+                    if compatible_root_heading_page_values
+                    else direct_child_page_values
                     + descendant_page_candidates
+                    + root_non_heading_page_values
+                    + ([] if direct_child_page_values or descendant_page_candidates or root_non_heading_page_values else root_heading_page_values)
                 ),
                 body_page_start,
             )
@@ -3294,9 +3412,7 @@ def build_toc_body_alignment_rows(
                     "toc_navigation_page": toc_navigation_page,
                     "toc_page_locator_value": toc_entry_page_value,
                     "body_anchor_page_start": body_page_start,
-                    # Workbench projection follows the simplified root-page rule:
-                    # compare TOC locator against the resolved body start page only.
-                    "body_page_span": [body_page_start, body_page_start],
+                    "body_page_span": [body_page_start, body_page_end],
                 }
             )
         comparable_root_pages = sorted(
@@ -3321,14 +3437,13 @@ def build_toc_body_alignment_rows(
             for item in sorted(
                 comparable_root_pages,
                 key=lambda item: (
-                    int(item["body_page_span"][0]),
-                    int(item["body_page_span"][1]),
+                    int(item["body_anchor_page_start"]),
                     str(item["outline_key"]),
                 ),
             )
         ]
         root_page_offset_values = [
-            int(item["body_page_span"][0]) - int(item["toc_page_locator_value"])
+            int(item["body_anchor_page_start"]) - int(item["toc_page_locator_value"])
             for item in comparable_root_pages
         ]
         root_page_order_required = len(comparable_root_pages) >= 2
@@ -3363,6 +3478,7 @@ def build_toc_body_alignment_rows(
                     "toc_page_locator_value": int(item["toc_page_locator_value"]),
                     "body_page_start": int(item["body_page_span"][0]),
                     "body_page_end": int(item["body_page_span"][1]),
+                    "body_anchor_page_start": int(item["body_anchor_page_start"]),
                     "projected_page": projected_root_page_values[index] if index < len(projected_root_page_values) else None,
                     "offset": root_page_offset_values[index] if index < len(root_page_offset_values) else None,
                     "toc_order_index": toc_order_index_lookup.get(outline_key),
@@ -3451,6 +3567,16 @@ def build_toc_body_alignment_rows(
             {
                 "document_id": document_id,
                 "filename": filename,
+                "toc_sequence_id": selected_toc_context.get("toc_sequence_id"),
+                "toc_sequence_ids": list(selected_toc_context.get("toc_sequence_ids", []) or []),
+                "toc_sequence_titles": list(selected_toc_context.get("toc_sequence_titles", []) or []),
+                "toc_sequence_pages": list(selected_toc_context.get("toc_sequence_pages", []) or []),
+                "toc_sequence_selection": selected_toc_context.get("toc_sequence_selection"),
+                "toc_sequence_alignment_scores": list(
+                    selected_toc_context.get("toc_sequence_alignment_scores", []) or []
+                ),
+                "excluded_toc_sequence_count": int(selected_toc_context.get("excluded_toc_sequence_count", 0) or 0),
+                "excluded_toc_sequence_ids": list(selected_toc_context.get("excluded_toc_sequence_ids", []) or []),
                 "toc_outline_count": len(toc_outline_keys),
                 "toc_root_outline_count": len(toc_root_outline_keys),
                 "body_outline_count": len(body_outline_keys),
@@ -3581,7 +3707,7 @@ def _build_toc_body_alignment_path_rows(
         root_page_start = _coerce_int(root_span[0] if len(root_span) > 0 else None)
         body_anchor_page = _select_best_body_anchor_page(
             page_locator_value,
-            [*heading_pages, *outline_pages, *title_pages],
+            [*heading_pages, *outline_pages] if heading_pages else [*outline_pages, *title_pages],
             root_page_start,
         )
         has_body_match = body_anchor_page is not None and body_anchor_page > 0
@@ -3806,20 +3932,38 @@ def _resolve_toc_confirmed_body_heading(
     text = str(paragraph.get("text") or "").strip()
     if not text:
         return None
-    match = _NUMBERED_BODY_HEADING_RE.match(text)
+    match = _OUTLINED_BODY_HEADING_RE.match(text) or _APPENDIX_BODY_HEADING_RE.match(text)
     if not match:
         return None
     outline_index = str(match.group("outline") or "").strip()
     title = str(match.group("title") or "").strip()
     normalized_outline_index = _normalize_outline_comparison_key(outline_index)
-    if not normalized_outline_index or not title:
+    if not normalized_outline_index or (not title and not _is_appendix_outline_index(outline_index)):
         return None
     details = dict(toc_entry_details_lookup.get(normalized_outline_index, {}) or {})
     if not details:
+        details = _resolve_path_qualified_toc_body_heading_details(
+            normalized_outline_index,
+            title,
+            paragraph,
+            toc_entry_details_lookup,
+        )
+    if not details:
         return None
     toc_title = _resolve_toc_entry_title(details)
-    if toc_title and not _heading_titles_are_compatible(title, toc_title):
-        return None
+    appendix_heading_outline_only = _is_appendix_outline_index(outline_index) and not title
+    if toc_title and not _heading_titles_are_compatible(title, toc_title) and not appendix_heading_outline_only:
+        details = _resolve_path_qualified_toc_body_heading_details(
+            normalized_outline_index,
+            title,
+            paragraph,
+            toc_entry_details_lookup,
+        )
+        if not details:
+            return None
+        toc_title = _resolve_toc_entry_title(details)
+        if toc_title and not _heading_titles_are_compatible(title, toc_title):
+            return None
     page_span = list(paragraph.get("page_span", [None, None]) or [None, None])
     page = _coerce_int(paragraph.get("page")) or _coerce_int(page_span[0] if page_span else None)
     if page is None or page <= 0:
@@ -3829,10 +3973,47 @@ def _resolve_toc_confirmed_body_heading(
         return None
     return {
         "outline_index": outline_index,
-        "normalized_outline_index": normalized_outline_index,
+        "normalized_outline_index": str(details.get("normalized_outline_index") or normalized_outline_index).strip(),
         "title": title,
         "page": page,
     }
+
+
+def _is_appendix_outline_index(value: Any) -> bool:
+    return bool(re.fullmatch(r"APPENDIX\s+[A-Z]+", str(value or "").strip(), re.IGNORECASE))
+
+
+def _resolve_path_qualified_toc_body_heading_details(
+    normalized_outline_index: str,
+    title: str,
+    paragraph: dict[str, Any],
+    toc_entry_details_lookup: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    page_span = list(paragraph.get("page_span", [None, None]) or [None, None])
+    page = _coerce_int(paragraph.get("page")) or _coerce_int(page_span[0] if page_span else None)
+    candidates: list[dict[str, Any]] = []
+    for key, details in toc_entry_details_lookup.items():
+        details = dict(details or {})
+        if not str(key or "").endswith(f".{normalized_outline_index}"):
+            continue
+        toc_title = _resolve_toc_entry_title(details)
+        if toc_title and not _heading_titles_are_compatible(title, toc_title):
+            continue
+        toc_page_locator_value = _coerce_int(details.get("page_locator_value"))
+        if page is not None and toc_page_locator_value is not None and abs(page - toc_page_locator_value) > 2:
+            continue
+        candidates.append(details)
+    if not candidates:
+        return {}
+    if page is None:
+        return candidates[0]
+    return min(
+        candidates,
+        key=lambda details: (
+            abs(page - (_coerce_int(details.get("page_locator_value")) or page)),
+            _coerce_int(details.get("sequence_entry_index")) or 0,
+        ),
+    )
 
 
 def _resolve_toc_entry_title(details: dict[str, Any]) -> str:
@@ -3845,6 +4026,32 @@ def _resolve_toc_entry_title(details: dict[str, Any]) -> str:
         if str(segment or "").strip()
     ]
     return text_path_segments[-1] if text_path_segments else ""
+
+
+def _resolve_body_heading_title(paragraph: dict[str, Any]) -> str:
+    section_title = str(paragraph.get("section_title") or "").strip()
+    if section_title:
+        return section_title
+    text = str(paragraph.get("text") or "").strip()
+    match = _OUTLINED_BODY_HEADING_RE.match(text) or _APPENDIX_BODY_HEADING_RE.match(text)
+    if match:
+        return str(match.group("title") or "").strip()
+    return text
+
+
+def _resolve_compatible_heading_page_values(
+    heading_title_pages: list[dict[str, Any]],
+    toc_title: str,
+) -> list[int]:
+    if not str(toc_title or "").strip():
+        return _dedupe_positive_page_values([item.get("page") for item in heading_title_pages])
+    return _dedupe_positive_page_values(
+        [
+            item.get("page")
+            for item in heading_title_pages
+            if _heading_titles_are_compatible(str(item.get("title") or "").strip(), toc_title)
+        ]
+    )
 
 
 def _heading_titles_are_compatible(body_title: str, toc_title: str) -> bool:
@@ -3975,7 +4182,7 @@ def _normalize_outline_comparison_key(outline_index: Any) -> str:
     segments = [segment for segment in candidate.split(".") if segment]
     while len(segments) > 1 and segments[-1] == "0":
         segments.pop()
-    return ".".join(segments)
+    return ".".join(segment.upper() if any(ch.isalpha() for ch in segment) else segment for segment in segments)
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -4021,6 +4228,212 @@ def _select_best_body_anchor_page(
             page,
         ),
     )
+
+
+def _merge_toc_sequence_contexts(
+    document_id: str,
+    contexts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    toc_outline_keys: set[str] = set()
+    toc_outline_labels: dict[str, str] = {}
+    toc_root_outline_keys: set[str] = set()
+    toc_root_outline_labels: dict[str, str] = {}
+    toc_direct_child_keys_by_root: dict[str, set[str]] = {}
+    toc_bounded_subtree_keys_by_root: dict[str, set[str]] = {}
+    toc_entry_details: dict[str, dict[str, Any]] = {}
+    toc_path_entry_details: list[dict[str, Any]] = []
+    sequence_ids: list[str] = []
+    titles: list[str] = []
+    pages: list[int] = []
+
+    for context in contexts:
+        sequence_id = str(context.get("toc_sequence_id") or "").strip()
+        if sequence_id and sequence_id not in sequence_ids:
+            sequence_ids.append(sequence_id)
+        title = str(context.get("title") or "").strip()
+        if title and title not in titles:
+            titles.append(title)
+        for page in list(context.get("pages", []) or []):
+            coerced_page = _coerce_int(page)
+            if coerced_page is not None and coerced_page > 0 and coerced_page not in pages:
+                pages.append(coerced_page)
+        toc_outline_keys.update(set(context.get("toc_outline_keys", set()) or set()))
+        toc_root_outline_keys.update(set(context.get("toc_root_outline_keys", set()) or set()))
+        for key, label in dict(context.get("toc_outline_labels", {}) or {}).items():
+            toc_outline_labels.setdefault(str(key), str(label))
+        for key, label in dict(context.get("toc_root_outline_labels", {}) or {}).items():
+            toc_root_outline_labels.setdefault(str(key), str(label))
+        for key, values in dict(context.get("toc_direct_child_keys_by_root", {}) or {}).items():
+            toc_direct_child_keys_by_root.setdefault(str(key), set()).update(set(values or set()))
+        for key, values in dict(context.get("toc_bounded_subtree_keys_by_root", {}) or {}).items():
+            toc_bounded_subtree_keys_by_root.setdefault(str(key), set()).update(set(values or set()))
+        for key, details in dict(context.get("toc_entry_details", {}) or {}).items():
+            toc_entry_details.setdefault(str(key), dict(details or {}))
+        toc_path_entry_details.extend(list(context.get("toc_path_entry_details", []) or []))
+
+    return {
+        "document_id": document_id,
+        "toc_sequence_id": sequence_ids[0] if len(sequence_ids) == 1 else None,
+        "toc_sequence_ids": sequence_ids,
+        "toc_sequence_titles": titles,
+        "toc_sequence_pages": sorted(pages),
+        "toc_outline_keys": toc_outline_keys,
+        "toc_outline_labels": toc_outline_labels,
+        "toc_root_outline_keys": toc_root_outline_keys,
+        "toc_root_outline_labels": toc_root_outline_labels,
+        "toc_direct_child_keys_by_root": toc_direct_child_keys_by_root,
+        "toc_bounded_subtree_keys_by_root": toc_bounded_subtree_keys_by_root,
+        "toc_entry_details": toc_entry_details,
+        "toc_path_entry_details": toc_path_entry_details,
+    }
+
+
+def _with_toc_path_qualified_comparison_keys(
+    details: dict[str, Any],
+    duplicate_outline_counts: dict[str, int],
+) -> dict[str, Any]:
+    normalized = str(details.get("normalized_outline_index") or "").strip()
+    parent = str(details.get("parent_normalized_outline_index") or "").strip()
+    if not normalized or not parent or int(duplicate_outline_counts.get(normalized, 0) or 0) <= 1:
+        return details
+    qualified = f"{parent}.{normalized}"
+    updated = dict(details)
+    updated["normalized_outline_index"] = qualified
+    updated["path_qualified_outline_index"] = qualified
+    return updated
+
+
+def _score_toc_sequence_context_for_body_alignment(
+    context: dict[str, Any],
+    body_outline_keys: set[str],
+    body_root_outline_keys: set[str],
+    body_outline_page_lookup: dict[str, list[int]],
+    body_outline_heading_page_lookup: dict[str, list[int]],
+    body_outline_heading_title_page_lookup: dict[str, list[dict[str, Any]]],
+    body_root_page_span_lookup: dict[str, list[Any]],
+) -> dict[str, Any]:
+    toc_outline_keys = set(context.get("toc_outline_keys", set()) or set())
+    toc_root_outline_keys = set(context.get("toc_root_outline_keys", set()) or set())
+    matched_outline_keys = toc_outline_keys & set(body_outline_keys)
+    matched_root_outline_keys = toc_root_outline_keys & set(body_root_outline_keys)
+    comparable_offsets: list[int] = []
+    for root_key in sorted(matched_root_outline_keys):
+        details = dict(dict(context.get("toc_entry_details", {}) or {}).get(root_key, {}) or {})
+        toc_page = _coerce_int(details.get("page_locator_value"))
+        toc_title = _resolve_toc_entry_title(details)
+        body_span = list(body_root_page_span_lookup.get(root_key, []) or [])
+        body_start = _coerce_int(body_span[0] if body_span else None)
+        compatible_heading_pages = _resolve_compatible_heading_page_values(
+            list(body_outline_heading_title_page_lookup.get(root_key, []) or []),
+            toc_title,
+        )
+        body_start = _select_best_body_anchor_page(
+            toc_page,
+            [
+                *(
+                    compatible_heading_pages
+                    if compatible_heading_pages
+                    else list(body_outline_heading_page_lookup.get(root_key, []) or [])
+                ),
+                *list(body_outline_page_lookup.get(root_key, []) or []),
+            ],
+            body_start,
+        )
+        if toc_page is not None and body_start is not None:
+            comparable_offsets.append(int(body_start) - int(toc_page))
+    stable_offset = len(comparable_offsets) >= 2 and len(set(comparable_offsets)) == 1
+    return {
+        "toc_sequence_id": context.get("toc_sequence_id"),
+        "toc_outline_count": len(toc_outline_keys),
+        "toc_root_outline_count": len(toc_root_outline_keys),
+        "matched_outline_count": len(matched_outline_keys),
+        "matched_root_outline_count": len(matched_root_outline_keys),
+        "root_coverage_ratio": (
+            round(len(matched_root_outline_keys) / len(toc_root_outline_keys), 4)
+            if toc_root_outline_keys
+            else None
+        ),
+        "matched_outline_ratio": (
+            round(len(matched_outline_keys) / len(toc_outline_keys), 4)
+            if toc_outline_keys
+            else 0.0
+        ),
+        "comparable_root_offset_count": len(comparable_offsets),
+        "root_page_offset_values": comparable_offsets,
+        "stable_root_page_offset": stable_offset,
+    }
+
+
+def _select_document_toc_sequence_context(
+    document_id: str,
+    contexts: list[dict[str, Any]],
+    body_outline_keys: set[str],
+    body_root_outline_keys: set[str],
+    body_outline_page_lookup: dict[str, list[int]],
+    body_outline_heading_page_lookup: dict[str, list[int]],
+    body_outline_heading_title_page_lookup: dict[str, list[dict[str, Any]]],
+    body_root_page_span_lookup: dict[str, list[Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    document_contexts = [
+        context
+        for context in contexts
+        if str(context.get("document_id") or "").strip() == document_id
+    ]
+    if not document_contexts:
+        return _merge_toc_sequence_contexts(document_id, []), []
+    if len(document_contexts) == 1:
+        selected = _merge_toc_sequence_contexts(document_id, document_contexts)
+        selected["toc_sequence_selection"] = "single_sequence"
+        selected["excluded_toc_sequence_count"] = 0
+        selected["excluded_toc_sequence_ids"] = []
+        return selected, []
+
+    scored_contexts: list[tuple[tuple[Any, ...], dict[str, Any], dict[str, Any]]] = []
+    for order, context in enumerate(document_contexts):
+        score = _score_toc_sequence_context_for_body_alignment(
+            context,
+            body_outline_keys,
+            body_root_outline_keys,
+            body_outline_page_lookup,
+            body_outline_heading_page_lookup,
+            body_outline_heading_title_page_lookup,
+            body_root_page_span_lookup,
+        )
+        sort_key = (
+            1 if score["matched_root_outline_count"] >= 2 and score["stable_root_page_offset"] else 0,
+            score["matched_root_outline_count"],
+            score["matched_outline_count"],
+            score["matched_outline_ratio"],
+            -min([
+                _coerce_int(page) or 999999
+                for page in list(context.get("pages", []) or [])
+            ] or [999999]),
+            -order,
+        )
+        scored_contexts.append((sort_key, context, score))
+    scored_contexts.sort(key=lambda item: item[0], reverse=True)
+    best_sort_key, best_context, best_score = scored_contexts[0]
+    has_discriminating_body_evidence = (
+        int(best_score.get("matched_root_outline_count", 0) or 0) >= 2
+        or (
+            int(best_score.get("matched_root_outline_count", 0) or 0) >= 1
+            and int(best_score.get("matched_outline_count", 0) or 0) >= 2
+        )
+    )
+    selected_contexts = [best_context] if has_discriminating_body_evidence else document_contexts
+    selected = _merge_toc_sequence_contexts(document_id, selected_contexts)
+    selected["toc_sequence_selection"] = (
+        "body_aligned_primary_sequence" if has_discriminating_body_evidence else "all_sequences_no_primary_evidence"
+    )
+    selected["toc_sequence_alignment_scores"] = [score for _, _, score in scored_contexts]
+    excluded_contexts = [context for context in document_contexts if context not in selected_contexts]
+    selected["excluded_toc_sequence_count"] = len(excluded_contexts)
+    selected["excluded_toc_sequence_ids"] = [
+        str(context.get("toc_sequence_id") or "").strip()
+        for context in excluded_contexts
+        if str(context.get("toc_sequence_id") or "").strip()
+    ]
+    return selected, excluded_contexts
 
 
 def _is_content_bearing_fact_support_role(source_type: str, unit_role: str) -> bool:
@@ -5577,6 +5990,71 @@ def _evaluate_ectd_hyperlink_navigation_requirement(
     )
 
 
+def _classify_validation_standard_pdf_scope(
+    document: dict[str, Any],
+    summary: dict[str, Any],
+    filename: str,
+    source_path: str,
+) -> dict[str, Any]:
+    normalized_source = str(source_path or filename or "").strip().replace("\\", "/").lower()
+    normalized_filename = str(filename or "").strip().lower()
+    combined = f"{normalized_source} {normalized_filename}".strip()
+    reasons: list[str] = []
+
+    if (
+        _ECTD_VALIDATION_STANDARD_PDF_EXEMPT_PATTERN.search(filename)
+        or _ECTD_VALIDATION_STANDARD_PDF_EXEMPT_PATTERN.search(source_path)
+    ):
+        reasons.append("explicit_reference_exemption")
+
+    if _REFERENCE_OR_GUIDANCE_PDF_PATTERN.search(combined):
+        reasons.append("reference_or_guidance_signal")
+
+    ectd_metadata = dict(document.get("ectd_submission_metadata", {}) or {})
+    if ectd_metadata:
+        reasons.append("ectd_submission_metadata_present")
+
+    source_kind = str(document.get("submission_scope_kind") or document.get("document_scope_kind") or "").strip().lower()
+    if source_kind in {"submission_pdf", "ectd_submission_pdf", "ind_submission_pdf"}:
+        reasons.append("explicit_submission_scope")
+    elif source_kind in {"reference_pdf", "regulation_reference", "technical_guidance", "literature_reference"}:
+        reasons.append("explicit_reference_scope")
+
+    if _ECTD_SUBMISSION_PDF_PATH_PATTERN.search(normalized_source):
+        reasons.append("ectd_sequence_module_path")
+    elif _ECTD_SUBMISSION_MODULE_PATH_PATTERN.search(normalized_source):
+        reasons.append("module_path_without_sequence_context")
+    else:
+        reasons.append("no_ectd_sequence_context")
+
+    submission_signals = {
+        "explicit_submission_scope",
+        "ectd_submission_metadata_present",
+        "ectd_sequence_module_path",
+    }
+    reference_signals = {
+        "explicit_reference_exemption",
+        "explicit_reference_scope",
+        "reference_or_guidance_signal",
+    }
+    is_submission_pdf = any(reason in submission_signals for reason in reasons) and not any(
+        reason in reference_signals for reason in reasons
+    )
+    return {
+        "is_submission_pdf": is_submission_pdf,
+        "submission_scope_kind": "submission_pdf" if is_submission_pdf else "reference_or_unscoped_pdf",
+        "submission_scope_confidence": "high" if is_submission_pdf else "low",
+        "scope_reasons": reasons,
+        "not_applicable_reasons": [] if is_submission_pdf else reasons,
+        "pdf_link_action_kinds": [
+            str(item).strip()
+            for item in list(summary.get("pdf_link_action_kinds", []) or [])
+            if str(item).strip()
+        ],
+        "external_uri_link_count": int(summary.get("external_uri_link_count", 0) or 0),
+    }
+
+
 def _iter_validation_standard_applicable_pdf_documents(
     material_contract: dict[str, Any],
 ) -> list[tuple[dict[str, Any], dict[str, Any], str, str]]:
@@ -5587,13 +6065,42 @@ def _iter_validation_standard_applicable_pdf_documents(
         source_type = str(document.get("source_type") or "").strip().lower()
         if source_type != "pdf" and not filename.lower().endswith(".pdf"):
             continue
-        if (
-            _ECTD_VALIDATION_STANDARD_PDF_EXEMPT_PATTERN.search(filename)
-            or _ECTD_VALIDATION_STANDARD_PDF_EXEMPT_PATTERN.search(source_path)
-        ):
+        summary = dict(document.get("summary", {}) or {})
+        scope = _classify_validation_standard_pdf_scope(document, summary, filename, source_path)
+        if not scope["is_submission_pdf"]:
             continue
-        applicable_documents.append((document, dict(document.get("summary", {}) or {}), filename, source_path))
+        applicable_documents.append((document, summary, filename, source_path))
     return applicable_documents
+
+
+def _collect_validation_standard_pdf_scope_evidence(
+    material_contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    scope_evidence: list[dict[str, Any]] = []
+    for document in list(material_contract.get("documents", []) or []):
+        filename = str(document.get("filename") or "").strip()
+        source_path = str(document.get("source_path") or "").strip()
+        source_type = str(document.get("source_type") or "").strip().lower()
+        if source_type != "pdf" and not filename.lower().endswith(".pdf"):
+            continue
+        summary = dict(document.get("summary", {}) or {})
+        scope = _classify_validation_standard_pdf_scope(document, summary, filename, source_path)
+        if scope["is_submission_pdf"]:
+            continue
+        scope_evidence.append(
+            {
+                "document_id": str(document.get("document_id") or "").strip(),
+                "filename": filename,
+                "source_path": source_path,
+                "module_label": str(((document.get("classification") or {}).get("module_label")) or "").strip(),
+                "submission_scope_kind": scope["submission_scope_kind"],
+                "submission_scope_confidence": scope["submission_scope_confidence"],
+                "not_applicable_reasons": scope["not_applicable_reasons"],
+                "pdf_link_action_kinds": scope["pdf_link_action_kinds"],
+                "external_uri_link_count": scope["external_uri_link_count"],
+            }
+        )
+    return scope_evidence
 
 
 def _evaluate_ectd_pdf_embedded_attachment_requirement(
@@ -5945,15 +6452,27 @@ def _evaluate_ectd_pdf_hyperlink_action_whitelist_requirement(
             failing_documents.append(matched_document)
 
     if not applicable_documents:
+        scope_evidence = _collect_validation_standard_pdf_scope_evidence(material_contract)
         return (
             "na",
-            "No non-exempt PDF documents required hyperlink-action checks under the validation standard.",
+            "No confirmed IND/eCTD submission PDF documents required hyperlink-action checks under the validation standard.",
             _build_requirement_details(
                 {},
                 fallback_requirement_id=_ECTD_VALIDATION_STANDARD_PDF_HYPERLINK_ACTION_WHITELIST_REQUIREMENT_ID,
                 fallback_citation_anchor=_ECTD_VALIDATION_STANDARD_PDF_HYPERLINK_ACTION_WHITELIST_CITATION,
-                match_strength="not_applicable",
+                match_strength="submission_scope_not_established" if scope_evidence else "not_applicable",
                 matched_documents=[],
+                extra_details=(
+                    {
+                        "applicability_reason": (
+                            "Parsed PDF documents were not confirmed as IND/eCTD submission PDFs, so submission "
+                            "PDF hyperlink-action hard rules were not applied."
+                        ),
+                        "scope_evidence": scope_evidence,
+                    }
+                    if scope_evidence
+                    else None
+                ),
             ),
         )
 
@@ -27037,6 +27556,14 @@ def _build_toc_alignment_audit_rows(
             {
                 "document_id": str(row.get("document_id") or "").strip() or None,
                 "filename": str(row.get("filename") or "").strip() or None,
+                "toc_sequence_id": str(row.get("toc_sequence_id") or "").strip() or None,
+                "toc_sequence_ids": list(row.get("toc_sequence_ids", []) or []),
+                "toc_sequence_titles": list(row.get("toc_sequence_titles", []) or []),
+                "toc_sequence_pages": list(row.get("toc_sequence_pages", []) or []),
+                "toc_sequence_selection": str(row.get("toc_sequence_selection") or "").strip() or None,
+                "toc_sequence_alignment_scores": list(row.get("toc_sequence_alignment_scores", []) or []),
+                "excluded_toc_sequence_count": int(row.get("excluded_toc_sequence_count", 0) or 0),
+                "excluded_toc_sequence_ids": list(row.get("excluded_toc_sequence_ids", []) or []),
                 "toc_outline_count": int(row.get("toc_outline_count", 0) or 0),
                 "toc_root_outline_count": int(row.get("toc_root_outline_count", 0) or 0),
                 "matched_outline_count": int(row.get("matched_outline_count", 0) or 0),

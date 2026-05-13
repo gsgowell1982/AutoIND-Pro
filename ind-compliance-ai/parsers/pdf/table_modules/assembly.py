@@ -934,8 +934,9 @@ def _build_semantic_table_views(
     structural_empty_rows: list[int] = []
     semantic_data_row_by_raw_grid_row: dict[int, int] = {}
     semantic_data_row_count = 0
+    projected_grid = _project_grid_from_cells(raw_grid, cells, data_start_row=data_start_row)
 
-    for raw_grid_row_idx, row in enumerate(raw_grid, start=1):
+    for raw_grid_row_idx, row in enumerate(projected_grid, start=1):
         if _row_has_semantic_content(row):
             semantic_grid.append(list(row))
             if raw_grid_row_idx > data_start_row:
@@ -962,6 +963,32 @@ def _build_semantic_table_views(
     semantic_row_texts = _build_row_texts(semantic_grid)
     data_row_texts = _build_row_texts(data_grid)
     return semantic_grid, semantic_cells, semantic_row_texts, data_grid, data_row_texts, structural_empty_rows
+
+
+def _project_grid_from_cells(
+    grid: list[list[str | None]],
+    cells: list[dict[str, Any]],
+    *,
+    data_start_row: int,
+) -> list[list[str | None]]:
+    projected = [list(row) for row in grid]
+    if not projected:
+        return projected
+    for cell in cells:
+        if not str(cell.get("inference_reason") or "").startswith("filename_path_text_layer_reconstruction"):
+            continue
+        data_row_idx = int(cell.get("logical_row", cell.get("row", 0)) or 0)
+        row_idx = data_start_row + data_row_idx - 1
+        col_idx = int(cell.get("logical_col", cell.get("col", 1)) or 1) - 1
+        if row_idx < 0 or row_idx >= len(projected) or col_idx < 0:
+            continue
+        while col_idx >= len(projected[row_idx]):
+            projected[row_idx].append(None)
+        text = cell.get("text")
+        if text is None:
+            continue
+        projected[row_idx][col_idx] = str(text)
+    return projected
 
 
 def _build_column_signature(normalized: NormalizedTable) -> list[float]:

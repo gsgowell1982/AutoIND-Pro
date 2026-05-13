@@ -154,6 +154,8 @@ class EctdImplementationGuideRegressionTests(unittest.TestCase):
 
         self.assertEqual(root_row.get("body_page_start"), 6)
         self.assertEqual(root_row.get("body_page_end"), 10)
+        self.assertEqual(root_row.get("body_anchor_page_start"), 6)
+        self.assertEqual(root_row.get("offset"), 0)
         self.assertFalse(root_row.get("span_conflict"))
 
     def test_body_section_tree_does_not_expand_root_2_with_numbered_list_items(self) -> None:

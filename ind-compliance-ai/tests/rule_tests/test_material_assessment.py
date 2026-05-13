@@ -15682,9 +15682,107 @@ class MaterialAssessmentTests(unittest.TestCase):
         )
         self.assertEqual(rules_by_id["HR-ECTD-045"]["details"]["matched_documents"][0]["jump_page"], 4)
 
+    def test_build_compliance_result_payload_keeps_hyperlink_action_rule_not_applicable_for_unscoped_reference_pdfs(self) -> None:
+        reference_pdf_document = _build_parsed_document(
+            filename="journal-article.pdf",
+            source_path="D:\\AutoIND-Pro\\A-tst.pdf",
+            extra_metadata={
+                "page_count": 10,
+                "pdf_link_action_kinds": ["/URI"],
+                "pdf_link_action_pages": [1, 10],
+                "pdf_link_action_page_records": [
+                    {
+                        "page": 1,
+                        "link_annotation_count": 2,
+                        "link_annotation_xrefs": [31, 32],
+                        "link_action_kinds": ["/URI"],
+                    }
+                ],
+                "external_uri_link_count": 2,
+            },
+            content_evidence_count=1,
+            content_unit_count=1,
+            review_required_table_count=0,
+            review_required_toc_count=0,
+            toc_count=0,
+            toc_sequence_count=0,
+        )
+
+        result = build_compliance_result_payload(
+            submission_profile="FIH",
+            parsed_documents=[reference_pdf_document],
+            consistency_rows=[],
+            final_status="completed",
+        )
+
+        rules_by_id = {item["rule_id"]: item for item in result["rules"]}
+        hyperlink_rule = rules_by_id["HR-ECTD-045"]
+
+        self.assertEqual(result["summary"]["hard_failures"], 0)
+        self.assertEqual(hyperlink_rule["status"], "na")
+        self.assertEqual(
+            hyperlink_rule["details"]["match_strength"],
+            "submission_scope_not_established",
+        )
+        self.assertEqual(hyperlink_rule["details"]["matched_documents"], [])
+        scope_evidence = hyperlink_rule["details"]["scope_evidence"]
+        self.assertEqual(scope_evidence[0]["filename"], "journal-article.pdf")
+        self.assertEqual(scope_evidence[0]["submission_scope_kind"], "reference_or_unscoped_pdf")
+        self.assertEqual(scope_evidence[0]["pdf_link_action_kinds"], ["/URI"])
+        self.assertEqual(scope_evidence[0]["external_uri_link_count"], 2)
+        self.assertIn("no_ectd_sequence_context", scope_evidence[0]["not_applicable_reasons"])
+
+    def test_build_compliance_result_payload_still_fails_hyperlink_action_rule_for_scoped_submission_pdfs(self) -> None:
+        submission_pdf_document = _build_parsed_document(
+            filename="m2-overview.pdf",
+            source_path="D:\\submission\\x202112345\\0002\\m2\\m2-overview.pdf",
+            extra_metadata={
+                "page_count": 10,
+                "pdf_link_action_kinds": ["/URI"],
+                "pdf_link_action_pages": [5],
+                "pdf_link_action_page_records": [
+                    {
+                        "page": 5,
+                        "link_annotation_count": 1,
+                        "link_annotation_xrefs": [51],
+                        "link_action_kinds": ["/URI"],
+                    }
+                ],
+                "external_uri_link_count": 1,
+            },
+            content_evidence_count=1,
+            content_unit_count=1,
+            review_required_table_count=0,
+            review_required_toc_count=0,
+            toc_count=0,
+            toc_sequence_count=0,
+        )
+
+        result = build_compliance_result_payload(
+            submission_profile="FIH",
+            parsed_documents=[submission_pdf_document],
+            consistency_rows=[],
+            final_status="completed",
+        )
+
+        rules_by_id = {item["rule_id"]: item for item in result["rules"]}
+        hyperlink_rule = rules_by_id["HR-ECTD-045"]
+
+        self.assertEqual(hyperlink_rule["status"], "fail")
+        self.assertEqual(
+            hyperlink_rule["details"]["match_strength"],
+            "pdf_disallowed_hyperlink_action_detected",
+        )
+        self.assertEqual(
+            hyperlink_rule["details"]["matched_documents"][0]["disallowed_link_action_kinds"],
+            ["/URI"],
+        )
+        self.assertEqual(hyperlink_rule["details"]["matched_documents"][0]["jump_page"], 5)
+
     def test_build_compliance_result_payload_passes_for_clean_navigation_ready_material(self) -> None:
         clean_document = _build_parsed_document(
             filename="clean-ind.pdf",
+            source_path="D:\\submission\\x202112345\\0002\\m2\\clean-ind.pdf",
             content_evidence_count=4,
             content_unit_count=1,
             review_required_table_count=0,
@@ -15848,7 +15946,7 @@ class MaterialAssessmentTests(unittest.TestCase):
                 "HR-LAW-017": "na",
                 "HR-LAW-020": "na",
                 "HR-LAW-022": "na",
-                "SR-CTD-002": "na",
+                "SR-CTD-002": "pass",
                 "SR-ECTD-001": "na",
                 "SR-ECTD-002": "na",
                 "SR-ECTD-003": "na",
@@ -18199,6 +18297,172 @@ class MaterialAssessmentTests(unittest.TestCase):
         self.assertEqual(rows[0]["direct_child_coverage_ratio"], 1.0)
         self.assertEqual(rows[0]["missing_body_direct_child_outline_indices"], [])
 
+    def test_build_toc_body_alignment_rows_uses_primary_roman_toc_sequence_not_embedded_examples(self) -> None:
+        def _entry(
+            sequence_entry_index: int,
+            toc_id: str,
+            page: int,
+            outline_index: str,
+            title: str,
+            page_locator_value: int,
+            level: int = 1,
+            parent_sequence_entry_index: int | None = None,
+        ) -> dict[str, object]:
+            return {
+                "sequence_entry_index": sequence_entry_index,
+                "toc_id": toc_id,
+                "page": page,
+                "outline_index": outline_index,
+                "text": title,
+                "page_locator": str(page_locator_value),
+                "page_locator_kind": "arabic",
+                "page_locator_value": page_locator_value,
+                "level": level,
+                "parent_sequence_entry_index": parent_sequence_entry_index,
+                "parent_toc_id": toc_id if parent_sequence_entry_index else None,
+                "section_anchor_sequence_entry_index": sequence_entry_index,
+                "review_required": False,
+                "audit_flags": [],
+            }
+
+        main_entries = [
+            _entry(1, "toc_main", 2, "I", "INTRODUCTION", 1),
+            _entry(2, "toc_main", 2, "II", "PURPOSE", 2),
+            _entry(3, "toc_main", 2, "III", "GENERAL ISSUES", 3),
+            _entry(4, "toc_main", 2, "A", "HARMONIZATION WITH GUIDANCE", 3, 2, 3),
+        ]
+        example_entries = [
+            _entry(1, "toc_example", 22, "1.0", "Clinical Protocol", 1),
+            _entry(2, "toc_example", 22, "2.0", "Study Objectives", 2),
+        ]
+        body_heading_specs = [
+            ("001", 3, "I. INTRODUCTION"),
+            ("002", 4, "II. PURPOSE"),
+            ("003", 5, "III. GENERAL ISSUES"),
+            ("004", 5, "A. Harmonization with Guidance"),
+        ]
+        content_units = [
+            {
+                "unit_id": f"cu_text_{suffix}",
+                "evidence_id": f"ce_text_{suffix}",
+                "source_type": "text",
+                "source_id": f"txt_{suffix}",
+                "page": page,
+                "bbox": [10.0, 10.0 + index * 18.0, 260.0, 22.0 + index * 18.0],
+                "semantic_role": "text_block",
+                "unit_role": "body",
+                "unit_index": index,
+                "text": text,
+                "attributes": {},
+                "section_context": {
+                    "module_label": "DOC-1",
+                    "outline_index": "1401",
+                    "section_title": "Rockville Pike, Rockville, MD 20852-1448",
+                    "anchor_source": "heading",
+                    "anchor_confidence": 0.51,
+                },
+                "fact_extraction_eligible": False,
+            }
+            for index, (suffix, page, text) in enumerate(body_heading_specs, start=1)
+        ]
+        content_evidence = [
+            {
+                "evidence_id": f"ce_text_{suffix}",
+                "source_type": "text",
+                "source_id": f"txt_{suffix}",
+                "page": page,
+                "bbox": [10.0, 10.0, 260.0, 22.0],
+                "semantic_role": "text_block",
+                "content_text": text,
+                "section_context": dict(unit["section_context"]),
+                "segments": [{"role": "body", "text": text}],
+            }
+            for (suffix, page, text), unit in zip(body_heading_specs, content_units)
+        ]
+        document = _build_parsed_document(
+            filename="roman-main-toc-with-examples.pdf",
+            content_evidence_count=len(content_evidence),
+            content_unit_count=len(content_units),
+            review_required_table_count=0,
+            review_required_toc_count=0,
+            toc_count=2,
+            toc_sequence_count=0,
+            atomic_facts={},
+            content_units_override=content_units,
+            content_evidence=content_evidence,
+        )
+        document["metadata"]["toc_sequence_count"] = 2
+        document["document_ast"]["toc_sequence_refs"] = ["tocseq_main", "tocseq_example"]
+        document["toc_sequences"] = [
+            {
+                "toc_sequence_id": "tocseq_main",
+                "semantic_role": "toc_outline_sequence",
+                "title": "Table of Contents",
+                "toc_ids": ["toc_main"],
+                "pages": [2],
+                "page_count": 1,
+                "page_span": [2, 2],
+                "bbox": [10.0, 80.0, 300.0, 220.0],
+                "entry_count": len(main_entries),
+                "root_entry_count": 3,
+                "leaf_entry_count": 3,
+                "max_branching_factor": 1,
+                "max_entry_level": 2,
+                "max_outline_depth": 2,
+                "missing_page_locator_count": 0,
+                "page_locator_kinds": {"arabic": len(main_entries), "roman": 0, "unknown": 0},
+                "review_required": False,
+                "entries": main_entries,
+                "root_nodes": [],
+                "navigation_summary": {"page_entry_spans": []},
+                "toc_sequence_diagnostics": {},
+            },
+            {
+                "toc_sequence_id": "tocseq_example",
+                "semantic_role": "toc_outline_sequence",
+                "title": "TABLE OF CONTENTS",
+                "toc_ids": ["toc_example"],
+                "pages": [22],
+                "page_count": 1,
+                "page_span": [22, 22],
+                "bbox": [10.0, 80.0, 300.0, 220.0],
+                "entry_count": len(example_entries),
+                "root_entry_count": 2,
+                "leaf_entry_count": 2,
+                "max_branching_factor": 0,
+                "max_entry_level": 1,
+                "max_outline_depth": 1,
+                "missing_page_locator_count": 0,
+                "page_locator_kinds": {"arabic": len(example_entries), "roman": 0, "unknown": 0},
+                "review_required": False,
+                "entries": example_entries,
+                "root_nodes": [],
+                "navigation_summary": {"page_entry_spans": []},
+                "toc_sequence_diagnostics": {},
+            },
+        ]
+
+        rows = build_toc_body_alignment_rows_from_documents([document])
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["toc_sequence_ids"], ["tocseq_main"])
+        self.assertEqual(rows[0]["toc_sequence_id"], "tocseq_main")
+        self.assertEqual(rows[0]["excluded_toc_sequence_count"], 1)
+        self.assertTrue(rows[0]["alignment_ready"])
+        self.assertEqual(rows[0]["toc_outline_indices"], ["A", "I", "II", "III"])
+        self.assertEqual(rows[0]["matched_outline_keys"], ["A", "I", "II", "III"])
+        self.assertNotIn("1.0", rows[0]["missing_body_outline_indices"])
+        self.assertNotIn("2.0", rows[0]["missing_body_outline_indices"])
+        self.assertEqual(rows[0]["root_page_offset_values"], [2, 2, 2])
+        path_rows = {
+            row["normalized_outline_index"]: row
+            for row in rows[0]["toc_body_alignment_path_rows"]
+        }
+        self.assertEqual(path_rows["I"]["body_anchor_page"], 3)
+        self.assertEqual(path_rows["II"]["body_anchor_page"], 4)
+        self.assertEqual(path_rows["III"]["body_anchor_page"], 5)
+        self.assertEqual(path_rows["A"]["body_anchor_page"], 5)
+
     def test_build_toc_body_alignment_rows_emits_all_toc_path_alignment_levels(self) -> None:
         navigation_entries = [
             {
@@ -19931,7 +20195,8 @@ class MaterialAssessmentTests(unittest.TestCase):
                     "toc_navigation_page": 2,
                     "toc_page_locator_value": 3,
                     "body_page_start": 7,
-                    "body_page_end": 7,
+                    "body_page_end": 8,
+                    "body_anchor_page_start": 7,
                     "projected_page": None,
                     "offset": 4,
                     "toc_order_index": 1,
@@ -19946,7 +20211,8 @@ class MaterialAssessmentTests(unittest.TestCase):
                     "toc_navigation_page": 2,
                     "toc_page_locator_value": 5,
                     "body_page_start": 10,
-                    "body_page_end": 10,
+                    "body_page_end": 11,
+                    "body_anchor_page_start": 10,
                     "projected_page": None,
                     "offset": 5,
                     "toc_order_index": 2,
@@ -22638,7 +22904,8 @@ class MaterialAssessmentTests(unittest.TestCase):
                     "toc_navigation_page": 2,
                     "toc_page_locator_value": 3,
                     "body_page_start": 3,
-                    "body_page_end": 3,
+                    "body_page_end": 6,
+                    "body_anchor_page_start": 3,
                     "projected_page": 3,
                     "offset": 0,
                     "toc_order_index": 1,

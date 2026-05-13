@@ -17,6 +17,7 @@ SemanticFn = Callable[[list[Any], list[list[str | None]], Any, int], int]
 def build_default_semantic_rules(
     recover_key_identifier_cells_fn: SemanticFn,
     repair_directory_listing_structure_fn: SemanticFn,
+    reconstruct_filename_path_cells_from_text_layer_fn: SemanticFn,
     merge_filename_continuations_fn: Callable[[list[Any], list[list[str | None]], int], int],
 ) -> list[CallableSemanticRule]:
     return [
@@ -27,6 +28,10 @@ def build_default_semantic_rules(
         CallableSemanticRule(
             "repair_directory_listing_structure",
             lambda rs, gd, rw, lc: repair_directory_listing_structure_fn(rs, gd, rw, lc),
+        ),
+        CallableSemanticRule(
+            "reconstruct_filename_path_cells_from_text_layer",
+            lambda rs, gd, rw, lc: reconstruct_filename_path_cells_from_text_layer_fn(rs, gd, rw, lc),
         ),
         CallableSemanticRule(
             "merge_filename_continuations",

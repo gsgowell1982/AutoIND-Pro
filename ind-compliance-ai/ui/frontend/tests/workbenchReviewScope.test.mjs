@@ -129,3 +129,30 @@ test('single-file summary leads with file-scoped format and rule modules only', 
   assert.ok(summary.modules.every((module) => !module.name.includes('内容一致性')))
   assert.ok(summary.modules.every((module) => !module.summary.includes('一致性复核')))
 })
+
+test('single-file summary explains selected main toc sequence when examples are excluded', () => {
+  const summary = buildSingleFileReviewSummary(
+    buildWorkbench({
+      rule_checks: {
+        enabled: true,
+        items: [{ status: 'pass' }],
+        structure_audit_records: [
+          {
+            alignment_ready: true,
+            filename: 'test-ind.pdf',
+            toc_sequence_ids: ['tocseq_001'],
+            excluded_toc_sequence_count: 2,
+            excluded_toc_sequence_ids: ['tocseq_002', 'tocseq_003'],
+          },
+        ],
+        summary: { pass_rules: 1 },
+        risk_count: 0,
+        message: '规则检查完成',
+      },
+    }),
+  )
+
+  assert.equal(summary.modules[0].status, 'pass')
+  assert.match(summary.modules[0].summary, /主目录序列 tocseq_001/)
+  assert.match(summary.modules[0].summary, /其余 2 个目录序列未纳入当前正文一致性判定/)
+})

@@ -29,6 +29,9 @@ from .table_modules.postprocess import (
 from .tables import (
     _annotate_toc_diagnostics,
     _build_toc_text_block_entries,
+    _build_toc_text_row_entry,
+    _group_toc_text_blocks_by_visual_rows,
+    _is_toc_title_row,
     _parent_outline_index,
     _populate_toc_block_from_raw_entries,
 )
@@ -703,6 +706,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
     total_table_text_suppressed = 0
 
     _promote_cross_page_toc_edge_fragments(state)
+    _promote_seedless_page_text_toc_blocks(state)
     for page_payload in state.page_payloads:
         _promote_page_text_toc_fragments(page_payload)
     _stitch_cross_page_toc_sequences(state.toc_nodes)
@@ -2951,6 +2955,536 @@ def _build_toc_word_gap_entries(
             row_entries.append(candidate_entry)
 
     return row_entries
+
+
+def _promote_seedless_page_text_toc_blocks(state: PdfPipelineState) -> int:
+    if not state.page_payloads:
+        return 0
+
+    toc_index = _next_toc_index(state.toc_nodes)
+    promoted_count = 0
+    for page_payload in sorted(
+        state.page_payloads,
+        key=lambda payload: int(payload.get("page_number", 0) or 0),
+    ):
+        candidates = _build_seedless_text_toc_candidates(page_payload)
+        if not candidates:
+            continue
+
+        for candidate in candidates:
+            toc_index += 1
+            toc_block = _build_seedless_text_toc_block(
+                page_number=int(page_payload.get("page_number", 0) or 0),
+                toc_id=f"toc_{toc_index:03d}",
+                title_block=candidate["title_block"],
+                raw_entries=candidate["raw_entries"],
+                semantic_signals=candidate["semantic_signals"],
+            )
+            page_payload.setdefault("toc_blocks", []).append(toc_block)
+            page_payload["toc_blocks"] = sorted(page_payload["toc_blocks"], key=_toc_block_sort_key)
+            state.toc_nodes.append(toc_block)
+            state.counters.toc_block_count += 1
+            promoted_count += 1
+
+    return promoted_count
+
+
+def _build_seedless_text_toc_candidates(page_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    text_blocks = [
+        block
+        for block in sorted(
+            list(page_payload.get("text_blocks", []) or []),
+            key=lambda item: (
+                float((item.get("bbox", [0.0, 0.0, 0.0, 0.0]) or [0.0, 0.0, 0.0, 0.0])[1]),
+                float((item.get("bbox", [0.0, 0.0, 0.0, 0.0]) or [0.0, 0.0, 0.0, 0.0])[0]),
+            ),
+        )
+        if _valid_block_bbox(block.get("bbox")) is not None
+    ]
+    if not text_blocks:
+        return []
+
+    occupied_bboxes = _page_occupied_structure_bboxes(page_payload)
+    title_indices = [
+        index
+        for index, block in enumerate(text_blocks)
+        if _is_toc_title_row(str(block.get("text", "")).replace("\n", " ").strip())
+        and not _bbox_overlaps_any(_valid_block_bbox(block.get("bbox")), occupied_bboxes, threshold=0.45)
+    ]
+    if not title_indices:
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    consumed_bboxes: list[tuple[float, float, float, float]] = list(occupied_bboxes)
+    for title_index in title_indices:
+        title_block = text_blocks[title_index]
+        title_bbox = _valid_block_bbox(title_block.get("bbox"))
+        if title_bbox is None or _bbox_overlaps_any(title_bbox, consumed_bboxes, threshold=0.45):
+            continue
+
+        row_groups = _collect_seedless_toc_row_groups_after_title(
+            text_blocks,
+            title_index=title_index,
+            stop_title_indices=set(title_indices),
+            occupied_bboxes=consumed_bboxes,
+            page_height=float(page_payload.get("height", 0.0) or 0.0),
+        )
+        raw_entries = _build_seedless_toc_raw_entries(row_groups)
+        semantic_signals = _score_seedless_toc_entries(raw_entries, title_block)
+        if not _is_seedless_text_toc_candidate(semantic_signals):
+            continue
+
+        candidate_bboxes = [title_bbox]
+        for raw_entry in raw_entries:
+            bbox = _valid_block_bbox(raw_entry.get("bbox"))
+            if bbox is not None:
+                candidate_bboxes.append(bbox)
+        consumed_bboxes.append(tuple(_bbox_union(candidate_bboxes)))
+        candidates.append(
+            {
+                "title_block": title_block,
+                "raw_entries": raw_entries,
+                "semantic_signals": semantic_signals,
+            }
+        )
+
+    return candidates
+
+
+def _collect_seedless_toc_row_groups_after_title(
+    text_blocks: list[dict[str, Any]],
+    *,
+    title_index: int,
+    stop_title_indices: set[int],
+    occupied_bboxes: list[tuple[float, float, float, float]],
+    page_height: float,
+) -> list[list[dict[str, Any]]]:
+    title_block = text_blocks[title_index]
+    title_bbox = _valid_block_bbox(title_block.get("bbox"))
+    if title_bbox is None:
+        return []
+
+    following_blocks: list[dict[str, Any]] = []
+    title_bottom = float(title_bbox[3])
+    last_bottom = title_bottom
+    for index, block in enumerate(text_blocks[title_index + 1 :], start=title_index + 1):
+        bbox = _valid_block_bbox(block.get("bbox"))
+        if bbox is None:
+            continue
+        if float(bbox[1]) <= title_bottom - 1.0:
+            continue
+        if index in stop_title_indices:
+            break
+        if _bbox_overlaps_any(bbox, occupied_bboxes, threshold=0.45):
+            continue
+        if _looks_like_seedless_toc_barrier_text(str(block.get("text", "") or "")):
+            break
+        if page_height > 0 and float(bbox[1]) > page_height * 0.94:
+            break
+
+        block_height = max(1.0, float(bbox[3]) - float(bbox[1]))
+        allowed_gap = max(22.0, min(34.0, block_height * 2.4))
+        if following_blocks and float(bbox[1]) - last_bottom > allowed_gap:
+            break
+
+        following_blocks.append(block)
+        last_bottom = max(last_bottom, float(bbox[3]))
+
+    return _group_toc_text_blocks_by_visual_rows(following_blocks)
+
+
+def _build_seedless_toc_raw_entries(row_groups: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    raw_entries: list[dict[str, Any]] = []
+    for row_index, row_blocks in enumerate(row_groups, start=2):
+        built_entry = _build_toc_text_row_entry(row_blocks)
+        if built_entry is None:
+            built_entry = _build_seedless_inline_toc_entry(row_blocks)
+        if built_entry:
+            built_entry["row_index"] = row_index
+            built_entry["source_row_indices"] = [row_index]
+            raw_entries.append(built_entry)
+            continue
+
+        continuation_entry = _build_seedless_toc_continuation_entry(row_blocks, row_index=row_index)
+        if continuation_entry and _can_seedless_toc_continuation_follow(raw_entries, continuation_entry):
+            raw_entries.append(continuation_entry)
+
+    return raw_entries
+
+
+def _build_seedless_inline_toc_entry(row_blocks: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if len(row_blocks) != 1:
+        return None
+    text_block = row_blocks[0]
+    bbox = _valid_block_bbox(text_block.get("bbox"))
+    if bbox is None:
+        return None
+    original_text = str(text_block.get("text", "")).replace("\n", " ").strip()
+    if not original_text:
+        return None
+    match = re.match(
+        r"^(?P<body>.+\S)\s+(?P<locator>\d{1,4}|[ivxlcdm]{1,12})$",
+        original_text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    body = re.sub(r"\s+", " ", match.group("body")).strip()
+    page_locator = match.group("locator").strip()
+    if not body or not page_locator:
+        return None
+    if len(body) > 180 or _looks_like_seedless_inventory_text(body):
+        return None
+
+    outline_index, outline_depth, remainder_text, outline_kind = _extract_seedless_outline_prefix(body)
+    if not outline_index or not remainder_text:
+        return None
+    source_block_id = str(text_block.get("block_id") or "").strip()
+    page_locator_kind = "arabic" if page_locator.isdigit() else "roman"
+    return {
+        "source_row_indices": [],
+        "source_block_id": source_block_id or None,
+        "source_block_ids": [source_block_id] if source_block_id else [],
+        "source_kind": "text_block",
+        "leading_anchor": round(float(bbox[0]), 1),
+        "outline_index": outline_index,
+        "outline_depth": outline_depth,
+        "outline_kind": outline_kind,
+        "text": remainder_text,
+        "page_locator": page_locator,
+        "page_locator_kind": page_locator_kind,
+        "page_locator_value": int(page_locator) if page_locator.isdigit() else _roman_to_int(page_locator),
+        "sort_y0": float(bbox[1]),
+        "sort_x0": float(bbox[0]),
+        "bbox": _bbox_to_list(bbox),
+    }
+
+
+def _build_seedless_toc_continuation_entry(
+    row_blocks: list[dict[str, Any]],
+    *,
+    row_index: int,
+) -> dict[str, Any] | None:
+    source_block_ids: list[str] = []
+    row_bboxes: list[tuple[float, float, float, float]] = []
+    text_segments: list[str] = []
+    for text_block in sorted(row_blocks, key=lambda item: float((item.get("bbox") or [0.0])[0])):
+        bbox = _valid_block_bbox(text_block.get("bbox"))
+        if bbox is None:
+            continue
+        text = str(text_block.get("text", "")).replace("\n", " ").strip()
+        if not text or _is_toc_title_row(text):
+            continue
+        if _looks_like_page_locator_only(text):
+            continue
+        if _looks_like_seedless_toc_barrier_text(text):
+            return None
+        source_block_id = str(text_block.get("block_id") or "").strip()
+        if source_block_id and source_block_id not in source_block_ids:
+            source_block_ids.append(source_block_id)
+        row_bboxes.append(bbox)
+        text_segments.append(text)
+
+    content_text = re.sub(r"\s+", " ", " ".join(text_segments)).strip()
+    if not content_text:
+        return None
+    if len(content_text) > 180:
+        return None
+    if re.match(r"^(?:figure|table)\b", content_text, re.IGNORECASE):
+        return None
+
+    row_bbox = _bbox_union(row_bboxes)
+    return {
+        "row_index": row_index,
+        "source_row_indices": [row_index],
+        "source_block_id": source_block_ids[0] if source_block_ids else None,
+        "source_block_ids": source_block_ids,
+        "source_kind": "text_block",
+        "leading_anchor": round(float(row_bbox[0]), 1),
+        "outline_index": None,
+        "outline_depth": 0,
+        "text": content_text,
+        "page_locator": None,
+        "page_locator_kind": "unknown",
+        "page_locator_value": None,
+        "sort_y0": float(row_bbox[1]),
+        "sort_x0": float(row_bbox[0]),
+        "bbox": _bbox_to_list(tuple(row_bbox)),
+    }
+
+
+def _can_seedless_toc_continuation_follow(
+    raw_entries: list[dict[str, Any]],
+    continuation_entry: dict[str, Any],
+) -> bool:
+    if not raw_entries:
+        return False
+    continuation_anchor = continuation_entry.get("leading_anchor")
+    if continuation_anchor is None:
+        return False
+    try:
+        continuation_anchor_value = float(continuation_anchor)
+    except (TypeError, ValueError):
+        return False
+
+    for previous_entry in reversed(raw_entries):
+        if not previous_entry.get("page_locator"):
+            continue
+        previous_anchor = previous_entry.get("leading_anchor")
+        if previous_anchor is None:
+            return False
+        try:
+            previous_anchor_value = float(previous_anchor)
+        except (TypeError, ValueError):
+            return False
+        previous_depth = int(previous_entry.get("outline_depth", 0) or 0)
+        if previous_depth >= 4 and continuation_anchor_value + 4.0 < previous_anchor_value:
+            return False
+        return True
+    return False
+
+
+def _score_seedless_toc_entries(
+    raw_entries: list[dict[str, Any]],
+    title_block: dict[str, Any],
+) -> dict[str, Any]:
+    locator_entries = [entry for entry in raw_entries if str(entry.get("page_locator") or "").strip()]
+    meaningful_rows = len(raw_entries)
+    page_locator_ratio = (len(locator_entries) / meaningful_rows) if meaningful_rows else 0.0
+    inventory_path_count = sum(1 for entry in raw_entries if _looks_like_seedless_inventory_text(entry.get("text")))
+    inventory_path_ratio = (inventory_path_count / meaningful_rows) if meaningful_rows else 0.0
+    leading_anchors = {
+        round(float(entry.get("leading_anchor")), 1)
+        for entry in locator_entries
+        if entry.get("leading_anchor") is not None
+    }
+    hierarchical_rows = sum(
+        1
+        for entry in locator_entries
+        if int(entry.get("outline_depth", 0) or 0) >= 2 or int(entry.get("level", 1) or 1) >= 2
+    )
+    outline_depths = [int(entry.get("outline_depth", 0) or 0) for entry in locator_entries]
+    hierarchical_ratio = (hierarchical_rows / len(locator_entries)) if locator_entries else 0.0
+    max_outline_depth = max(outline_depths, default=0)
+    title_text = str(title_block.get("text", "")).replace("\n", " ").strip()
+    return {
+        "meaningful_row_count": meaningful_rows,
+        "page_locator_row_count": len(locator_entries),
+        "page_locator_ratio": round(page_locator_ratio, 3),
+        "inventory_path_ratio": round(inventory_path_ratio, 3),
+        "hierarchical_ratio": round(hierarchical_ratio, 3),
+        "locator_indent_level_count": len(leading_anchors),
+        "max_outline_depth": max_outline_depth,
+        "toc_title_support": _is_toc_title_row(title_text),
+        "explicit_table_title_support": False,
+        "has_schema_header": False,
+        "page_schema_header": False,
+        "schema_header_blocks_toc": False,
+        "semantic_role_reason": "seedless_text_toc",
+    }
+
+
+def _is_seedless_text_toc_candidate(semantic_signals: dict[str, Any]) -> bool:
+    meaningful_rows = int(semantic_signals.get("meaningful_row_count", 0) or 0)
+    page_locator_ratio = float(semantic_signals.get("page_locator_ratio", 0.0) or 0.0)
+    inventory_path_ratio = float(semantic_signals.get("inventory_path_ratio", 0.0) or 0.0)
+    locator_indent_level_count = int(semantic_signals.get("locator_indent_level_count", 0) or 0)
+    max_outline_depth = int(semantic_signals.get("max_outline_depth", 0) or 0)
+    hierarchical_ratio = float(semantic_signals.get("hierarchical_ratio", 0.0) or 0.0)
+    outline_ladder = locator_indent_level_count >= 2 or max_outline_depth >= 2 or hierarchical_ratio >= 0.15
+    return (
+        bool(semantic_signals.get("toc_title_support"))
+        and meaningful_rows >= 4
+        and page_locator_ratio >= 0.45
+        and inventory_path_ratio <= 0.15
+        and outline_ladder
+    )
+
+
+def _build_seedless_text_toc_block(
+    *,
+    page_number: int,
+    toc_id: str,
+    title_block: dict[str, Any],
+    raw_entries: list[dict[str, Any]],
+    semantic_signals: dict[str, Any],
+) -> dict[str, Any]:
+    title_text = str(title_block.get("text", "")).replace("\n", " ").strip()
+    title_bbox = _valid_block_bbox(title_block.get("bbox"))
+    bboxes: list[tuple[float, float, float, float]] = []
+    if title_bbox is not None:
+        bboxes.append(title_bbox)
+    promoted_block_ids: list[str] = []
+    title_block_id = str(title_block.get("block_id") or "").strip()
+    if title_block_id:
+        promoted_block_ids.append(title_block_id)
+    for raw_entry in raw_entries:
+        promoted_block_ids.extend(_toc_entry_source_block_ids(raw_entry))
+        bbox = _valid_block_bbox(raw_entry.get("bbox"))
+        if bbox is not None:
+            bboxes.append(bbox)
+
+    toc_block = {
+        "toc_id": toc_id,
+        "block_type": "toc",
+        "page": page_number,
+        "bbox": _seedless_text_toc_bbox(title_bbox, raw_entries),
+        "header": [],
+        "cells": [],
+        "grid": [],
+        "display_grid": [],
+        "raw_grid": [],
+        "semantic_role": "toc_outline",
+        "semantic_signals": semantic_signals,
+        "is_business_table": False,
+        "toc_title": title_text or None,
+        "title": title_text or None,
+        "title_inferred": False,
+        "title_source": "text_title_row",
+        "source_candidate_id": None,
+        "source_candidate_diagnostics": None,
+        "promoted_text_block_ids": list(dict.fromkeys(promoted_block_ids)),
+    }
+    _populate_toc_block_from_raw_entries(toc_block, raw_entries)
+    toc_block["bbox"] = _seedless_text_toc_bbox(title_bbox, raw_entries)
+    toc_block["semantic_signals"] = {
+        **semantic_signals,
+        **dict(toc_block.get("semantic_signals") or {}),
+    }
+    return toc_block
+
+
+def _seedless_text_toc_bbox(
+    title_bbox: tuple[float, float, float, float] | None,
+    raw_entries: list[dict[str, Any]],
+) -> list[float]:
+    entry_bboxes = [
+        bbox
+        for bbox in (_valid_block_bbox(entry.get("bbox")) for entry in raw_entries)
+        if bbox is not None
+    ]
+    if not entry_bboxes:
+        return _bbox_to_list(title_bbox) if title_bbox is not None else [0.0, 0.0, 0.0, 0.0]
+
+    evidence_bboxes: list[tuple[float, float, float, float]] = list(entry_bboxes)
+    if title_bbox is not None:
+        first_entry_top = min(float(bbox[1]) for bbox in entry_bboxes)
+        title_gap = first_entry_top - float(title_bbox[3])
+        if title_gap <= 18.0:
+            evidence_bboxes.append(title_bbox)
+        else:
+            entry_union = _bbox_union(entry_bboxes)
+            return [
+                min(float(title_bbox[0]), float(entry_union[0])),
+                float(title_bbox[3]) + 0.1,
+                max(float(title_bbox[2]), float(entry_union[2])),
+                float(entry_union[3]),
+            ]
+    return _bbox_to_list(tuple(_bbox_union(evidence_bboxes)))
+
+
+def _page_occupied_structure_bboxes(page_payload: dict[str, Any]) -> list[tuple[float, float, float, float]]:
+    occupied: list[tuple[float, float, float, float]] = []
+    for collection_name in ("tables", "toc_blocks", "images", "algorithm_blocks"):
+        for item in page_payload.get(collection_name, []) or []:
+            bbox = _valid_block_bbox(item.get("bbox"))
+            if bbox is not None:
+                occupied.append(bbox)
+    return occupied
+
+
+def _valid_block_bbox(bbox: Any) -> tuple[float, float, float, float] | None:
+    if not bbox or len(bbox) != 4:
+        return None
+    try:
+        normalized = tuple(float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return None
+    if normalized[2] <= normalized[0] or normalized[3] <= normalized[1]:
+        return None
+    return normalized
+
+
+def _bbox_overlaps_any(
+    bbox: tuple[float, float, float, float] | None,
+    occupied_bboxes: list[tuple[float, float, float, float]],
+    *,
+    threshold: float,
+) -> bool:
+    if bbox is None:
+        return False
+    return any(_bbox_overlap_ratio(bbox, occupied_bbox) >= threshold for occupied_bbox in occupied_bboxes)
+
+
+def _bbox_overlap_ratio(
+    bbox: tuple[float, float, float, float],
+    other_bbox: tuple[float, float, float, float],
+) -> float:
+    x_overlap = max(0.0, min(float(bbox[2]), float(other_bbox[2])) - max(float(bbox[0]), float(other_bbox[0])))
+    y_overlap = max(0.0, min(float(bbox[3]), float(other_bbox[3])) - max(float(bbox[1]), float(other_bbox[1])))
+    if x_overlap <= 0.0 or y_overlap <= 0.0:
+        return 0.0
+    bbox_area = max(1.0, (float(bbox[2]) - float(bbox[0])) * (float(bbox[3]) - float(bbox[1])))
+    return (x_overlap * y_overlap) / bbox_area
+
+
+def _looks_like_page_locator_only(text: str) -> bool:
+    return bool(re.fullmatch(r"\d{1,4}|[ivxlcdm]{1,12}", str(text or "").strip(), re.IGNORECASE))
+
+
+def _extract_seedless_outline_prefix(text: str) -> tuple[str | None, int, str, str | None]:
+    candidate = str(text or "").strip()
+    if not candidate:
+        return None, 0, "", None
+
+    match = re.match(r"^(\d+(?:\.\d+)+)\b", candidate)
+    if match:
+        outline_index = match.group(1)
+        remainder = candidate[match.end():].lstrip(" .:-")
+        return outline_index, len([segment for segment in outline_index.split(".") if segment]), remainder, "numeric"
+
+    match = re.match(r"^\s*(\d+)\.(?:\s+|$)", candidate)
+    if match:
+        outline_index = f"{match.group(1)}.0"
+        remainder = candidate[match.end():].strip()
+        return outline_index, 2, remainder, "numeric"
+
+    match = re.match(r"^\s*(APPENDIX\s+[A-Z0-9]+)(?:\s*[:.\-])?(?:\s+|$)", candidate, re.IGNORECASE)
+    if match:
+        outline_index = re.sub(r"\s+", " ", match.group(1).upper()).strip()
+        remainder = candidate[match.end():].strip()
+        return outline_index, 1, remainder, "appendix"
+
+    match = re.match(r"^\s*([ivxlcdm]+)\.(?:\s+|$)", candidate, re.IGNORECASE)
+    if match:
+        outline_index = match.group(1).upper()
+        remainder = candidate[match.end():].strip()
+        return outline_index, 1, remainder, "roman"
+
+    match = re.match(r"^\s*([A-Z])\.(?:\s+|$)", candidate)
+    if match:
+        outline_index = match.group(1).upper()
+        remainder = candidate[match.end():].strip()
+        return outline_index, 1, remainder, "alpha"
+
+    return None, 0, candidate, None
+
+
+def _looks_like_seedless_inventory_text(text: Any) -> bool:
+    candidate = str(text or "").strip()
+    return bool(candidate) and bool(re.search(r"(?:\.pdf\b|\\|/|_[0-9A-Za-z].*\.pdf\b)", candidate, re.IGNORECASE))
+
+
+def _looks_like_seedless_toc_barrier_text(text: str) -> bool:
+    candidate = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not candidate:
+        return False
+    lowered = candidate.lower()
+    if lowered.startswith(("figure ", "fig. ", "table ")):
+        return True
+    if re.match(r"^(?:references|bibliography)\b", lowered):
+        return True
+    return False
 
 
 def _group_page_words_by_visual_rows(page_words: list[_Word]) -> list[list[_Word]]:

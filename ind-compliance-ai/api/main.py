@@ -886,7 +886,107 @@ def _markdown_escape_link_label(text: str) -> str:
     return str(text or "").replace("[", "\\[").replace("]", "\\]")
 
 
+def _normalize_markdown_table_semantic_header_grid(block: dict[str, Any]) -> list[list[str]]:
+    header = [item for item in block.get("header", []) or [] if isinstance(item, dict)]
+    data_grid = block.get("data_grid")
+    if not header or not isinstance(data_grid, list) or not data_grid:
+        return []
+
+    header_texts = [
+        _markdown_escape_table_cell(item.get("text"))
+        for item in header
+    ]
+    if not header_texts or not any(header_texts):
+        return []
+
+    column_count = len(header_texts)
+    normalized_data_rows = [
+        [_markdown_escape_table_cell(cell) for cell in row]
+        for row in data_grid
+        if isinstance(row, list)
+    ]
+    normalized_data_rows = [row for row in normalized_data_rows if any(row)]
+    if not normalized_data_rows:
+        return []
+    if any(len(row) > column_count for row in normalized_data_rows):
+        return []
+
+    display_grid = block.get("display_grid")
+    if isinstance(display_grid, list) and display_grid:
+        first_display_row = next((row for row in display_grid if isinstance(row, list) and any(row)), None)
+        if first_display_row is not None:
+            display_column_count = len(first_display_row)
+            if display_column_count != column_count:
+                return []
+        display_data_rows = _markdown_display_rows_after_structural_prefix(block, column_count)
+        if display_data_rows:
+            return [header_texts] + display_data_rows
+
+    return [header_texts] + normalized_data_rows
+
+
+def _markdown_display_rows_after_structural_prefix(block: dict[str, Any], column_count: int) -> list[list[str]]:
+    display_grid = block.get("display_grid")
+    if not isinstance(display_grid, list) or not display_grid:
+        return []
+
+    start_index = _markdown_table_display_data_start_index(block)
+    normalized_rows = [
+        [_markdown_escape_table_cell(cell) for cell in row]
+        for row in display_grid[start_index:]
+        if isinstance(row, list)
+    ]
+    normalized_rows = [row for row in normalized_rows if any(row)]
+    if not normalized_rows:
+        return []
+    if any(len(row) > column_count for row in normalized_rows):
+        return []
+    data_grid = block.get("data_grid")
+    if isinstance(data_grid, list):
+        data_row_count = sum(1 for row in data_grid if isinstance(row, list) and any(row))
+        if data_row_count and len(normalized_rows) < data_row_count:
+            return []
+    return normalized_rows
+
+
+def _markdown_table_display_data_start_index(block: dict[str, Any]) -> int:
+    data_start = block.get("data_start_row")
+    if isinstance(data_start, int) and data_start >= 0:
+        return data_start
+    header_row = block.get("header_row_index")
+    if isinstance(header_row, int) and header_row >= 0:
+        return header_row + 1
+    title_row = block.get("title_row_index")
+    if isinstance(title_row, int) and title_row >= 0:
+        return title_row + 1
+    return 1
+
+
+def _markdown_table_internal_title(block: dict[str, Any]) -> str:
+    title_row = block.get("title_row_index")
+    if not isinstance(title_row, int) or title_row < 0:
+        return ""
+
+    display_grid = block.get("display_grid")
+    if isinstance(display_grid, list) and title_row < len(display_grid):
+        row = display_grid[title_row]
+        if isinstance(row, list):
+            non_empty_cells = [
+                _markdown_escape_inline_text(cell)
+                for cell in row
+                if str(cell or "").strip()
+            ]
+            if len(non_empty_cells) == 1:
+                return non_empty_cells[0]
+
+    return _markdown_escape_inline_text(block.get("title"))
+
+
 def _normalize_markdown_table_grid(block: dict[str, Any]) -> list[list[str]]:
+    semantic_grid = _normalize_markdown_table_semantic_header_grid(block)
+    if semantic_grid:
+        return semantic_grid
+
     for key in ("display_grid", "data_grid", "grid"):
         grid = block.get(key)
         if not isinstance(grid, list) or not grid:
@@ -957,6 +1057,11 @@ def _append_markdown_table(lines: list[str], block: dict[str, Any]) -> None:
     grid = _normalize_markdown_table_grid(block)
     if not grid:
         return
+
+    internal_title = _markdown_table_internal_title(block)
+    if internal_title:
+        lines.append(f"**{internal_title}**")
+        lines.append("")
 
     merged_rows = _merged_rows_by_row(block)
     while grid and 1 in merged_rows:
@@ -1915,6 +2020,14 @@ def _build_rule_structure_audit_records(
                     "citation_anchor": citation,
                     "filename": filename,
                     "document_id": str(payload.get("document_id") or "").strip() or None,
+                    "toc_sequence_id": str(payload.get("toc_sequence_id") or "").strip() or None,
+                    "toc_sequence_ids": list(payload.get("toc_sequence_ids", []) or []),
+                    "toc_sequence_titles": list(payload.get("toc_sequence_titles", []) or []),
+                    "toc_sequence_pages": list(payload.get("toc_sequence_pages", []) or []),
+                    "toc_sequence_selection": str(payload.get("toc_sequence_selection") or "").strip() or None,
+                    "toc_sequence_alignment_scores": list(payload.get("toc_sequence_alignment_scores", []) or []),
+                    "excluded_toc_sequence_count": int(payload.get("excluded_toc_sequence_count", 0) or 0),
+                    "excluded_toc_sequence_ids": list(payload.get("excluded_toc_sequence_ids", []) or []),
                     "toc_outline_count": int(payload.get("toc_outline_count", 0) or 0),
                     "toc_root_outline_count": int(payload.get("toc_root_outline_count", 0) or 0),
                     "matched_outline_count": int(payload.get("matched_outline_count", 0) or 0),

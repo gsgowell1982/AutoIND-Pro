@@ -621,12 +621,17 @@ def _build_row_views_from_raw_grid(
     raw_grid: list[list[str | None]],
     *,
     data_start_row: int = 0,
+    raw_audit_grid: list[list[str | None]] | None = None,
 ) -> tuple[list[list[str | None]], list[list[str | None]], list[str], list[str], list[str], list[int]]:
     projected_grid, projected_data_start_row = _project_sparse_header_continuation_rows(
         raw_grid,
         data_start_row=data_start_row,
     )
     projected_grid = _project_section_group_rows(projected_grid)
+    projected_grid = _project_sparse_body_wrapped_cell_rows(
+        projected_grid,
+        data_start_row=projected_data_start_row,
+    )
     display_grid: list[list[str | None]] = []
     data_grid: list[list[str | None]] = []
     structural_empty_rows: list[int] = []
@@ -641,7 +646,7 @@ def _build_row_views_from_raw_grid(
 
     display_grid = _trim_trailing_empty_columns(display_grid)
     data_grid = _trim_trailing_empty_columns(data_grid)
-    raw_row_texts = _render_row_texts(raw_grid)
+    raw_row_texts = _render_row_texts(raw_audit_grid if raw_audit_grid is not None else raw_grid)
     display_row_texts = _render_row_texts(display_grid)
     data_row_texts = _render_row_texts(data_grid)
     return display_grid, data_grid, raw_row_texts, display_row_texts, data_row_texts, structural_empty_rows
@@ -895,6 +900,160 @@ def _join_header_projection_text(left: str, right: str) -> str:
     return str(project_table_grid_display_text([[f"{left}\n{right}"]])[0][0] or "")
 
 
+def _project_sparse_body_wrapped_cell_rows(
+    raw_grid: list[list[str | None]],
+    *,
+    data_start_row: int,
+) -> list[list[str | None]]:
+    grid = _clone_grid_rows(raw_grid)
+    if len(grid) < 3:
+        return grid
+
+    projected: list[list[str | None]] = []
+    row_idx = 0
+    while row_idx < len(grid):
+        row = list(grid[row_idx])
+        if row_idx <= data_start_row:
+            projected.append(row)
+            row_idx += 1
+            continue
+
+        content_col = _find_sparse_wrapped_cell_anchor_column(row)
+        if content_col is None:
+            projected.append(row)
+            row_idx += 1
+            continue
+
+        fragments: list[dict[str, Any]] = []
+        lookahead_idx = row_idx + 1
+        while lookahead_idx < len(grid) and _is_sparse_wrapped_cell_fragment_row(
+            anchor_row=row,
+            fragment_row=grid[lookahead_idx],
+            content_col=content_col,
+        ):
+            fragments.append(
+                {
+                    "row_idx": lookahead_idx,
+                    "text": _semantic_cell_text(grid[lookahead_idx][content_col]),
+                }
+            )
+            lookahead_idx += 1
+
+        if not fragments:
+            projected.append(row)
+            row_idx += 1
+            continue
+
+        merged_text = _join_sparse_wrapped_cell_fragments(
+            [_semantic_cell_text(row[content_col])] + [item["text"] for item in fragments]
+        )
+        if merged_text:
+            row[content_col] = merged_text
+        projected.append(row)
+        row_idx = lookahead_idx
+
+    return projected
+
+
+def _find_sparse_wrapped_cell_anchor_column(row: list[str | None]) -> int | None:
+    non_empty_columns = _semantic_non_empty_columns(row)
+    if len(non_empty_columns) < 2:
+        return None
+
+    phrase_columns = [
+        col_idx
+        for col_idx in non_empty_columns
+        if _looks_like_sparse_wrapped_phrase_fragment(_semantic_cell_text(row[col_idx]))
+    ]
+    if len(phrase_columns) != 1:
+        return None
+
+    content_col = phrase_columns[0]
+    if not any(
+        _cell_looks_like_row_attribute(row[col_idx])
+        for col_idx in non_empty_columns
+        if col_idx != content_col
+    ):
+        return None
+    return content_col
+
+
+def _is_sparse_wrapped_cell_fragment_row(
+    *,
+    anchor_row: list[str | None],
+    fragment_row: list[str | None],
+    content_col: int,
+) -> bool:
+    fragment_cols = _semantic_non_empty_columns(fragment_row)
+    if fragment_cols != [content_col]:
+        return False
+
+    fragment_text = _semantic_cell_text(fragment_row[content_col])
+    if not _looks_like_sparse_wrapped_phrase_fragment(fragment_text):
+        return False
+
+    anchor_cols = _semantic_non_empty_columns(anchor_row)
+    if content_col not in anchor_cols:
+        return False
+    if any(
+        _cell_looks_like_row_attribute(fragment_row[col_idx] if col_idx < len(fragment_row) else None)
+        for col_idx in range(len(anchor_row))
+        if col_idx != content_col
+    ):
+        return False
+
+    return any(
+        _cell_looks_like_row_attribute(anchor_row[col_idx])
+        for col_idx in anchor_cols
+        if col_idx != content_col
+    )
+
+
+def _looks_like_sparse_wrapped_phrase_fragment(text: str) -> bool:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned or "\n" in cleaned:
+        return False
+    if len(cleaned) > 48:
+        return False
+    if _looks_like_pathish_text(cleaned):
+        return False
+    if _cell_looks_like_row_attribute(cleaned):
+        return False
+    if _ends_with_strong_terminal(cleaned):
+        return False
+    if re.fullmatch(r"[\d.\-_/]+", cleaned):
+        return False
+
+    words = re.findall(r"[A-Za-z][A-Za-z-]*|\d+[A-Za-z-]+|[A-Za-z-]+\d+|[\u4e00-\u9fff]+", cleaned)
+    if not words:
+        return False
+    if len(words) > 4:
+        return False
+    return True
+
+
+def _cell_looks_like_row_attribute(value: str | None) -> bool:
+    text = _semantic_cell_text(value)
+    if not text:
+        return False
+    if _looks_like_pathish_text(text):
+        return True
+    if re.fullmatch(r"\d+(?:\.\d+)+", text):
+        return True
+    if re.fullmatch(r"\d{1,2}[/-][A-Za-z]{3,9}[/-]\d{2,4}", text, re.IGNORECASE):
+        return True
+    if re.fullmatch(r"[A-Z]{2,}\s*\d[\w.-]*", text):
+        return True
+    return False
+
+
+def _join_sparse_wrapped_cell_fragments(parts: list[str]) -> str:
+    cleaned_parts = [_semantic_cell_text(part) for part in parts if _semantic_cell_text(part)]
+    if not cleaned_parts:
+        return ""
+    return str(project_table_grid_display_text([["\n".join(cleaned_parts)]])[0][0] or "")
+
+
 def _get_authoritative_raw_grid(table: dict[str, Any]) -> list[list[str | None]]:
     raw_grid = table.get("raw_grid")
     if isinstance(raw_grid, list):
@@ -1034,10 +1193,12 @@ def _has_local_header_evidence(
 
 def _refresh_row_texts_from_grid(table: dict[str, Any]) -> None:
     raw_grid = _get_authoritative_raw_grid(table)
+    semantic_source_grid = _project_semantic_grid_from_cells(raw_grid, table.get("cells") or [], table)
     data_start_row = _get_data_start_row(table)
     display_grid, data_grid, raw_row_texts, display_row_texts, data_row_texts, structural_empty_rows = _build_row_views_from_raw_grid(
-        raw_grid,
+        semantic_source_grid,
         data_start_row=data_start_row,
+        raw_audit_grid=raw_grid,
     )
 
     table["raw_grid"] = raw_grid
@@ -1062,6 +1223,32 @@ def _refresh_row_texts_from_grid(table: dict[str, Any]) -> None:
         table["structural_empty_rows"] = structural_empty_rows
     else:
         table.pop("structural_empty_rows", None)
+
+
+def _project_semantic_grid_from_cells(
+    raw_grid: list[list[str | None]],
+    cells: list[dict[str, Any]],
+    table: dict[str, Any],
+) -> list[list[str | None]]:
+    projected = _clone_grid_rows(raw_grid)
+    if not projected or not cells:
+        return projected
+    data_start_row = _get_data_start_row(table)
+    for cell in cells:
+        if not str(cell.get("inference_reason") or "").startswith("filename_path_text_layer_reconstruction"):
+            continue
+        text = cell.get("text")
+        if text is None:
+            continue
+        data_row = int(cell.get("logical_row", cell.get("row", 0)) or 0)
+        col_idx = int(cell.get("logical_col", cell.get("col", 1)) or 1) - 1
+        row_idx = data_start_row + data_row - 1
+        if row_idx < 0 or row_idx >= len(projected) or col_idx < 0:
+            continue
+        while col_idx >= len(projected[row_idx]):
+            projected[row_idx].append(None)
+        projected[row_idx][col_idx] = str(text)
+    return projected
 
 
 def split_internal_table_segments(table_asts: list[dict[str, Any]]) -> int:

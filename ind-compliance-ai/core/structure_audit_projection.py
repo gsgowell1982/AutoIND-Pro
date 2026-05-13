@@ -21,8 +21,29 @@ def _normalize_outline_indices(record: dict[str, Any]) -> list[str]:
     return ordered_indices
 
 
-def _resolve_first_toc_page(toc_sequences: list[dict[str, Any]]) -> tuple[int | None, str | None]:
-    for sequence in toc_sequences:
+def _resolve_first_toc_page(
+    toc_sequences: list[dict[str, Any]],
+    preferred_sequence_ids: list[str] | None = None,
+) -> tuple[int | None, str | None]:
+    preferred = [
+        str(sequence_id or "").strip()
+        for sequence_id in list(preferred_sequence_ids or [])
+        if str(sequence_id or "").strip()
+    ]
+    sequence_candidates = list(toc_sequences or [])
+    if preferred:
+        preferred_set = set(preferred)
+        preferred_candidates = [
+            sequence
+            for sequence in sequence_candidates
+            if str(sequence.get("toc_sequence_id") or "").strip() in preferred_set
+        ]
+        if preferred_candidates:
+            preferred_candidates.sort(
+                key=lambda sequence: preferred.index(str(sequence.get("toc_sequence_id") or "").strip())
+            )
+            sequence_candidates = preferred_candidates
+    for sequence in sequence_candidates:
         pages = [int(page) for page in list(sequence.get("pages", []) or []) if int(page or 0) > 0]
         if pages:
             return min(pages), str(sequence.get("toc_sequence_id") or "").strip() or None
@@ -43,7 +64,10 @@ def build_structure_audit_navigation_targets(
     outline_indices = _normalize_outline_indices(payload)
     targets: list[dict[str, Any]] = []
 
-    toc_page, toc_sequence_id = _resolve_first_toc_page(normalized_sequences)
+    toc_page, toc_sequence_id = _resolve_first_toc_page(
+        normalized_sequences,
+        list(payload.get("toc_sequence_ids", []) or []),
+    )
     if toc_page is not None:
         targets.append(
             {

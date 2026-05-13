@@ -22,6 +22,35 @@ function countRuleStatuses(items) {
   return counts
 }
 
+function buildTocSequenceSelectionNote(structureRecords) {
+  const selectedIds = []
+  const excludedIds = []
+  let excludedCount = 0
+
+  for (const record of asArray(structureRecords)) {
+    for (const sequenceId of asArray(record?.toc_sequence_ids)) {
+      const normalized = String(sequenceId ?? '').trim()
+      if (normalized && !selectedIds.includes(normalized)) {
+        selectedIds.push(normalized)
+      }
+    }
+    for (const sequenceId of asArray(record?.excluded_toc_sequence_ids)) {
+      const normalized = String(sequenceId ?? '').trim()
+      if (normalized && !excludedIds.includes(normalized)) {
+        excludedIds.push(normalized)
+      }
+    }
+    excludedCount += asNumber(record?.excluded_toc_sequence_count)
+  }
+
+  const effectiveExcludedCount = excludedIds.length || excludedCount
+  if (selectedIds.length === 0 || effectiveExcludedCount === 0) {
+    return ''
+  }
+
+  return `已按正文匹配证据选择主目录序列 ${selectedIds.join('、')}；其余 ${effectiveExcludedCount} 个目录序列未纳入当前正文一致性判定。`
+}
+
 function getUploadOverview(workbench) {
   return (
     workbench?.rule_checks?.summary?.upload_scope_overview ??
@@ -102,6 +131,7 @@ export function buildSingleFileReviewSummary(workbench) {
   const structureRecords = asArray(workbench?.rule_checks?.structure_audit_records)
   const structureWarningCount = structureRecords.filter((record) => record?.alignment_ready === false).length
   const structurePassCount = structureRecords.filter((record) => record?.alignment_ready === true).length
+  const tocSequenceSelectionNote = buildTocSequenceSelectionNote(structureRecords)
   const ruleCounts = countRuleStatuses(workbench?.rule_checks?.items)
   const summaryCounts = workbench?.rule_checks?.summary ?? {}
   const hardFailures = asNumber(summaryCounts.hard_failures) || ruleCounts.fail
@@ -117,8 +147,8 @@ export function buildSingleFileReviewSummary(workbench) {
       status: structureWarningCount > 0 ? 'review_required' : 'pass',
       summary:
         structureWarningCount > 0
-          ? `发现 ${structureWarningCount} 条需要复核的结构定位或目录正文对应提示。`
-          : `已生成 ${structurePassCount || structureRecords.length} 条结构审计记录，未发现需优先提示的格式或结构风险。`,
+          ? `发现 ${structureWarningCount} 条需要复核的结构定位或目录正文对应提示。${tocSequenceSelectionNote ? ` ${tocSequenceSelectionNote}` : ''}`
+          : `已生成 ${structurePassCount || structureRecords.length} 条结构审计记录，未发现需优先提示的格式或结构风险。${tocSequenceSelectionNote ? ` ${tocSequenceSelectionNote}` : ''}`,
     })
   } else {
     modules.push({

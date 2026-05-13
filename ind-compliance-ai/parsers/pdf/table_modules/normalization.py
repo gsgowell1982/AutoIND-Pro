@@ -68,6 +68,7 @@ from .continuum import (
     normalize_rows_and_cells as _projection_normalize_rows_and_cells,
     recover_key_identifier_cells as _rule_recover_key_identifier_cells,
     repair_directory_listing_structure as _rule_repair_directory_listing_structure,
+    reconstruct_filename_path_cells_from_text_layer as _rule_reconstruct_filename_path_cells_from_text_layer,
     merge_filename_continuations as _rule_merge_filename_continuations,
 )
 
@@ -1125,6 +1126,7 @@ def _apply_semantic_rule_engine(
     rules = build_default_semantic_rules(
         recover_key_identifier_cells_fn=_rule_recover_key_identifier_cells,
         repair_directory_listing_structure_fn=_rule_repair_directory_listing_structure,
+        reconstruct_filename_path_cells_from_text_layer_fn=_rule_reconstruct_filename_path_cells_from_text_layer,
         merge_filename_continuations_fn=_rule_merge_filename_continuations,
     )
     return run_apply_semantic_rules(
@@ -1149,6 +1151,7 @@ def _run_semantic_rule_engine_shadow(
     rules = build_default_semantic_rules(
         recover_key_identifier_cells_fn=_rule_recover_key_identifier_cells,
         repair_directory_listing_structure_fn=_rule_repair_directory_listing_structure,
+        reconstruct_filename_path_cells_from_text_layer_fn=_rule_reconstruct_filename_path_cells_from_text_layer,
         merge_filename_continuations_fn=_rule_merge_filename_continuations,
     )
     return run_shadow_semantic_rules(

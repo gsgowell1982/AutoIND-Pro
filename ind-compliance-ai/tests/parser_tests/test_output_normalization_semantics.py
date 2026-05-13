@@ -11,6 +11,7 @@ import unittest
 from types import SimpleNamespace
 
 from parsers.pdf.table_modules.continuum.semantic_repairs import (
+    reconstruct_filename_path_cells_from_text_layer,
     repair_directory_listing_structure,
 )
 from parsers.pdf.table_modules.postprocess import (
@@ -27,6 +28,7 @@ def _normalized_row(values: list[str | None]) -> SimpleNamespace:
             text=value,
             supplemented=False,
             supplement_reason=None,
+            bbox=None,
         )
         for col_idx, value in enumerate(values)
     ]
@@ -34,6 +36,102 @@ def _normalized_row(values: list[str | None]) -> SimpleNamespace:
 
 
 class OutputNormalizationSemanticTests(unittest.TestCase):
+    def test_reconstruct_filename_cells_from_word_geometry_without_sample_specific_values(self) -> None:
+        rows = [
+            _normalized_row(["Item", "Description", "Folder/File"]),
+            _normalized_row(["1", "Administrative document", "_\n1234 admin report.pdf"]),
+            _normalized_row(["2", "Clinical protocol", "Module\\1234 protocol.pdf"]),
+        ]
+        grid = [
+            ["Item", "Description", "Folder/File"],
+            ["1", "Administrative document", "_\n1234 admin report.pdf"],
+            ["2", "Clinical protocol", "Module\\1234 protocol.pdf"],
+        ]
+        raw_rows = [
+            SimpleNamespace(
+                physical_row=0,
+                bbox=(10.0, 10.0, 310.0, 30.0),
+                y0=10.0,
+                y1=30.0,
+                cells=[
+                    SimpleNamespace(physical_col=0, text="Item", bbox=(10.0, 10.0, 60.0, 30.0)),
+                    SimpleNamespace(physical_col=1, text="Description", bbox=(60.0, 10.0, 180.0, 30.0)),
+                    SimpleNamespace(physical_col=2, text="Folder/File", bbox=(180.0, 10.0, 310.0, 30.0)),
+                ],
+            ),
+            SimpleNamespace(
+                physical_row=1,
+                bbox=(10.0, 30.0, 310.0, 50.0),
+                y0=30.0,
+                y1=50.0,
+                cells=[
+                    SimpleNamespace(physical_col=0, text="1", bbox=(10.0, 30.0, 60.0, 50.0)),
+                    SimpleNamespace(physical_col=1, text="Administrative document", bbox=(60.0, 30.0, 180.0, 50.0)),
+                    SimpleNamespace(physical_col=2, text="_\n1234 admin report.pdf", bbox=(180.0, 30.0, 310.0, 50.0)),
+                ],
+            ),
+            SimpleNamespace(
+                physical_row=2,
+                bbox=(10.0, 50.0, 310.0, 70.0),
+                y0=50.0,
+                y1=70.0,
+                cells=[
+                    SimpleNamespace(physical_col=0, text="2", bbox=(10.0, 50.0, 60.0, 70.0)),
+                    SimpleNamespace(physical_col=1, text="Clinical protocol", bbox=(60.0, 50.0, 180.0, 70.0)),
+                    SimpleNamespace(physical_col=2, text="Module\\1234 protocol.pdf", bbox=(180.0, 50.0, 310.0, 70.0)),
+                ],
+            ),
+        ]
+        raw_words = [
+            SimpleNamespace(text="1234_admin_report.pdf", x0=190.0, y0=34.0, x1=270.0, y1=44.0),
+            SimpleNamespace(text="Module\\1234_protocol.pdf", x0=190.0, y0=54.0, x1=286.0, y1=64.0),
+        ]
+        raw_evidence = SimpleNamespace(rows=raw_rows, words=raw_words, spans=[])
+
+        changed = reconstruct_filename_path_cells_from_text_layer(rows, grid, raw_evidence, 3)
+
+        self.assertEqual(changed, 2)
+        self.assertEqual(grid[1][2], "1234_admin_report.pdf")
+        self.assertEqual(grid[2][2], "Module\\1234_protocol.pdf")
+        self.assertEqual(rows[1].cells[2].supplement_reason, "filename_path_text_layer_reconstruction:word")
+        self.assertEqual(rows[2].cells[2].supplement_reason, "filename_path_text_layer_reconstruction:word")
+
+    def test_filename_text_layer_reconstruction_preserves_observed_separators_without_damage_evidence(self) -> None:
+        rows = [
+            _normalized_row(["Item", "Folder/File"]),
+            _normalized_row(["1", "study-report.pdf"]),
+        ]
+        grid = [
+            ["Item", "Folder/File"],
+            ["1", "study-report.pdf"],
+        ]
+        raw_rows = [
+            SimpleNamespace(
+                physical_row=0,
+                cells=[
+                    SimpleNamespace(physical_col=0, text="Item", bbox=(10.0, 10.0, 60.0, 30.0)),
+                    SimpleNamespace(physical_col=1, text="Folder/File", bbox=(60.0, 10.0, 220.0, 30.0)),
+                ],
+            ),
+            SimpleNamespace(
+                physical_row=1,
+                cells=[
+                    SimpleNamespace(physical_col=0, text="1", bbox=(10.0, 30.0, 60.0, 50.0)),
+                    SimpleNamespace(physical_col=1, text="study-report.pdf", bbox=(60.0, 30.0, 220.0, 50.0)),
+                ],
+            ),
+        ]
+        raw_words = [
+            SimpleNamespace(text="studyreport.pdf", x0=70.0, y0=34.0, x1=160.0, y1=44.0),
+        ]
+        raw_evidence = SimpleNamespace(rows=raw_rows, words=raw_words, spans=[])
+
+        changed = reconstruct_filename_path_cells_from_text_layer(rows, grid, raw_evidence, 2)
+
+        self.assertEqual(changed, 0)
+        self.assertEqual(grid[1][1], "study-report.pdf")
+        self.assertIsNone(rows[1].cells[1].supplement_reason)
+
     def test_vector_ocr_join_inserts_space_between_cjk_sentence_and_english_sentence(self) -> None:
         merged = _join_vector_ocr_group_text(
             "轻度情绪失调不需要治疗。",

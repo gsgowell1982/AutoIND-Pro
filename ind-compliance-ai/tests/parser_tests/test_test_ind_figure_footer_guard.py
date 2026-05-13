@@ -17,6 +17,7 @@ import unittest
 import fitz
 
 from api.main import _build_workbench
+from core.material_assessment import build_compliance_result_payload
 from parsers.pdf_parser import parse_pdf
 from parsers.pdf.table_modules.assembly import analyze_table_opening_structure
 from parsers.pdf.table_modules.raw_objects import (
@@ -77,6 +78,18 @@ class TestIndFigureFooterGuardTests(unittest.TestCase):
             [{"id": "file_test_ind_regression", "filename": cls.sample_path.name}],
             [],
             None,
+        )
+        cls.compliance_result = build_compliance_result_payload(
+            submission_profile="FIH",
+            parsed_documents=[
+                {
+                    **cls.result,
+                    "file_id": "file_test_ind_regression",
+                    "filename": cls.sample_path.name,
+                }
+            ],
+            consistency_rows=[],
+            final_status="completed",
         )
 
     def test_page1_address_line_bbox_uses_visible_text_geometry(self) -> None:
@@ -529,8 +542,8 @@ class TestIndFigureFooterGuardTests(unittest.TestCase):
                 "IND 12345.0003 | 04-Jul-2001 | Cover letter | 3.01 | amendtoc.pdf",
                 "IND 12345.0003 | 04-Jul-2001 | 1571 | 3.01 | null",
                 "IND 12345.0003 | 04-Jul-2001 | Protocol 12-345 | 3.01 | null",
-                "IND 12345.0003 | 04-Jul-2001 | Investigator | 3.01 | null",
-                "IND 12345.0003 | 04-Jul-2001 | Information | null | null",
+                "IND 12345.0003 | 04-Jul-2001 | Investigator Information | 3.01 | null",
+                "IND 12345.0002 | 19-Jun-2001 | Cover letter | 2.01 | amendtoc.pdf",
             ],
         )
         self.assertTrue(all(not row.startswith("null | null |") for row in row_texts[:10]))
@@ -538,6 +551,46 @@ class TestIndFigureFooterGuardTests(unittest.TestCase):
             (table.get("raw_row_texts") or [None] * 4)[3],
             "null | null | 1571 | 3.01 | null",
         )
+
+    def test_page19_sparse_wrapped_content_rows_merge_without_collapsing_independent_items(self) -> None:
+        table = self.page19_tables[0]
+        raw_row_texts = table.get("raw_row_texts") or []
+        self.assertIn("null | null | Investigator | 3.01 | null", raw_row_texts)
+        self.assertIn("null | null | Information | null | null", raw_row_texts)
+
+        row_texts = table.get("row_texts") or []
+        self.assertIn(
+            "IND 12345.0003 | 04-Jul-2001 | Investigator Information | 3.01 | null",
+            row_texts,
+        )
+        self.assertIn(
+            "Sponsor Name | 15-Jan-2001 | Introductory Statement | 0.01 | null",
+            row_texts,
+        )
+        self.assertIn(
+            "Sponsor Name | 15-Jan-2001 | General Investigational Plan | 0.01 | null",
+            row_texts,
+        )
+        self.assertIn(
+            "Sponsor Name | 15-Jan-2001 | Pharmacology and Toxiology | 0.01 | null",
+            row_texts,
+        )
+        self.assertIn(
+            "Sponsor Name | 15-Jan-2001 | Previous Human Experience | 0.01 | null",
+            row_texts,
+        )
+        self.assertIn(
+            "Sponsor Name | 15-Jan-2001 | Additional Information | 0.01 | null",
+            row_texts,
+        )
+        self.assertIn("IND 12345.0003 | 04-Jul-2001 | 1571 | 3.01 | null", row_texts)
+        self.assertIn("IND 12345.0003 | 04-Jul-2001 | Protocol 12-345 | 3.01 | null", row_texts)
+        self.assertNotIn("IND 12345.0003 | 04-Jul-2001 | Information | null | null", row_texts)
+        self.assertNotIn("Sponsor Name | 15-Jan-2001 | Statement | null | null", row_texts)
+
+        display_rows = table.get("display_grid") or []
+        self.assertIn([None, None, "Investigator Information", "3.01", None], display_rows)
+        self.assertNotIn([None, None, "Information", None, None], display_rows)
 
     def test_page20_and_page21_toc_tables_remain_independent(self) -> None:
         tbl_004 = self.tables["tbl_004"]
@@ -569,6 +622,42 @@ class TestIndFigureFooterGuardTests(unittest.TestCase):
             ["Item", "Description", "Folder/File"],
         )
 
+    def test_page20_main_toc_filename_column_preserves_path_tokens_from_text_layer(self) -> None:
+        table = self.tables["tbl_004"]
+
+        self.assertEqual(
+            [row[2] for row in table["display_grid"][2:13]],
+            [
+                "0000_coverletter.pdf",
+                "0000_1571.pdf",
+                "0000_indtoc.pdf",
+                "0000_intro.pdf",
+                "Clinical\\0000_clintoc.pdf",
+                "Clinical\\0000_clintoc.pdf",
+                "Clinical\\0000_clintoc.pdf",
+                "Cmc\\0000_cmctoc.pdf",
+                "Pharmtox\\0000_pharmtoxtoc.pdf",
+                "Clinical\\0000_clintoc.pdf",
+                "Admin\\0000_admintoc.pdf",
+            ],
+        )
+        self.assertEqual(
+            [row[2] for row in table["data_grid"][:11]],
+            [
+                "0000_coverletter.pdf",
+                "0000_1571.pdf",
+                "0000_indtoc.pdf",
+                "0000_intro.pdf",
+                "Clinical\\0000_clintoc.pdf",
+                "Clinical\\0000_clintoc.pdf",
+                "Clinical\\0000_clintoc.pdf",
+                "Cmc\\0000_cmctoc.pdf",
+                "Pharmtox\\0000_pharmtoxtoc.pdf",
+                "Clinical\\0000_clintoc.pdf",
+                "Admin\\0000_admintoc.pdf",
+            ],
+        )
+
     def test_page21_internal_title_tables_keep_three_distinct_logical_columns(self) -> None:
         for table_id, expected_first_data_row in (
             (
@@ -576,7 +665,7 @@ class TestIndFigureFooterGuardTests(unittest.TestCase):
                 [
                     "1",
                     "General Investigational Plan",
-                    "Clinical\\0000 geninvestplantoc.pdf",
+                    "Clinical\\0000_geninvestplantoc.pdf",
                 ],
             ),
             (
@@ -584,7 +673,7 @@ class TestIndFigureFooterGuardTests(unittest.TestCase):
                 [
                     "1",
                     "Pharmacology and Toxicology Summary",
-                    "Pharmtox\\0000 summarytoc.pdf",
+                    "Pharmtox\\0000_summarytoc.pdf",
                 ],
             ),
         ):
@@ -704,8 +793,21 @@ class TestIndFigureFooterGuardTests(unittest.TestCase):
         semantic_signals = toc_block.get("semantic_signals", {})
         self.assertAlmostEqual(float(semantic_signals.get("page_locator_ratio", 0.0)), 1.0, places=3)
         self.assertEqual(int(semantic_signals.get("locator_indent_level_count", 0)), 2)
+        self.assertTrue(semantic_signals.get("list_hierarchy_support"))
+        self.assertGreaterEqual(float(semantic_signals.get("list_hierarchy_score", 0.0)), 0.7)
         self.assertTrue(semantic_signals.get("toc_title_support"))
         self.assertFalse(semantic_signals.get("has_schema_header"))
+
+        list_evidence = toc_block.get("list_structure_evidence", {})
+        self.assertEqual(list_evidence.get("entry_count"), 30)
+        self.assertEqual(list_evidence.get("locator_entry_count"), 30)
+        self.assertEqual(list_evidence.get("indent_level_count"), 2)
+        self.assertEqual(list_evidence.get("max_outline_depth"), 1)
+        self.assertGreaterEqual(list_evidence.get("parent_link_count", 0), 20)
+        self.assertGreaterEqual(list_evidence.get("leaf_entry_count", 0), 20)
+        self.assertIn("roman", list_evidence.get("outline_kinds", {}))
+        self.assertIn("alpha", list_evidence.get("outline_kinds", {}))
+        self.assertIn("appendix", list_evidence.get("outline_kinds", {}))
 
         toc_diagnostics = toc_block.get("toc_diagnostics", {})
         self.assertFalse(toc_diagnostics.get("review_required"))
@@ -848,6 +950,19 @@ class TestIndFigureFooterGuardTests(unittest.TestCase):
         self.assertGreaterEqual(raw.physical_col_count, 4)
         self.assertEqual(raw.raw_data[0][3], "TABLE OF CONTENTS")
 
+    def test_seedless_text_layer_toc_promotion_does_not_require_word_table_candidate(self) -> None:
+        self.assertEqual(self.page2_tables, [])
+        self.assertEqual(len(self.page2_toc_blocks), 1)
+
+        toc_block = self.page2_toc_blocks[0]
+        self.assertEqual(toc_block.get("source_candidate_id"), None)
+        self.assertEqual(toc_block.get("source_candidate_diagnostics"), None)
+        self.assertEqual(toc_block.get("title_source"), "text_title_row")
+        self.assertEqual(toc_block.get("semantic_role"), "toc_outline")
+        self.assertEqual(toc_block.get("entry_count"), 30)
+        self.assertEqual(toc_block.get("semantic_signals", {}).get("semantic_role_reason"), "seedless_text_toc")
+        self.assertIn("txt_p2_001", toc_block.get("promoted_text_block_ids", []))
+
     def test_page23_outline_is_not_emitted_as_business_table(self) -> None:
         self.assertEqual(self.page23_tables, [])
 
@@ -915,9 +1030,17 @@ class TestIndFigureFooterGuardTests(unittest.TestCase):
         semantic_signals = toc_block.get("semantic_signals", {})
         self.assertGreaterEqual(float(semantic_signals.get("page_locator_ratio", 0.0)), 0.75)
         self.assertGreaterEqual(int(semantic_signals.get("locator_indent_level_count", 0)), 3)
+        self.assertTrue(semantic_signals.get("list_hierarchy_support"))
+        self.assertGreaterEqual(float(semantic_signals.get("list_hierarchy_score", 0.0)), 0.75)
         self.assertTrue(semantic_signals.get("toc_title_support"))
         self.assertFalse(semantic_signals.get("has_schema_header"))
         self.assertEqual(toc_block.get("page_locator_kinds"), {"arabic": 30, "roman": 1, "unknown": 0})
+
+        list_evidence = toc_block.get("list_structure_evidence", {})
+        self.assertEqual(list_evidence.get("entry_count"), 31)
+        self.assertEqual(list_evidence.get("indent_level_count"), 4)
+        self.assertEqual(list_evidence.get("max_outline_depth"), 4)
+        self.assertGreaterEqual(list_evidence.get("parent_link_count", 0), 25)
 
         toc_diagnostics = toc_block.get("toc_diagnostics", {})
         self.assertFalse(toc_diagnostics.get("review_required"))
@@ -1084,6 +1207,45 @@ class TestIndFigureFooterGuardTests(unittest.TestCase):
         self.assertTrue(
             (roadmap.get("row_texts") or [""])[1].startswith("IND 12345.0003 | 04-Jul-2001 | 1571 |")
         )
+
+    def test_main_toc_body_alignment_uses_page2_sequence_and_excludes_example_tocs(self) -> None:
+        rules_by_id = {item["rule_id"]: item for item in self.compliance_result["rules"]}
+        toc_rule = rules_by_id["SR-TOC-001"]
+        self.assertEqual(toc_rule["status"], "pass")
+        self.assertEqual(self.compliance_result["artifacts"]["toc_body_alignment_gap_count"], 0)
+
+        structure_rows = toc_rule["details"]["structure_audit_rows"]
+        self.assertEqual(len(structure_rows), 1)
+        row = structure_rows[0]
+        main_toc_sequence_id = self.page2_toc_blocks[0]["toc_sequence_id"]
+        self.assertEqual(row["toc_sequence_id"], main_toc_sequence_id)
+        self.assertEqual(row["toc_sequence_ids"], [main_toc_sequence_id])
+        self.assertEqual(
+            sorted(row["excluded_toc_sequence_ids"]),
+            sorted(
+                [
+                    self.page22_toc_blocks[0]["toc_sequence_id"],
+                    self.page23_lower_toc["toc_sequence_id"],
+                ]
+            ),
+        )
+        self.assertTrue(row["alignment_ready"])
+        self.assertEqual(row["root_page_offset_values"], [2, 2, 2, 2, 2, 2])
+        self.assertEqual(row["projected_root_page_values"], [3, 4, 5, 8, 12, 19])
+        self.assertEqual(row["missing_body_direct_child_outline_indices"], [])
+        self.assertEqual(row["missing_body_bounded_subtree_outline_indices"], [])
+
+        path_rows = {
+            item["normalized_outline_index"]: item
+            for item in row["toc_body_alignment_path_rows"]
+        }
+        self.assertEqual(path_rows["I"]["body_anchor_page"], 3)
+        self.assertEqual(path_rows["II"]["body_anchor_page"], 4)
+        self.assertEqual(path_rows["III"]["body_anchor_page"], 5)
+        self.assertEqual(path_rows["III.I"]["body_anchor_page"], 7)
+        self.assertEqual(path_rows["APPENDIX A"]["body_anchor_page"], 19)
+        self.assertEqual(path_rows["APPENDIX B"]["body_anchor_page"], 20)
+        self.assertEqual(path_rows["APPENDIX C"]["body_anchor_page"], 24)
 
 
 if __name__ == "__main__":

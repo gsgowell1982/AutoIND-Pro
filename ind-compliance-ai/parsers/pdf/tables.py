@@ -2421,6 +2421,7 @@ def _extract_raw_toc_entries(
                 "leading_anchor": row_hint.get("leading_anchor"),
                 "outline_index": outline_index,
                 "outline_depth": int(row_hint.get("outline_depth", 0) or 0),
+                "outline_kind": row_hint.get("outline_kind"),
                 "text": str(row_hint.get("text") or "").strip(),
                 "page_locator": page_locator,
                 "page_locator_kind": page_locator_kind,
@@ -2486,9 +2487,116 @@ def _populate_toc_block_from_raw_entries(
     toc_block["max_outline_depth"] = entry_summary["max_outline_depth"]
     toc_block["page_locator_kinds"] = entry_summary["page_locator_kinds"]
     toc_block["missing_page_locator_count"] = entry_summary["missing_page_locator_count"]
+    _annotate_toc_list_structure_evidence(toc_block)
     toc_block["_raw_entries"] = prepared_raw_entries
     _tighten_toc_block_bbox(toc_block)
     return toc_block
+
+
+def _annotate_toc_list_structure_evidence(toc_block: dict[str, Any]) -> None:
+    entries = [dict(entry) for entry in (toc_block.get("entries") or [])]
+    entry_count = len(entries)
+    if not entry_count:
+        toc_block["list_structure_evidence"] = {
+            "entry_count": 0,
+            "locator_entry_count": 0,
+            "locator_coverage_ratio": 0.0,
+            "indent_level_count": 0,
+            "max_outline_depth": 0,
+            "parent_link_count": 0,
+            "root_entry_count": 0,
+            "leaf_entry_count": 0,
+            "outline_kinds": {},
+            "support": False,
+            "score": 0.0,
+        }
+        signals = dict(toc_block.get("semantic_signals") or {})
+        signals["list_hierarchy_support"] = False
+        signals["list_hierarchy_score"] = 0.0
+        toc_block["semantic_signals"] = signals
+        return
+
+    locator_entry_count = sum(1 for entry in entries if str(entry.get("page_locator") or "").strip())
+    anchors = {
+        round(float(entry.get("leading_anchor")), 1)
+        for entry in entries
+        if entry.get("leading_anchor") is not None
+    }
+    outline_depths = [int(entry.get("outline_depth", 0) or 0) for entry in entries]
+    outline_kinds: dict[str, int] = {}
+    for entry in entries:
+        outline_kind = str(entry.get("outline_kind") or _toc_entry_outline_kind(entry) or "").strip()
+        if outline_kind:
+            outline_kinds[outline_kind] = outline_kinds.get(outline_kind, 0) + 1
+
+    parent_entry_indices = {
+        int(entry.get("parent_entry_index"))
+        for entry in entries
+        if entry.get("parent_entry_index") is not None
+    }
+    entry_indices = {
+        int(entry.get("entry_index"))
+        for entry in entries
+        if entry.get("entry_index") is not None
+    }
+    parent_link_count = sum(1 for entry in entries if entry.get("parent_entry_index") is not None)
+    root_entry_count = max(0, entry_count - parent_link_count)
+    leaf_entry_count = len(entry_indices - parent_entry_indices) if entry_indices else 0
+    locator_coverage_ratio = locator_entry_count / entry_count
+    parent_link_ratio = parent_link_count / max(1, entry_count - 1)
+    indent_level_count = len(anchors)
+    max_outline_depth = max(outline_depths, default=0)
+    outline_kind_count = len(outline_kinds)
+    hierarchical_shape = (
+        indent_level_count >= 2
+        or max_outline_depth >= 2
+        or parent_link_ratio >= 0.2
+        or outline_kind_count >= 2
+    )
+    score_parts = [
+        min(1.0, locator_coverage_ratio),
+        min(1.0, indent_level_count / 3.0),
+        min(1.0, max_outline_depth / 4.0),
+        min(1.0, parent_link_ratio),
+        min(1.0, outline_kind_count / 3.0),
+    ]
+    score = round(sum(score_parts) / len(score_parts), 3)
+    support = bool(entry_count >= 4 and locator_coverage_ratio >= 0.45 and hierarchical_shape and score >= 0.45)
+    evidence = {
+        "entry_count": entry_count,
+        "locator_entry_count": locator_entry_count,
+        "locator_coverage_ratio": round(locator_coverage_ratio, 3),
+        "indent_level_count": indent_level_count,
+        "max_outline_depth": max_outline_depth,
+        "parent_link_count": parent_link_count,
+        "parent_link_ratio": round(parent_link_ratio, 3),
+        "root_entry_count": root_entry_count,
+        "leaf_entry_count": leaf_entry_count,
+        "outline_kinds": dict(sorted(outline_kinds.items())),
+        "support": support,
+        "score": score,
+    }
+    toc_block["list_structure_evidence"] = evidence
+    signals = dict(toc_block.get("semantic_signals") or {})
+    signals["list_hierarchy_support"] = support
+    signals["list_hierarchy_score"] = score
+    signals["list_hierarchy_parent_link_count"] = parent_link_count
+    toc_block["semantic_signals"] = signals
+
+
+def _toc_entry_outline_kind(entry: dict[str, Any]) -> str | None:
+    outline_index = str(entry.get("outline_index") or "").strip()
+    if not outline_index:
+        return None
+    if outline_index.startswith("APPENDIX "):
+        return "appendix"
+    if all(segment.isdigit() for segment in outline_index.split(".") if segment):
+        return "numeric"
+    if re.fullmatch(r"[IVXLCDM]+", outline_index, re.IGNORECASE):
+        return "roman"
+    if re.fullmatch(r"[A-Z]", outline_index):
+        return "alpha"
+    return "other"
 
 
 def _consolidate_same_page_toc_blocks(toc_blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:

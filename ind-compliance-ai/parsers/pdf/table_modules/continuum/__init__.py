@@ -110,6 +110,7 @@ from .rules_engine import (
 from .semantic_repairs import (
     recover_key_identifier_cells,
     repair_directory_listing_structure,
+    reconstruct_filename_path_cells_from_text_layer,
     detect_filename_semantic_columns,
     merge_filename_continuations,
 )

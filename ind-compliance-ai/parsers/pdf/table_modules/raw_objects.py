@@ -28,6 +28,7 @@ Architecture:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any
 from enum import Enum
 
@@ -759,21 +760,45 @@ def _select_best_table_group(
         ]
         strong_anchor_rows = sum(1 for count in row_anchor_matches if count >= max(2, int(col_count * 0.6)))
         stable_anchor_ratio = strong_anchor_rows / max(1, len(segmented_rows))
-        if stable_anchor_ratio < 0.5:
-            continue
 
         aligned_rows = sum(1 for count in segment_counts if count >= max(2, min(col_count, 3)))
         coverage = sum(segment_counts) / max(1, len(segmented_rows) * col_count)
         if coverage < 0.2:
             continue
 
-        score = (
-            0.25 * min(1.0, len(segmented_rows) / 8.0)
-            + 0.25 * min(1.0, stable_anchor_ratio)
-            + 0.25 * (multi_segment_rows / max(1, len(segmented_rows)))
-            + 0.15 * (aligned_rows / max(1, len(segmented_rows)))
-            + 0.10 * min(1.0, coverage)
+        dense_grid = stable_anchor_ratio >= 0.5
+        sparse_listing = _looks_like_sparse_listing_table(
+            segmented_rows=segmented_rows,
+            column_anchors=column_anchors,
+            segment_counts=segment_counts,
+            row_anchor_matches=row_anchor_matches,
+            coverage=coverage,
         )
+        if not dense_grid and not sparse_listing:
+            continue
+
+        if dense_grid:
+            score = (
+                0.25 * min(1.0, len(segmented_rows) / 8.0)
+                + 0.25 * min(1.0, stable_anchor_ratio)
+                + 0.25 * (multi_segment_rows / max(1, len(segmented_rows)))
+                + 0.15 * (aligned_rows / max(1, len(segmented_rows)))
+                + 0.10 * min(1.0, coverage)
+            )
+        else:
+            complete_rows = sum(1 for count in row_anchor_matches if count >= max(3, col_count - 1))
+            continuation_rows = sum(
+                1
+                for count in row_anchor_matches
+                if 1 <= count < max(3, col_count - 1)
+            )
+            score = (
+                0.20 * min(1.0, len(segmented_rows) / 12.0)
+                + 0.20 * min(1.0, complete_rows / 4.0)
+                + 0.20 * min(1.0, continuation_rows / 8.0)
+                + 0.20 * min(1.0, coverage / 0.35)
+                + 0.20 * min(1.0, aligned_rows / max(1, len(segmented_rows)))
+            )
 
         if score <= best_score:
             continue
@@ -793,6 +818,154 @@ def _select_best_table_group(
         }
 
     return best_candidate
+
+
+def _looks_like_sparse_listing_table(
+    *,
+    segmented_rows: list[dict[str, Any]],
+    column_anchors: list[float],
+    segment_counts: list[int],
+    row_anchor_matches: list[int],
+    coverage: float,
+) -> bool:
+    """Admit borderless listing tables with sparse continuation rows.
+
+    Some IND roadmap/directory pages use a visible column schema followed by
+    child rows that populate only one or two interior columns. They are real
+    tabular evidence, but their stable-anchor ratio is low because many rows
+    intentionally inherit leading keys from the previous full row.
+    """
+    row_count = len(segmented_rows)
+    col_count = len(column_anchors)
+    if row_count < 6 or col_count < 3:
+        return False
+    if coverage < 0.28:
+        return False
+
+    complete_threshold = max(3, col_count - 1)
+    complete_rows = [idx for idx, count in enumerate(row_anchor_matches) if count >= complete_threshold]
+    if len(complete_rows) < 3:
+        return False
+    if not any(idx <= 2 for idx in complete_rows):
+        return False
+
+    header_rows = segmented_rows[: min(2, row_count)]
+    header_segments = [
+        str(segment.get("text", "") or "").strip()
+        for row in header_rows
+        for segment in row.get("segments", [])
+        if str(segment.get("text", "") or "").strip()
+    ]
+    if len(header_segments) < min(3, col_count):
+        return False
+    if not _segments_look_like_listing_header(header_segments):
+        return False
+
+    continuation_rows = [
+        idx
+        for idx, count in enumerate(row_anchor_matches[1:], start=1)
+        if 1 <= count < complete_threshold
+    ]
+    if len(continuation_rows) < 4:
+        return False
+    if not any(count <= 2 for count in row_anchor_matches[1:]):
+        return False
+
+    body_rows = segmented_rows[1:]
+    body_segment_texts = [
+        str(segment.get("text", "") or "").strip()
+        for row in body_rows
+        for segment in row.get("segments", [])
+        if str(segment.get("text", "") or "").strip()
+    ]
+    if not body_segment_texts:
+        return False
+
+    long_sentence_ratio = sum(
+        1 for text in body_segment_texts if _looks_like_narrative_sentence(text)
+    ) / max(1, len(body_segment_texts))
+    if long_sentence_ratio > 0.18:
+        return False
+
+    structured_value_count = sum(1 for text in body_segment_texts if _looks_like_structured_listing_value(text))
+    if structured_value_count < 3:
+        return False
+
+    multi_segment_rows = sum(1 for count in segment_counts if count >= 2)
+    return multi_segment_rows >= max(4, row_count // 3)
+
+
+def _segments_look_like_listing_header(texts: list[str]) -> bool:
+    """Return true when opening segments look like a multi-column schema."""
+    if len(texts) < 3:
+        return False
+
+    alphaish = 0
+    compact = 0
+    repeated_schema_words = 0
+    schema_terms = {
+        "date",
+        "content",
+        "file",
+        "folder",
+        "document",
+        "submission",
+        "sequence",
+        "item",
+        "description",
+        "destination",
+        "section",
+        "module",
+        "type",
+        "name",
+        "title",
+        "link",
+        "location",
+        "version",
+        "status",
+    }
+    for text in texts:
+        lowered = text.lower()
+        if re.search(r"[A-Za-z]", text):
+            alphaish += 1
+        if len(text.split()) <= 4 and len(text) <= 40:
+            compact += 1
+        tokens = re.findall(r"[A-Za-z]+", lowered)
+        if any(token in schema_terms for token in tokens):
+            repeated_schema_words += 1
+
+    return alphaish >= 2 and compact >= max(2, len(texts) - 1) and repeated_schema_words >= 2
+
+
+def _looks_like_narrative_sentence(text: str) -> bool:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return False
+    word_count = len(cleaned.split())
+    if word_count >= 11:
+        return True
+    if word_count >= 7 and re.search(r"[.;:!?]$", cleaned):
+        return True
+    return False
+
+
+def _looks_like_structured_listing_value(text: str) -> bool:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return False
+    if re.search(r"\b\d{1,2}[-/][A-Za-z]{3}[-/]\d{2,4}\b", cleaned):
+        return True
+    if re.search(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b", cleaned):
+        return True
+    if re.search(r"\b\d+(?:\.\d+){1,3}\b", cleaned):
+        return True
+    if re.search(r"\b[\w.-]+\.(?:pdf|xml|xsd|dtd|docx?|xlsx?|txt|zip)\b", cleaned, re.IGNORECASE):
+        return True
+    if re.search(r"\b[A-Z]{2,}[ -]?\d[\w.-]*\b", cleaned):
+        return True
+    if re.search(r"\b\d{3,}\b", cleaned) and len(cleaned.split()) <= 4:
+        return True
+    return False
 
 
 def _count_row_segments_near_column_anchors(

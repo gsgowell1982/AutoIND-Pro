@@ -358,6 +358,14 @@ export interface RuleExtensionIssueBundle {
 export interface RuleStructureAuditRow {
   document_id?: string | null
   filename?: string | null
+  toc_sequence_id?: string | null
+  toc_sequence_ids?: string[]
+  toc_sequence_titles?: string[]
+  toc_sequence_pages?: number[]
+  toc_sequence_selection?: string | null
+  toc_sequence_alignment_scores?: unknown[]
+  excluded_toc_sequence_count?: number
+  excluded_toc_sequence_ids?: string[]
   toc_outline_count?: number
   toc_root_outline_count?: number
   matched_outline_count?: number
@@ -398,6 +406,7 @@ export interface RuleStructureAuditRootPageAlignmentRow {
   toc_page_locator_value: number
   body_page_start: number
   body_page_end: number
+  body_anchor_page_start?: number | null
   projected_page?: number | null
   offset?: number | null
   toc_order_index?: number | null

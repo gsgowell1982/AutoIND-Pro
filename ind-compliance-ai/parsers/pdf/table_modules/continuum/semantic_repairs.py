@@ -423,6 +423,271 @@ def detect_filename_semantic_columns(
     return candidates
 
 
+def reconstruct_filename_path_cells_from_text_layer(
+    rows: list[Any],
+    grid: list[list[str | None]],
+    raw_evidence: Any,
+    logical_col_count: int,
+) -> int:
+    """Prefer word/span text for filename/path cells when table extraction corrupts tokens.
+
+    PyMuPDF table cell extraction can treat low-position glyphs such as
+    underscores as line fragments, while the page text layer still exposes the
+    correct filename/path token. This repair is intentionally limited to
+    filename/path semantic columns and only rewrites a cell when same-cell
+    geometry provides a stronger, content-compatible candidate.
+    """
+    if logical_col_count <= 0 or not rows or not grid:
+        return 0
+
+    filename_cols = detect_filename_semantic_columns(grid, logical_col_count)
+    if not filename_cols:
+        filename_cols = _detect_filename_columns_from_headers_or_raw_cells(grid, raw_evidence, logical_col_count)
+    if not filename_cols:
+        return 0
+
+    changed = 0
+    row_lookup = {getattr(row, "physical_row", idx): row for idx, row in enumerate(rows)}
+
+    for raw_row in getattr(raw_evidence, "rows", []) or []:
+        row_idx = int(getattr(raw_row, "physical_row", -1))
+        if row_idx < 0 or row_idx >= len(grid):
+            continue
+        normalized_row = row_lookup.get(row_idx) or (rows[row_idx] if row_idx < len(rows) else None)
+        if normalized_row is None:
+            continue
+
+        for logical_col in sorted(filename_cols):
+            if logical_col >= logical_col_count or logical_col >= len(grid[row_idx]):
+                continue
+            current = str(grid[row_idx][logical_col] or "").strip()
+            if not _looks_like_reconstructable_filename_cell(current):
+                continue
+            raw_cell = _raw_cell_for_logical_column(raw_row, logical_col, logical_col_count)
+            cell_bbox = getattr(raw_cell, "bbox", None) if raw_cell is not None else None
+            if not cell_bbox:
+                continue
+
+            candidate = _best_text_layer_filename_candidate(raw_evidence, cell_bbox, current)
+            if not candidate:
+                continue
+            if candidate == current:
+                continue
+            if not _filename_candidate_matches_cell_text(candidate, current):
+                continue
+
+            grid[row_idx][logical_col] = candidate
+            _rewrite_normalized_cell(
+                normalized_row,
+                logical_col,
+                candidate,
+                "filename_path_text_layer_reconstruction",
+                _candidate_source_kind(raw_evidence, cell_bbox, candidate),
+            )
+            changed += 1
+
+    return changed
+
+
+def _detect_filename_columns_from_headers_or_raw_cells(
+    grid: list[list[str | None]],
+    raw_evidence: Any,
+    logical_col_count: int,
+) -> set[int]:
+    candidates: set[int] = set()
+    header_terms = ("filename", "file", "folder", "path", "href", "link", "文件", "路径")
+    for row in grid[:3]:
+        for col in range(min(logical_col_count, len(row))):
+            text = str(row[col] or "").strip().lower()
+            if text and any(term in text for term in header_terms):
+                candidates.add(col)
+
+    for col in range(logical_col_count):
+        hits = 0
+        non_empty = 0
+        for raw_row in getattr(raw_evidence, "rows", []) or []:
+            raw_cell = _raw_cell_for_logical_column(raw_row, col, logical_col_count)
+            text = str(getattr(raw_cell, "text", "") or "").strip()
+            if not text:
+                continue
+            non_empty += 1
+            if _looks_like_reconstructable_filename_cell(text):
+                hits += 1
+        if non_empty >= 2 and hits / max(1, non_empty) >= 0.5:
+            candidates.add(col)
+    return candidates
+
+
+def _raw_cell_for_logical_column(raw_row: Any, logical_col: int, logical_col_count: int) -> Any | None:
+    cells = list(getattr(raw_row, "cells", []) or [])
+    if not cells:
+        return None
+    if logical_col_count <= 0:
+        return cells[logical_col] if logical_col < len(cells) else None
+    physical_count = len(cells)
+    if physical_count == logical_col_count:
+        return cells[logical_col] if logical_col < physical_count else None
+    target_center = (logical_col + 0.5) / logical_col_count
+    best_cell = None
+    best_distance = float("inf")
+    for cell in cells:
+        physical_col = int(getattr(cell, "physical_col", 0) or 0)
+        physical_center = (physical_col + 0.5) / max(1, physical_count)
+        distance = abs(physical_center - target_center)
+        if distance < best_distance:
+            best_cell = cell
+            best_distance = distance
+    return best_cell
+
+
+def _looks_like_reconstructable_filename_cell(text: str) -> bool:
+    candidate = str(text or "").strip()
+    if not candidate:
+        return False
+    if not re.search(r"\.(?:xml|xsl|xsd|dtd|txt|pdf|csv|zip)\b", candidate, re.IGNORECASE):
+        return False
+    compact = re.sub(r"\s+", "", candidate)
+    if re.search(r"[_\\/][A-Za-z0-9]", compact):
+        return True
+    if re.search(r"[A-Za-z0-9][_-][A-Za-z0-9]", compact):
+        return True
+    if re.search(r"\b\d{3,}\s+[A-Za-z0-9][A-Za-z0-9.-]*\.", candidate):
+        return True
+    if re.search(r"[\\/][A-Za-z0-9]+(?:\s+|_)[A-Za-z0-9.-]+\.", candidate):
+        return True
+    return False
+
+
+def _best_text_layer_filename_candidate(raw_evidence: Any, bbox: Any, current: str) -> str | None:
+    for source_kind, items in (
+        ("word", getattr(raw_evidence, "words", []) or []),
+        ("span", getattr(raw_evidence, "spans", []) or []),
+    ):
+        candidates = _collect_filename_candidates_from_items(items, bbox)
+        if not candidates:
+            continue
+        for candidate in candidates:
+            _ = source_kind
+            if _filename_candidate_matches_cell_text(candidate, current):
+                return candidate
+    return None
+
+
+def _collect_filename_candidates_from_items(items: list[Any], bbox: Any) -> list[str]:
+    x0, y0, x1, y1 = [float(v) for v in bbox]
+    in_cell: list[tuple[float, float, str]] = []
+    for item in items:
+        text = str(getattr(item, "text", "") or "").strip()
+        if not text:
+            continue
+        item_x0 = float(getattr(item, "x0", 0.0) or 0.0)
+        item_y0 = float(getattr(item, "y0", 0.0) or 0.0)
+        item_x1 = float(getattr(item, "x1", 0.0) or 0.0)
+        item_y1 = float(getattr(item, "y1", 0.0) or 0.0)
+        cx = (item_x0 + item_x1) / 2
+        cy = (item_y0 + item_y1) / 2
+        if not (x0 - 1.0 <= cx <= x1 + 1.0 and y0 - 1.0 <= cy <= y1 + 1.0):
+            continue
+        in_cell.append((item_y0, item_x0, text))
+
+    if not in_cell:
+        return []
+
+    ordered_texts = [text for _, _, text in sorted(in_cell, key=lambda item: (item[0], item[1]))]
+    candidates: list[str] = []
+    for text in ordered_texts:
+        if _is_strong_filename_token(text):
+            candidates.append(text)
+    joined_without_space = "".join(ordered_texts).strip()
+    if _is_strong_filename_token(joined_without_space):
+        candidates.append(joined_without_space)
+    joined_with_space = " ".join(ordered_texts).strip()
+    if _looks_like_reconstructable_filename_cell(joined_with_space):
+        candidates.append(joined_with_space)
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        unique.append(candidate)
+    return unique
+
+
+def _is_strong_filename_token(text: str) -> bool:
+    candidate = str(text or "").strip()
+    if not re.search(r"\.(?:xml|xsl|xsd|dtd|txt|pdf|csv|zip)\b", candidate, re.IGNORECASE):
+        return False
+    if " " in candidate:
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9._\\/\-]+", candidate))
+
+
+def _filename_candidate_matches_cell_text(candidate: str, current: str) -> bool:
+    cand = _filename_match_key(candidate)
+    cur = _filename_match_key(current)
+    if not cand or not cur:
+        return False
+    if cand == cur:
+        return True
+    if not _has_filename_separator_damage_evidence(current):
+        return False
+    loose_cand = re.sub(r"[_\\/\-]+", "", cand)
+    loose_cur = re.sub(r"[_\\/\-]+", "", cur)
+    if loose_cand and loose_cand == loose_cur:
+        return True
+    return False
+
+
+def _has_filename_separator_damage_evidence(text: str) -> bool:
+    current = str(text or "")
+    if not re.search(r"\s", current):
+        return False
+    if re.search(r"[_\\/\-]\s+", current):
+        return True
+    if re.search(r"\s+[_\\/\-]", current):
+        return True
+    if re.search(r"\b\d{3,}\s+[A-Za-z0-9][A-Za-z0-9.-]*\.", current):
+        return True
+    if re.search(r"[\\/][A-Za-z0-9]+(?:\s+|_)[A-Za-z0-9.-]+\.", current):
+        return True
+    return False
+
+
+def _filename_match_key(text: str) -> str:
+    key = str(text or "").strip().lower()
+    key = re.sub(r"\s+", "", key)
+    key = key.replace("\u3000", "")
+    return key
+
+
+def _candidate_source_kind(raw_evidence: Any, bbox: Any, candidate: str) -> str:
+    for source_kind, items in (
+        ("word", getattr(raw_evidence, "words", []) or []),
+        ("span", getattr(raw_evidence, "spans", []) or []),
+    ):
+        if candidate in _collect_filename_candidates_from_items(items, bbox):
+            return source_kind
+    return "text_layer"
+
+
+def _rewrite_normalized_cell(
+    normalized_row: Any,
+    logical_col: int,
+    text: str,
+    reason: str,
+    source_kind: str,
+) -> None:
+    for cell in getattr(normalized_row, "cells", []) or []:
+        if int(getattr(cell, "logical_col", -1) or -1) != logical_col:
+            continue
+        cell.text = text
+        cell.supplemented = True
+        cell.supplement_reason = f"{reason}:{source_kind}"
+        return
+
+
 def merge_filename_continuations(
     rows: list[Any],
     grid: list[list[str | None]],
@@ -496,6 +761,7 @@ def merge_filename_continuations(
 __all__ = [
     "recover_key_identifier_cells",
     "repair_directory_listing_structure",
+    "reconstruct_filename_path_cells_from_text_layer",
     "detect_filename_semantic_columns",
     "merge_filename_continuations",
 ]
