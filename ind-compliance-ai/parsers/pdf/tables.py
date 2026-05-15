@@ -1905,6 +1905,16 @@ def _process_raw_evidence(
 
     table_bbox = tuple(ast.bbox)
     result = ast.to_dict()
+    if context.get("title_block"):
+        title_block = context["title_block"]
+        title_bbox = title_block.get("bbox")
+        if isinstance(title_bbox, (list, tuple)) and len(title_bbox) == 4:
+            result["title_bbox"] = [float(value) for value in title_bbox]
+            result["title_block"] = {
+                "text": str(title_block.get("text", "")).strip(),
+                "bbox": list(result["title_bbox"]),
+                "source": str(title_block.get("source", "text-layer") or "text-layer"),
+            }
     result["header_candidates"] = context.get("header_candidates", [])
     if _should_override_header_with_candidates(result):
         result["header"] = [

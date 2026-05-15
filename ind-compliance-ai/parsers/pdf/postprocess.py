@@ -26,6 +26,7 @@ from .table_modules.postprocess import (
     compact_vector_ocr_sparse_anchor_rows,
     repair_cross_page_boundary_row_splits,
 )
+from .formula_ocr import enhance_equation_blocks_with_formula_ocr, enhance_inline_formula_spans_with_formula_ocr
 from .tables import (
     _annotate_toc_diagnostics,
     _build_toc_text_block_entries,
@@ -36,6 +37,7 @@ from .tables import (
     _populate_toc_block_from_raw_entries,
 )
 from .text_blocks import _suppress_table_text_blocks
+from .text_blocks import build_reading_order_diagnostics
 from .text_blocks import order_text_blocks_for_reading
 from .types import PDF_PARSER_HINT, PdfPipelineState
 
@@ -137,6 +139,22 @@ _DISPLAY_EQUATION_HARD_PROSE_CUES = (
     "constraint",
     "direct gradient method",
 )
+_DISPLAY_EQUATION_CUE_SUFFIXES = (
+    "if",
+    "where",
+    "with",
+    "then",
+    "there is",
+    "there are",
+    "defined as",
+    "defined by",
+    "as follows",
+    "subject to",
+)
+_DISPLAY_EQUATION_EXPLANATORY_TRANSITION_RE = re.compile(
+    r"\b(?:where|with|which|respectively|i\.e\.|e\.g\.)\b",
+    re.IGNORECASE,
+)
 _ALGORITHM_TITLE_RE = re.compile(r"^algorithm\s+(?P<number>\d+)(?:[.:]|\b)", re.IGNORECASE)
 _ALGORITHM_SECTION_HEADING_RE = re.compile(r"^\d+(?:\.\d+)+\.\s+\S")
 _ALGORITHM_STEP_RE = re.compile(
@@ -171,6 +189,20 @@ _NUMBERED_SECTION_HEADING_RE = re.compile(
     r"^(?P<outline>\d+(?:\.\d+)*)(?:\.)?\s+(?P<title>\S.*)$"
 )
 _DATE_LIKE_HEADING_SUFFIX_RE = re.compile(r"^(?:年\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?|年\s*\d{1,2}\s*月|年)$")
+
+
+_STRICT_NUMBERED_SECTION_HEADING_RE = re.compile(
+    r"^(?:(?P<root_outline>\d{1,3})\.\s+|(?P<child_outline>\d{1,3}(?:\.\d{1,3})+)\.?(?:\s+|$))(?P<title>\S.*)$"
+)
+_MONTH_NAME_RE = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
+    r"aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b",
+    re.IGNORECASE,
+)
+
+
+_FOOTNOTE_START_RE = re.compile(r"^(?P<marker>\d{1,3}|[*\u2020\u2021])(?:\s+|(?=[A-Za-z\u4e00-\u9fff]))(?P<body>\S.*)$")
+_FOOTNOTE_MARKER_RE = re.compile(r"^(?:\d{1,3}|[*\u2020\u2021])$")
 
 
 def _looks_like_equation_false_positive_text(text: str) -> bool:
@@ -214,6 +246,343 @@ def _merge_section_context(
     return merged
 
 
+def _page_body_font_size(text_blocks: list[dict[str, Any]], page_height: float) -> float:
+    sizes: list[float] = []
+    for block in text_blocks:
+        if str(block.get("block_type", "text") or "text") != "text":
+            continue
+        bbox = list(block.get("bbox", []))
+        if len(bbox) >= 4 and float(bbox[1]) >= float(page_height) * 0.80:
+            continue
+        try:
+            font_size = float(block.get("font_size", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            font_size = 0.0
+        if font_size > 0:
+            sizes.append(font_size)
+    if not sizes:
+        return 0.0
+    sizes.sort()
+    return sizes[len(sizes) // 2]
+
+
+def _text_block_font_size(text_block: dict[str, Any]) -> float:
+    try:
+        return float(text_block.get("font_size", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _leading_marker_span(text_block: dict[str, Any], marker: str) -> dict[str, Any] | None:
+    for span in text_block.get("spans", []) or []:
+        text = _clean_text(str(span.get("text", "")))
+        if text == marker:
+            return span
+        if text.startswith(marker) and len(text) <= len(marker) + 1:
+            return span
+        break
+    return None
+
+
+def _looks_like_footnote_start_block(
+    text_block: dict[str, Any],
+    *,
+    page_height: float,
+    body_font_size: float,
+) -> tuple[bool, str, str]:
+    if str(text_block.get("block_type", "text") or "text") != "text":
+        return False, "", ""
+    text = _clean_text(str(text_block.get("text", "")))
+    match = _FOOTNOTE_START_RE.match(text)
+    if not match:
+        return False, "", ""
+    marker = str(match.group("marker") or "").strip()
+    body_text = _clean_text(str(match.group("body") or ""))
+    if not marker or not body_text:
+        return False, "", ""
+    bbox = list(text_block.get("bbox", []))
+    if len(bbox) < 4:
+        return False, "", ""
+    y0 = float(bbox[1])
+    if y0 < max(float(page_height) * 0.78, float(page_height) - 150.0):
+        return False, "", ""
+    font_size = _text_block_font_size(text_block)
+    if body_font_size > 0 and font_size > body_font_size * 0.86:
+        return False, "", ""
+    marker_span = _leading_marker_span(text_block, marker)
+    if marker_span is not None:
+        marker_size = float(marker_span.get("font_size", 0.0) or 0.0)
+        if marker_size > 0 and font_size > 0 and marker_size <= font_size * 0.78:
+            return True, marker, body_text
+    if body_font_size > 0 and font_size <= body_font_size * 0.72:
+        return True, marker, body_text
+    return False, "", ""
+
+
+def _looks_like_footnote_continuation_block(
+    text_block: dict[str, Any],
+    previous_block: dict[str, Any],
+    *,
+    page_height: float,
+    body_font_size: float,
+) -> bool:
+    if str(text_block.get("block_type", "text") or "text") != "text":
+        return False
+    text = _clean_text(str(text_block.get("text", "")))
+    if not text or _FOOTNOTE_START_RE.match(text):
+        return False
+    bbox = list(text_block.get("bbox", []))
+    previous_bbox = list(previous_block.get("bbox", []))
+    if len(bbox) < 4 or len(previous_bbox) < 4:
+        return False
+    if float(bbox[1]) < max(float(page_height) * 0.78, float(page_height) - 150.0):
+        return False
+    vertical_gap = float(bbox[1]) - float(previous_bbox[3])
+    if vertical_gap < -1.5 or vertical_gap > 18.0:
+        return False
+    font_size = _text_block_font_size(text_block)
+    previous_font_size = _text_block_font_size(previous_block)
+    if body_font_size > 0 and font_size > body_font_size * 0.86:
+        return False
+    if previous_font_size > 0 and font_size > 0:
+        ratio = max(font_size, previous_font_size) / max(0.1, min(font_size, previous_font_size))
+        if ratio > 1.25:
+            return False
+    x0 = float(bbox[0])
+    previous_x0 = float(previous_bbox[0])
+    previous_x1 = float(previous_bbox[2])
+    return previous_x0 - 6.0 <= x0 <= previous_x1
+
+
+def _looks_like_inline_footnote_ref_span(
+    text_block: dict[str, Any],
+    span: dict[str, Any],
+    marker: str,
+    *,
+    block_font_size: float,
+) -> bool:
+    if not marker or not _FOOTNOTE_MARKER_RE.fullmatch(marker):
+        return False
+    text = _clean_text(str(span.get("text", "")))
+    if text != marker:
+        return False
+    try:
+        span_font_size = float(span.get("font_size", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        span_font_size = 0.0
+    if block_font_size <= 0 or span_font_size <= 0 or span_font_size > block_font_size * 0.82:
+        return False
+    spans = list(text_block.get("spans", []) or [])
+    marker_index = next((idx for idx, candidate in enumerate(spans) if candidate is span), -1)
+    if marker_index <= 0:
+        return False
+    bbox = list(span.get("bbox", []) or [])
+    block_bbox = list(text_block.get("bbox", []) or [])
+    if len(bbox) >= 4 and len(block_bbox) >= 4:
+        span_center_y = (float(bbox[1]) + float(bbox[3])) / 2.0
+        block_center_y = (float(block_bbox[1]) + float(block_bbox[3])) / 2.0
+        if span_center_y > block_center_y + 2.5:
+            return False
+    return True
+
+
+def _drawing_bbox(drawing: dict[str, Any]) -> list[float]:
+    rect = drawing.get("rect")
+    if rect is not None:
+        try:
+            return [float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1)]
+        except AttributeError:
+            pass
+        try:
+            values = list(rect)
+            if len(values) >= 4:
+                return [float(values[0]), float(values[1]), float(values[2]), float(values[3])]
+        except (TypeError, ValueError):
+            pass
+    bbox = drawing.get("bbox")
+    if bbox is not None:
+        try:
+            values = list(bbox)
+            if len(values) >= 4:
+                return [float(values[0]), float(values[1]), float(values[2]), float(values[3])]
+        except (TypeError, ValueError):
+            pass
+    return []
+
+
+def _find_footnote_separator_line(
+    page_drawings: list[dict[str, Any]],
+    *,
+    page_width: float,
+    page_height: float,
+    footnote_bbox: list[float],
+) -> dict[str, Any] | None:
+    if not page_drawings or page_width <= 0.0 or page_height <= 0.0 or len(footnote_bbox) < 4:
+        return None
+    footnote_top = float(footnote_bbox[1])
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for drawing in page_drawings:
+        bbox = _drawing_bbox(drawing)
+        if len(bbox) < 4:
+            continue
+        x0, y0, x1, y1 = [float(value) for value in bbox[:4]]
+        width = max(0.0, x1 - x0)
+        height = max(0.0, y1 - y0)
+        if width < 80.0 or width < page_width * 0.12 or width > page_width * 0.55:
+            continue
+        if height > 3.0:
+            continue
+        if y0 < page_height * 0.60 or y0 >= footnote_top:
+            continue
+        gap_to_footnote = footnote_top - y1
+        if gap_to_footnote < 4.0 or gap_to_footnote > 45.0:
+            continue
+        left_margin_ratio = x0 / page_width
+        if left_margin_ratio < 0.08 or left_margin_ratio > 0.42:
+            continue
+        score = gap_to_footnote + abs(width - page_width * 0.22) * 0.02
+        candidates.append(
+            (
+                score,
+                {
+                    "present": True,
+                    "bbox": [x0, y0, x1, y1],
+                    "gap_to_footnote": round(gap_to_footnote, 2),
+                    "source": "page_drawing",
+                },
+            )
+        )
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
+def _annotate_page_footnotes(
+    text_blocks: list[dict[str, Any]],
+    *,
+    page_number: int,
+    page_height: float,
+    page_width: float = 0.0,
+    page_drawings: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    body_font_size = _page_body_font_size(text_blocks, page_height)
+    ordered = sorted(
+        [
+            block
+            for block in text_blocks
+            if str(block.get("block_type", "text") or "text") == "text"
+        ],
+        key=lambda block: (
+            float((block.get("bbox") or [0.0, 0.0])[1]),
+            float((block.get("bbox") or [0.0])[0]),
+        ),
+    )
+    footnotes: list[dict[str, Any]] = []
+    idx = 0
+    while idx < len(ordered):
+        block = ordered[idx]
+        is_start, marker, body_text = _looks_like_footnote_start_block(
+            block,
+            page_height=page_height,
+            body_font_size=body_font_size,
+        )
+        if not is_start:
+            idx += 1
+            continue
+
+        source_blocks = [block]
+        content_lines = [body_text]
+        cursor = idx + 1
+        while cursor < len(ordered) and _looks_like_footnote_continuation_block(
+            ordered[cursor],
+            source_blocks[-1],
+            page_height=page_height,
+            body_font_size=body_font_size,
+        ):
+            source_blocks.append(ordered[cursor])
+            content_lines.append(_clean_text(str(ordered[cursor].get("text", ""))))
+            cursor += 1
+
+        source_block_ids = [
+            str(item.get("block_id", "")).strip()
+            for item in source_blocks
+            if str(item.get("block_id", "")).strip()
+        ]
+        footnote_bbox = _bbox_union([list(item.get("bbox", [])) for item in source_blocks])
+        footnote_id = f"fn_p{page_number}_{len(footnotes) + 1:03d}"
+        footnote_text = _clean_text(" ".join(content_lines))
+        separator_line = _find_footnote_separator_line(
+            list(page_drawings or []),
+            page_width=page_width,
+            page_height=page_height,
+            footnote_bbox=footnote_bbox,
+        )
+        footnote = {
+            "footnote_id": footnote_id,
+            "marker": marker,
+            "page": page_number,
+            "bbox": footnote_bbox,
+            "text": footnote_text,
+            "source_block_ids": source_block_ids,
+            "footnote_signals": ["page_bottom", "small_font_marker"],
+        }
+        if separator_line is not None:
+            footnote["separator_line_evidence"] = separator_line
+            footnote["footnote_signals"].append("separator_line")
+        footnotes.append(footnote)
+        for source_index, source_block in enumerate(source_blocks):
+            source_block["semantic_role"] = "footnote" if source_index == 0 else "footnote_continuation"
+            source_block["unit_role"] = "footnote"
+            source_block["footnote_id"] = footnote_id
+            source_block["footnote_marker"] = marker
+            source_block["footnote_text"] = footnote_text
+            source_block["footnote_source_block_ids"] = list(source_block_ids)
+            source_block["footnote_signals"] = list(footnote.get("footnote_signals", []) or [])
+            if separator_line is not None:
+                source_block["separator_line_evidence"] = dict(separator_line)
+            if source_index > 0:
+                source_block["footnote_continuation"] = True
+        idx = cursor
+
+    footnote_by_marker = {str(item.get("marker", "")): item for item in footnotes}
+    for block in ordered:
+        if str(block.get("semantic_role", "") or "") == "footnote":
+            continue
+        block_font_size = _text_block_font_size(block)
+        linked_refs: list[dict[str, Any]] = []
+        for span in block.get("spans", []) or []:
+            marker = _clean_text(str(span.get("text", "")))
+            footnote = footnote_by_marker.get(marker)
+            if footnote is None:
+                continue
+            if not _looks_like_inline_footnote_ref_span(
+                block,
+                span,
+                marker,
+                block_font_size=block_font_size,
+            ):
+                continue
+            linked_refs.append(
+                {
+                    "marker": marker,
+                    "footnote_id": footnote["footnote_id"],
+                    "bbox": list(span.get("bbox", []) or []),
+                }
+            )
+            signals = list(footnote.get("footnote_signals", []) or [])
+            if "inline_anchor" not in signals:
+                footnote["footnote_signals"] = signals + ["inline_anchor"]
+                for block_id in footnote.get("source_block_ids", []) or []:
+                    for source_block in ordered:
+                        if str(source_block.get("block_id", "")).strip() == block_id:
+                            source_block["footnote_signals"] = list(footnote.get("footnote_signals", []) or [])
+        if linked_refs:
+            block["footnote_refs"] = linked_refs
+            block["linked_footnote_ids"] = list(dict.fromkeys(ref["footnote_id"] for ref in linked_refs))
+    return footnotes
+
+
 def _build_heading_section_anchor(
     text_block: dict[str, Any],
     module_context: dict[str, Any] | None,
@@ -241,10 +610,10 @@ def _build_heading_section_anchor(
         )
     if semantic_role == "reference_entry":
         return None
-    match = _NUMBERED_SECTION_HEADING_RE.match(text)
+    match = _STRICT_NUMBERED_SECTION_HEADING_RE.match(text)
     if not match:
         return None
-    outline_index = str(match.group("outline") or "").strip().rstrip(".")
+    outline_index = str(match.group("root_outline") or match.group("child_outline") or "").strip().rstrip(".")
     section_title = _clean_text(str(match.group("title") or ""))
     if not outline_index or not section_title:
         return None
@@ -285,6 +654,44 @@ def _looks_like_regressive_root_heading_candidate(
     return int(candidate) < int(active_root)
 
 
+def _should_preserve_toc_title_as_text_node(
+    toc_block: dict[str, Any],
+    title_block: dict[str, Any],
+    text_page_nodes: list[dict[str, Any]],
+    *,
+    page_height: float,
+) -> bool:
+    title_bbox = list(title_block.get("bbox", []) or [])
+    if len(title_bbox) < 4:
+        return True
+    title_y0 = float(title_bbox[1])
+    title_text = _clean_text(str(title_block.get("text", "")))
+    if not _compact_text(title_text):
+        return False
+
+    nearby_caption_gap = max(28.0, float(page_height or 0.0) * 0.04)
+    for node in text_page_nodes:
+        node_bbox = list(node.get("bbox", []) or [])
+        if len(node_bbox) < 4:
+            continue
+        node_text = _clean_text(str(node.get("text", "")))
+        if not node_text:
+            continue
+        vertical_gap = title_y0 - float(node_bbox[3])
+        if vertical_gap < -2.0 or vertical_gap > nearby_caption_gap:
+            continue
+        lowered = node_text.lower()
+        starts_like_caption = bool(re.match(r"^(?:figure|fig\.?|table)\b", node_text, re.IGNORECASE))
+        describes_toc_example = any(token in lowered for token in ("table of contents", "contents", "toc", "目录"))
+        if starts_like_caption and describes_toc_example:
+            return False
+
+    title_source = str(toc_block.get("title_source") or "").strip()
+    if title_source and title_source not in {"text_title_row", "explicit_title_row"}:
+        return False
+    return True
+
+
 def _looks_like_date_heading_false_positive(
     full_text: str,
     outline_index: str,
@@ -301,6 +708,8 @@ def _looks_like_date_heading_false_positive(
     if year_value < 1900 or year_value > 2099:
         return False
     if _DATE_LIKE_HEADING_SUFFIX_RE.match(normalized_title):
+        return True
+    if _MONTH_NAME_RE.search(normalized_title) and re.search(r"\b(?:19|20)\d{2}\b", normalized_full_text):
         return True
     return bool(re.fullmatch(r"\d{4}\s*年\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?", normalized_full_text))
 
@@ -640,7 +1049,7 @@ def _promote_algorithm_blocks(
     return projected, page_algorithm_blocks, active_carry_state, next_algorithm_index
 
 _LITERATURE_AUTHOR_TOKEN_RE = re.compile(
-    r"\b[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){0,2}\d(?:,\d+)*(?:[†‡*])?"
+    r"\b[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){0,2}(?:\d|[A-Za-z](?:,[A-Za-z])*)(?:[†‡*])?"
 )
 _PERSON_NAME_LINE_RE = re.compile(r"^[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3}$")
 _AFFILIATION_KEYWORDS = (
@@ -690,6 +1099,14 @@ _REFERENCE_AUTHOR_LIST_RE = re.compile(
 
 
 _EMAIL_RE = re.compile(r"\b[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
+_PUBLICATION_AUTHOR_NOTE_RE = re.compile(
+    r"^(?:(?:[*\u2020\u2021\u00a7\u00b6]|\d{1,3}|[A-Za-z])\s*)?"
+    r"(?:corresponding author|correspondence to|present address|"
+    r"these authors contributed equally|contributed equally|equal contribution|"
+    r"full list of author information)\b",
+    re.IGNORECASE,
+)
+_PUBLICATION_FOOTER_ISSN_RE = re.compile(r"^\d{4}-\d{3}[\dXx]\s*/")
 _LITERATURE_AUTHOR_LINE_HINT_RE = re.compile(r"[,*†‡]|(?:\b\w+\d(?:,\d)*)")
 
 
@@ -702,6 +1119,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
     content_evidence: list[dict[str, Any]] = []
     content_units: list[dict[str, Any]] = []
     document_ast_pages: list[dict[str, Any]] = []
+    footnotes: list[dict[str, Any]] = []
     analysis_page_texts: list[str] = []
     total_table_text_suppressed = 0
 
@@ -727,6 +1145,10 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             page_payload["text_blocks"],
             page_payload.get("layout_profile"),
         )
+        reading_order_diagnostics = build_reading_order_diagnostics(
+            page_payload["text_blocks"],
+            page_payload.get("layout_profile"),
+        )
         analysis_text = "\n".join(item["text"] for item in ordered_analysis_blocks).strip()
         if analysis_text:
             analysis_page_texts.append(analysis_text)
@@ -736,6 +1158,11 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             ordered_analysis_blocks,
             page_payload["tables"] + page_toc_blocks,
         )
+        original_text_blocks_by_id = {
+            str(block.get("block_id", "")).strip(): dict(block)
+            for block in ordered_analysis_blocks
+            if str(block.get("block_id", "")).strip()
+        }
         total_table_text_suppressed += table_text_suppressed_count
         projected_text_blocks = _promote_display_equation_blocks(
             visible_text_blocks,
@@ -754,12 +1181,24 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             page_height=float(page_payload["height"]),
             reference_state=reference_state,
         )
+        page_footnotes = _annotate_page_footnotes(
+            projected_text_blocks,
+            page_number=page_number,
+            page_height=float(page_payload["height"]),
+            page_width=float(page_payload["width"]),
+            page_drawings=list(page_payload.get("page_drawings", []) or []),
+        )
+        footnotes.extend(page_footnotes)
         algorithm_blocks.extend(page_algorithm_blocks)
         page_equation_blocks = [
-            _build_equation_projection(text_block)
+            _build_equation_projection(
+                text_block,
+                page_words=list(page_payload.get("page_words", []) or []),
+            )
             for text_block in projected_text_blocks
             if str(text_block.get("block_type", "text") or "text") == "equation"
         ]
+        enhance_equation_blocks_with_formula_ocr(path, page_equation_blocks)
         equation_blocks.extend(page_equation_blocks)
 
         page_text = "\n".join(item["text"] for item in projected_text_blocks).strip()
@@ -788,6 +1227,12 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                 module_context=module_context,
             )
             text_evidence = _build_text_content_evidence(text_block)
+            if _looks_like_margin_page_number_evidence(
+                text_evidence,
+                page_text_evidence=page_text_evidence,
+                page_height=float(page_payload["height"]),
+            ):
+                _set_text_evidence_role(text_evidence, "page_number", "metadata")
             _attach_section_context(text_evidence, applicable_section_context)
             page_text_evidence.append(text_evidence)
             bbox = text_block["bbox"]
@@ -799,6 +1244,11 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                     "bbox": {"x0": bbox[0], "y0": bbox[1], "x1": bbox[2], "y1": bbox[3]},
                     "block_type": str(text_block.get("block_type", "text") or "text"),
                     "semantic_role": str(text_block.get("semantic_role", "") or ""),
+                    **(
+                        {"linked_footnote_ids": list(text_block.get("linked_footnote_ids", []) or [])}
+                        if list(text_block.get("linked_footnote_ids", []) or [])
+                        else {}
+                    ),
                 }
             )
             page_node = {
@@ -810,11 +1260,80 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                 "source": text_block.get("source", "text-layer"),
                 "semantic_role": str(text_block.get("semantic_role", "") or ""),
             }
+            if str(text_block.get("unit_role", "") or "").strip():
+                page_node["unit_role"] = str(text_block.get("unit_role", "") or "").strip()
+            if text_block.get("footnote_id"):
+                page_node["footnote_id"] = str(text_block.get("footnote_id", "") or "")
+                page_node["footnote_marker"] = str(text_block.get("footnote_marker", "") or "")
+                page_node["footnote_text"] = str(text_block.get("footnote_text", "") or "")
+                page_node["footnote_source_block_ids"] = list(text_block.get("footnote_source_block_ids", []) or [])
+                page_node["footnote_continuation"] = bool(text_block.get("footnote_continuation", False))
+                page_node["footnote_signals"] = list(text_block.get("footnote_signals", []) or [])
+                if text_block.get("separator_line_evidence"):
+                    page_node["separator_line_evidence"] = dict(text_block.get("separator_line_evidence", {}) or {})
+            if text_block.get("linked_footnote_ids"):
+                page_node["linked_footnote_ids"] = list(text_block.get("linked_footnote_ids", []) or [])
+                page_node["footnote_refs"] = [dict(item) for item in text_block.get("footnote_refs", []) or []]
+            if str(text_block.get("block_type", "text") or "text") == "equation":
+                page_node["equation_id"] = str(text_block.get("equation_id") or text_block.get("block_id") or "")
+                page_node["equation_label"] = str(text_block.get("equation_label", "") or "").strip() or None
+                page_node["source_block_ids"] = list(text_block.get("source_block_ids", []) or [])
+                equation_projection = next(
+                    (
+                        equation
+                        for equation in page_equation_blocks
+                        if str(equation.get("equation_id") or "") == page_node["equation_id"]
+                    ),
+                    {},
+                )
+                page_node["latex_text"] = equation_projection.get("latex_text")
+                page_node["latex_candidate_text"] = equation_projection.get("latex_candidate_text")
+                page_node["latex_confidence"] = float(equation_projection.get("latex_confidence", 0.0) or 0.0)
+                page_node["latex_source"] = equation_projection.get("latex_source")
+                page_node["latex_render_policy"] = equation_projection.get(
+                    "latex_render_policy",
+                    "image_primary_latex_enhancement",
+                )
+                page_node["latex_validation"] = dict(equation_projection.get("latex_validation", {}) or {})
+                page_node["layout_label"] = equation_projection.get("layout_label", "display_formula")
+                page_node["formula_kind"] = equation_projection.get("formula_kind", "display")
+                page_node["evidence_bbox"] = list(equation_projection.get("evidence_bbox", []) or [])
+                page_node["ocr_bbox"] = list(equation_projection.get("ocr_bbox", []) or [])
+                page_node["formula_spans"] = [dict(item) for item in equation_projection.get("formula_spans", []) or []]
+                if str(equation_projection.get("formula_number", "") or "").strip():
+                    page_node["formula_number"] = str(equation_projection.get("formula_number", "") or "").strip()
+                if str(equation_projection.get("latex_tag", "") or "").strip():
+                    page_node["latex_tag"] = str(equation_projection.get("latex_tag", "") or "").strip()
+                if list(text_block.get("equation_label_bbox", []) or []):
+                    page_node["equation_label_bbox"] = list(text_block.get("equation_label_bbox", []) or [])
+                if str(text_block.get("equation_label_source", "") or "").strip():
+                    page_node["equation_label_source"] = str(text_block.get("equation_label_source", "") or "").strip()
+            inline_math_display_text = _build_inline_math_display_text(text_block)
+            if inline_math_display_text:
+                page_node["display_text"] = inline_math_display_text
+                page_node["math_text"] = inline_math_display_text
+                page_node["text_projection"] = "inline_math_2d"
+                if str(text_block.get("block_type", "text") or "text") != "equation":
+                    inline_formula_spans = _build_inline_formula_spans(text_block, inline_math_display_text)
+                    if inline_formula_spans:
+                        page_node["inline_formula_spans"] = inline_formula_spans
             _attach_section_context(page_node, applicable_section_context)
             text_page_nodes.append(page_node)
         _refine_literature_front_matter_text_evidence(
             page_text_evidence,
             page_height=float(page_payload["height"]),
+        )
+        _sync_refined_text_evidence_roles_to_page_nodes(page_text_evidence, text_page_nodes)
+        inline_formula_enhancement_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+        enhance_inline_formula_spans_with_formula_ocr(
+            path,
+            page_text_evidence,
+            inline_formula_enhancement_cache,
+        )
+        enhance_inline_formula_spans_with_formula_ocr(
+            path,
+            text_page_nodes,
+            inline_formula_enhancement_cache,
         )
         content_evidence.extend(page_text_evidence)
 
@@ -889,6 +1408,82 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             toc_id = toc_block["toc_id"]
             toc_title = toc_block.get("title") or toc_block.get("toc_title") or ""
             toc_diagnostics = toc_block.get("toc_diagnostics") or {}
+            toc_promoted_ids = {
+                str(item).strip()
+                for item in toc_block.get("promoted_text_block_ids", []) or []
+                if str(item).strip()
+            }
+            first_entry_block_ids = {
+                str(item).strip()
+                for entry in toc_block.get("entries", [])[:1]
+                for item in entry.get("source_block_ids", []) or [entry.get("source_block_id")]
+                if str(item).strip()
+            }
+            toc_title_norm = _compact_text(str(toc_title))
+            toc_title_block_ids = {
+                block_id
+                for block_id in (toc_promoted_ids - first_entry_block_ids)
+                if toc_title_norm
+                and _compact_text(str(original_text_blocks_by_id.get(block_id, {}).get("text", ""))) == toc_title_norm
+            }
+            if toc_title and toc_title_block_ids:
+                for text_node in text_page_nodes:
+                    if str(text_node.get("block_id", "")).strip() in toc_title_block_ids:
+                        text_node["semantic_role"] = "toc_title"
+                        text_node["unit_role"] = "metadata"
+                existing_text_node_ids = {
+                    str(text_node.get("block_id", "")).strip()
+                    for text_node in text_page_nodes
+                    if str(text_node.get("block_id", "")).strip()
+                }
+                for title_block_id in sorted(
+                    toc_title_block_ids,
+                    key=lambda block_id: (
+                        float((original_text_blocks_by_id.get(block_id, {}).get("bbox") or [0.0, 0.0])[1]),
+                        float((original_text_blocks_by_id.get(block_id, {}).get("bbox") or [0.0])[0]),
+                    ),
+                ):
+                    if title_block_id in existing_text_node_ids:
+                        continue
+                    title_block = original_text_blocks_by_id.get(title_block_id)
+                    if not title_block:
+                        continue
+                    if not _should_preserve_toc_title_as_text_node(
+                        toc_block,
+                        title_block,
+                        text_page_nodes,
+                        page_height=float(page_payload["height"]),
+                    ):
+                        continue
+                    title_text = _clean_text(str(title_block.get("text", "")))
+                    if not title_text:
+                        continue
+                    title_node = {
+                        "block_type": "text",
+                        "block_id": title_block_id,
+                        "page": page_number,
+                        "bbox": list(title_block.get("bbox", [])),
+                        "text": title_text,
+                        "source": title_block.get("source", "text-layer"),
+                        "semantic_role": "toc_title",
+                        "unit_role": "metadata",
+                    }
+                    _attach_section_context(
+                        title_node,
+                        _merge_section_context(
+                            {
+                                "toc_sequence_id": toc_block.get("toc_sequence_id"),
+                                "section_title": toc_title or None,
+                                "anchor_source": "toc_title",
+                                "anchor_confidence": 0.9,
+                                "anchor_page": page_number,
+                                "anchor_bbox": list(title_block.get("bbox", [])),
+                            },
+                            module_context,
+                        ),
+                    )
+                    text_page_nodes.append(title_node)
+                    existing_text_node_ids.add(title_block_id)
             text_bounding_boxes.append(
                 {
                     "id": toc_id,
@@ -948,6 +1543,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                 "toc_count": len(page_toc_blocks),
                 "layout_mode": str((page_payload.get("layout_profile") or {}).get("mode", "single_column")),
                 "layout_confidence": float((page_payload.get("layout_profile") or {}).get("confidence", 0.0) or 0.0),
+                "reading_order_diagnostics": reading_order_diagnostics,
                 "semantic_merge_count": int(page_payload["semantic_merge_count"]),
                 "image_text_recovered_count": int(page_payload["image_text_recovered_count"]),
                 "header_footer_filtered_count": int(page_payload.get("header_footer_filtered", 0)),
@@ -1023,6 +1619,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
         "image_blocks": image_blocks,
         "algorithm_blocks": algorithm_blocks,
         "equation_blocks": equation_blocks,
+        "footnotes": footnotes,
         "content_evidence": content_evidence,
         "content_units": content_units,
         "figures": state.figure_nodes,
@@ -1039,6 +1636,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             "image_refs": [image["image_id"] for image in image_blocks],
             "algorithm_refs": [algorithm["algorithm_id"] for algorithm in algorithm_blocks],
             "equation_refs": [equation["equation_id"] for equation in equation_blocks],
+            "footnote_refs": [footnote["footnote_id"] for footnote in footnotes],
             "content_evidence_refs": [item["evidence_id"] for item in content_evidence],
             "content_unit_refs": [item["unit_id"] for item in content_units],
         },
@@ -1050,6 +1648,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             "image_count": len(image_blocks),
             "algorithm_count": len(algorithm_blocks),
             "equation_count": len(equation_blocks),
+            "footnote_count": len(footnotes),
             "table_count": len(state.table_asts),
             "toc_count": len(toc_nodes),
             "toc_sequence_count": len(toc_sequences),
@@ -1107,7 +1706,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             "table_fragment_merge_count": state.counters.table_fragment_merge_count,
             "duplicate_image_blocks_removed": state.counters.duplicate_image_blocks_removed,
             "header_footer_filtered_count": state.counters.header_footer_filtered_count,
-            "table_text_suppressed_count": total_table_text_suppressed,
+            "table_text_suppressed_count": max(total_table_text_suppressed, state.counters.table_text_suppressed_count),
             "parser_hint": PDF_PARSER_HINT,
             "parser_config_snapshot": {
                 "cross_page_stitching": cfg_snapshot,
@@ -1427,7 +2026,9 @@ def _annotate_reference_section_text_blocks(
 
 def _looks_like_literature_author_line(text: str) -> bool:
     compact = _clean_text(text)
-    if not compact or len(compact) > 320 or not any(ch.isdigit() for ch in compact):
+    if not compact or len(compact) > 320:
+        return False
+    if re.match(r"^(?:appendix|chapter|section)\b", compact, re.IGNORECASE):
         return False
     author_token_count = len(_LITERATURE_AUTHOR_TOKEN_RE.findall(compact))
     marker_count = (
@@ -1436,7 +2037,8 @@ def _looks_like_literature_author_line(text: str) -> bool:
         + compact.count("\u2020")
         + compact.count("\u2021")
     )
-    return author_token_count >= 2 and marker_count >= 2
+    has_marker_evidence = bool(re.search(r"\b[A-Z][A-Za-z'`.-]+\s+[A-Za-z](?:,[A-Za-z])*\b", compact))
+    return author_token_count >= 2 and compact.count(",") >= 2 and (marker_count >= 2 or has_marker_evidence)
 
 
 def _looks_like_author_affiliation_line(text: str) -> bool:
@@ -1448,7 +2050,7 @@ def _looks_like_author_affiliation_line(text: str) -> bool:
         return False
     if not any(keyword in lowered for keyword in _AFFILIATION_KEYWORDS):
         return False
-    if re.match(r"^(?:\d+|[*])\s*", compact):
+    if re.match(r"^(?:\d+|[*]|[A-Za-z])\s+", compact):
         return True
     return compact.count(";") >= 1 or compact.count(",") >= 2
 
@@ -1460,6 +2062,31 @@ def _looks_like_contact_name_line(text: str) -> bool:
     return bool(_PERSON_NAME_LINE_RE.fullmatch(compact))
 
 
+def _looks_like_publication_author_note_text(text: str) -> bool:
+    compact = _clean_text(text)
+    if not compact or len(compact) > 220:
+        return False
+    if _looks_like_equation_false_positive_text(compact):
+        return False
+    return bool(_PUBLICATION_AUTHOR_NOTE_RE.search(compact))
+
+
+def _looks_like_publication_footer_text(text: str, y0: float, page_height: float) -> bool:
+    compact = _clean_text(text)
+    if not compact or len(compact) > 260:
+        return False
+    if page_height <= 0 or y0 < page_height * 0.84:
+        return False
+    lowered = compact.lower()
+    if _PUBLICATION_FOOTER_ISSN_RE.search(compact):
+        return True
+    if "all rights reserved" in lowered:
+        return True
+    if "copyright" in lowered:
+        return True
+    return compact.startswith(("\u00a9", "(c)", "漏"))
+
+
 def _set_text_evidence_role(
     evidence: dict[str, Any],
     semantic_role: str,
@@ -1468,6 +2095,70 @@ def _set_text_evidence_role(
     evidence["semantic_role"] = semantic_role
     content_text = _clean_text(str(evidence.get("content_text", "")))
     evidence["segments"] = [{"role": unit_role, "text": content_text}]
+
+
+def _looks_like_margin_page_number_evidence(
+    evidence: dict[str, Any],
+    *,
+    page_text_evidence: list[dict[str, Any]],
+    page_height: float,
+) -> bool:
+    text = _clean_text(str(evidence.get("content_text", "")))
+    if not re.fullmatch(r"\d{1,4}", text):
+        return False
+    bbox = list(evidence.get("bbox", []) or [])
+    if len(bbox) < 4 or page_height <= 0:
+        return False
+    y1 = float(bbox[3])
+    y0 = float(bbox[1])
+    top_limit = max(72.0, page_height * 0.11)
+    bottom_limit = page_height - max(72.0, page_height * 0.11)
+    if not (y1 <= top_limit or y0 >= bottom_limit):
+        return False
+    if y0 >= bottom_limit:
+        return True
+
+    row_center = (float(bbox[1]) + float(bbox[3])) / 2.0
+    row_height = max(1.0, float(bbox[3]) - float(bbox[1]))
+    for peer in page_text_evidence:
+        if peer is evidence:
+            continue
+        peer_bbox = list(peer.get("bbox", []) or [])
+        if len(peer_bbox) < 4:
+            continue
+        peer_text = _clean_text(str(peer.get("content_text", "")))
+        peer_compact = _compact_text(peer_text)
+        if len(peer_compact) < 8 or re.fullmatch(r"\d{1,4}", peer_text):
+            continue
+        peer_center = (float(peer_bbox[1]) + float(peer_bbox[3])) / 2.0
+        peer_height = max(1.0, float(peer_bbox[3]) - float(peer_bbox[1]))
+        if abs(peer_center - row_center) <= max(3.0, row_height, peer_height) and float(peer_bbox[3]) <= top_limit:
+            return True
+    return False
+
+
+def _sync_refined_text_evidence_roles_to_page_nodes(
+    text_evidence: list[dict[str, Any]],
+    page_nodes: list[dict[str, Any]],
+) -> None:
+    evidence_by_source_id = {
+        str(evidence.get("source_id", "")).strip(): evidence
+        for evidence in text_evidence
+        if str(evidence.get("source_id", "")).strip()
+    }
+    for node in page_nodes:
+        source_id = str(node.get("block_id", "")).strip()
+        evidence = evidence_by_source_id.get(source_id)
+        if not evidence:
+            continue
+        semantic_role = str(evidence.get("semantic_role", "") or "").strip()
+        if semantic_role:
+            node["semantic_role"] = semantic_role
+        segments = list(evidence.get("segments", []) or [])
+        if segments:
+            unit_role = str(segments[0].get("role", "") or "").strip()
+            if unit_role:
+                node["unit_role"] = unit_role
 
 
 def _is_literature_front_page(text_evidence: list[dict[str, Any]]) -> bool:
@@ -1519,6 +2210,7 @@ def _refine_literature_front_matter_text_evidence(
     top_metadata_limit = min(96.0, max(72.0, float(abstract_top or 96.0) - 120.0))
     correspondence_mode = False
     license_mode = False
+    keyword_anchor_bbox: list[float] | None = None
 
     for evidence in ordered:
         text = _clean_text(str(evidence.get("content_text", "")))
@@ -1537,9 +2229,34 @@ def _refine_literature_front_matter_text_evidence(
         if semantic_role == "license_notice":
             license_mode = True
             continue
+        if _looks_like_publication_author_note_text(text):
+            _set_text_evidence_role(evidence, "author_note", "publication_metadata")
+            continue
+        if _looks_like_publication_footer_text(text, y0, page_height):
+            _set_text_evidence_role(evidence, "publication_footer", "publication_metadata")
+            continue
+        if semantic_role in {"contact_email", "citation_metadata"} and y0 >= float(page_height) * 0.80:
+            _set_text_evidence_role(evidence, semantic_role, "publication_metadata")
+            continue
         if normalized == "keywords" or lowered.startswith("keywords "):
             _set_text_evidence_role(evidence, "keyword_metadata", "metadata")
+            keyword_anchor_bbox = bbox if len(bbox) >= 4 else None
             continue
+        if keyword_anchor_bbox:
+            same_keyword_column = len(bbox) >= 4 and abs(float(bbox[0]) - float(keyword_anchor_bbox[0])) <= 18.0
+            below_keyword_anchor = len(bbox) >= 4 and float(bbox[1]) > float(keyword_anchor_bbox[1])
+            close_to_keyword_anchor = len(bbox) >= 4 and float(bbox[1]) <= float(keyword_anchor_bbox[3]) + 80.0
+            if (
+                same_keyword_column
+                and below_keyword_anchor
+                and close_to_keyword_anchor
+                and len(text) <= 80
+                and not re.search(r"[.!?;:]", text)
+            ):
+                _set_text_evidence_role(evidence, "keyword_metadata", "metadata")
+                continue
+            if normalized == "abstract" or (same_keyword_column and not close_to_keyword_anchor):
+                keyword_anchor_bbox = None
         if correspondence_mode:
             if _looks_like_contact_name_line(text):
                 _set_text_evidence_role(evidence, "contact_name", "metadata")
@@ -1550,6 +2267,12 @@ def _refine_literature_front_matter_text_evidence(
                 correspondence_mode = False
         if semantic_role == "correspondence":
             correspondence_mode = True
+            continue
+        if unit_role == "body" and y0 <= float(abstract_top or page_height) and _looks_like_literature_author_line(text):
+            _set_text_evidence_role(evidence, "author_line", "metadata")
+            continue
+        if unit_role == "body" and y0 <= float(abstract_top or page_height) and _looks_like_author_affiliation_line(text):
+            _set_text_evidence_role(evidence, "author_affiliation", "metadata")
             continue
         if unit_role == "body" and y0 <= top_metadata_limit and len(text) <= 160 and not re.search(r"[.!?;:]", text):
             _set_text_evidence_role(evidence, "publication_masthead", "metadata")
@@ -1675,6 +2398,88 @@ def _looks_like_display_equation_text(text: str) -> bool:
     return signal_count >= 3
 
 
+def _text_ends_with_display_equation_cue(text: str) -> bool:
+    compact = _clean_text(text)
+    lowered = compact.lower().rstrip(" .,:;")
+    if not compact:
+        return False
+    return any(lowered.endswith(cue) for cue in _DISPLAY_EQUATION_CUE_SUFFIXES)
+
+
+def _looks_like_unnumbered_display_equation_text(text: str) -> bool:
+    compact = _strip_display_equation_terminal_artifacts(text)
+    if not compact or len(compact) < 8 or len(compact) > 120:
+        return False
+    lowered = compact.lower()
+    if _looks_like_equation_false_positive_text(compact):
+        return False
+    if re.match(r"^\d+(?:\.\d+)*\s+", compact):
+        return False
+    if re.search(r"\b(the|and|or|but|then|where|which|algorithm|proof|theorem)\b", lowered):
+        return False
+    math_signals = len(re.findall(r"[=+\-*/∂≤≥≠\(\)\[\]\{\}]", compact))
+    alpha_tokens = re.findall(r"[A-Za-z]+", compact)
+    short_alpha_count = sum(1 for token in alpha_tokens if len(token) <= 2)
+    if math_signals < 3:
+        return False
+    if len(alpha_tokens) > 8 and short_alpha_count < max(3, len(alpha_tokens) // 2):
+        return False
+    return bool(re.search(r"[=≤≥≠]", compact)) and (
+        short_alpha_count >= 3
+        or "∂" in compact
+        or "*" in compact
+    )
+
+
+def _can_merge_unnumbered_equation_fragment(
+    equation_bbox: list[float] | tuple[float, float, float, float],
+    candidate_block: dict[str, Any],
+) -> bool:
+    candidate_bbox = list(candidate_block.get("bbox", []))
+    if len(equation_bbox) < 4 or len(candidate_bbox) < 4:
+        return False
+    vertical_overlap = max(
+        0.0,
+        min(float(equation_bbox[3]), float(candidate_bbox[3])) - max(float(equation_bbox[1]), float(candidate_bbox[1])),
+    )
+    min_height = max(1.0, min(_bbox_height(equation_bbox), _bbox_height(candidate_bbox)))
+    center_gap = abs(
+        ((float(equation_bbox[1]) + float(equation_bbox[3])) / 2.0)
+        - ((float(candidate_bbox[1]) + float(candidate_bbox[3])) / 2.0)
+    )
+    vertical_gap = min(
+        abs(float(candidate_bbox[1]) - float(equation_bbox[3])),
+        abs(float(equation_bbox[1]) - float(candidate_bbox[3])),
+    )
+    if vertical_overlap / min_height < 0.35 and center_gap > 22.0 and vertical_gap > 28.0:
+        return False
+    horizontal_gap = min(
+        abs(float(candidate_bbox[0]) - float(equation_bbox[2])),
+        abs(float(equation_bbox[0]) - float(candidate_bbox[2])),
+    )
+    return horizontal_gap <= 18.0
+
+
+def _find_previous_display_equation_cue_text(
+    text_blocks: list[dict[str, Any]],
+    start_index: int,
+) -> str:
+    probe = start_index
+    while probe >= 0:
+        candidate = text_blocks[probe]
+        if str(candidate.get("block_type", "text") or "text") == "equation":
+            return ""
+        candidate_text = _clean_text(str(candidate.get("text", "") or ""))
+        if not candidate_text:
+            probe -= 1
+            continue
+        if _looks_like_symbol_only_equation_fragment(candidate_text):
+            probe -= 1
+            continue
+        return candidate_text
+    return ""
+
+
 def _normalized_equation_marker_text(text: str) -> str | None:
     compact = _clean_text(text).strip()
     if not compact:
@@ -1749,6 +2554,8 @@ def _looks_like_symbol_only_equation_fragment(text: str) -> bool:
         return False
     if re.fullmatch(r"[\s(){}\[\]⎛⎜⎝⎞⎟⎠]+", compact):
         return True
+    if re.fullmatch(r"[\s(){}\[\]∂∑∏√∞≤≥≠=+\-*/.,*]+", compact):
+        return True
     if any(symbol in compact for symbol in ("⎛", "⎜", "⎝", "⎞", "⎟", "⎠", "(", ")", "[", "]", "{", "}")):
         return True
     return False
@@ -1774,7 +2581,7 @@ def _can_attach_symbol_equation_fragment(
         abs(candidate_bbox[1] - equation_bbox[3]),
         abs(equation_bbox[1] - candidate_bbox[3]),
     )
-    if vertical_overlap / min_height < 0.45 and center_gap > 14.0 and vertical_gap > 12.0:
+    if vertical_overlap / min_height < 0.45 and center_gap > 22.0 and vertical_gap > 28.0:
         return False
     if side == "right":
         return float(candidate_bbox[0]) <= float(equation_bbox[2]) + 80.0
@@ -1885,16 +2692,23 @@ def _looks_like_equation_continuation_text(text: str) -> bool:
         return False
     if _looks_like_equation_marker_text(compact):
         return True
+    if lowered.startswith(("where ", "with ")):
+        return False
+    alpha_tokens = re.findall(r"[A-Za-z]+", compact)
+    prose_tokens = {
+        token
+        for token in alpha_tokens
+        if token.lower() in {"and", "at", "by", "for", "from", "is", "of", "the", "where", "which", "with"}
+    }
+    if prose_tokens:
+        math_signal_count = len(re.findall(r"[=+\-*/\(\)\[\]\{\}αβγλσθ∑⎧⎨⎩⎪]", compact, re.IGNORECASE))
+        short_math_tokens = sum(1 for token in alpha_tokens if len(token) <= 2)
+        if len(prose_tokens) >= 2 or math_signal_count < 3 or short_math_tokens < max(1, len(alpha_tokens) // 2):
+            return False
     if re.search(r"[=+\-*/\(\)\[\]\{\}αβγλσθ∑⎧⎨⎩⎪]", compact, re.IGNORECASE):
         return True
-    if lowered.startswith("where ") and len(compact) <= 24:
-        return True
-    if lowered.endswith(" of") and len(compact) <= 24:
-        return True
-    if compact in {"F v at", "g k is", "k is", "d k is"}:
-        return True
     short_tokens = re.findall(r"[A-Za-z]{1,2}", compact)
-    return any(len(token) == 1 for token in short_tokens) and len(compact) <= 16
+    return any(len(token) == 1 for token in short_tokens) and len(compact) <= 12
 
 
 def _attach_equation_continuation_fragments(projected: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2085,6 +2899,21 @@ def _looks_like_display_equation_cluster_row(blocks: list[dict[str, Any]]) -> bo
     return any(_looks_like_display_equation_cluster_block(str(block.get("text", "") or "")) for block in blocks)
 
 
+def _split_row_blocks_for_numbered_equation_ownership(row: dict[str, Any]) -> list[dict[str, Any]]:
+    blocks = [dict(block) for block in row.get("blocks", []) or []]
+    if not blocks:
+        return []
+    if _row_should_remain_source_text_before_numbered_equation(_row_compact_text(blocks)):
+        math_like_blocks = [
+            block
+            for block in blocks
+            if _looks_like_symbol_only_equation_fragment(str(block.get("text", "") or ""))
+            or _looks_like_display_equation_cluster_block(str(block.get("text", "") or ""))
+        ]
+        return math_like_blocks
+    return blocks
+
+
 def _looks_like_display_equation_support_row(blocks: list[dict[str, Any]]) -> bool:
     text = _row_compact_text(blocks)
     if not text:
@@ -2127,9 +2956,11 @@ def _row_vertical_gap(previous_row: dict[str, Any], current_row: dict[str, Any])
     return float(current_bbox[1]) - float(previous_bbox[3])
 
 
-def _extract_numeric_marker_from_blocks(blocks: list[dict[str, Any]]) -> tuple[str | None, list[str]]:
+def _extract_numeric_marker_from_blocks(
+    blocks: list[dict[str, Any]],
+) -> tuple[str | None, list[str], list[float] | None]:
     if not blocks:
-        return None, []
+        return None, [], None
 
     marker_blocks = [
         block
@@ -2156,15 +2987,16 @@ def _extract_numeric_marker_from_blocks(blocks: list[dict[str, Any]]) -> tuple[s
                 for block in window
                 if str(block.get("block_id", "")).strip()
             ]
-            return normalized, source_block_ids
-    return None, []
+            marker_bbox = _bbox_union([tuple(block.get("bbox", [])) for block in window])
+            return normalized, source_block_ids, marker_bbox
+    return None, [], None
 
 
 def _find_external_numeric_marker(
     row: dict[str, Any],
     lane_rows: list[dict[str, Any]],
     page_words: list[_Word] | None = None,
-) -> tuple[str | None, list[str]]:
+) -> tuple[str | None, list[str], list[float] | None, str | None]:
     row_index = int(row["row_index"])
     current_bbox = row.get("bbox", [0.0, 0.0, 0.0, 0.0])
     search_rows = [
@@ -2179,9 +3011,9 @@ def _find_external_numeric_marker(
             if float(block["bbox"][0]) >= float(current_bbox[2]) - 8.0
             and float(block["bbox"][2]) <= float(current_bbox[2]) + 190.0
         ]
-        marker_text, marker_source_block_ids = _extract_numeric_marker_from_blocks(filtered_blocks)
+        marker_text, marker_source_block_ids, marker_bbox = _extract_numeric_marker_from_blocks(filtered_blocks)
         if marker_text is not None:
-            return marker_text, marker_source_block_ids
+            return marker_text, marker_source_block_ids, marker_bbox, "text_block"
     if page_words:
         row_bbox = row.get("bbox", [0.0, 0.0, 0.0, 0.0])
         marker_words = [
@@ -2208,8 +3040,46 @@ def _find_external_numeric_marker(
                 candidate = "".join(_clean_text(str(word.text or "")) for word in window)
                 normalized = _normalized_equation_marker_text(candidate)
                 if normalized is not None:
-                    return normalized, []
-    return None, []
+                    marker_bbox = _bbox_union(
+                        [(float(word.x0), float(word.y0), float(word.x1), float(word.y1)) for word in window]
+                    )
+                    return normalized, [], marker_bbox, "page_word"
+    return None, [], None, None
+
+
+def _equation_lane_right_boundary(lane: str, page_width: float) -> float:
+    if page_width <= 0:
+        return 0.0
+    if lane == "left":
+        return page_width * 0.5
+    return page_width
+
+
+def _is_plausible_numbered_equation_marker_position(
+    row: dict[str, Any],
+    marker_bbox: list[float] | None,
+    *,
+    page_width: float,
+) -> bool:
+    if not marker_bbox or len(marker_bbox) < 4:
+        return True
+    row_bbox = list(row.get("bbox", []))
+    if len(row_bbox) < 4:
+        return True
+
+    row_width = max(1.0, float(row_bbox[2]) - float(row_bbox[0]))
+    marker_center_x = (float(marker_bbox[0]) + float(marker_bbox[2])) / 2.0
+    lane = str(row.get("lane", "") or "")
+    lane_right = _equation_lane_right_boundary(lane, page_width)
+    right_edge_band = max(18.0, page_width * 0.035)
+
+    if lane == "left" and lane_right > 0:
+        return marker_center_x >= lane_right - right_edge_band
+    if lane_right > 0 and marker_center_x >= lane_right - right_edge_band:
+        return True
+    if float(marker_bbox[0]) >= float(row_bbox[2]) - max(8.0, row_width * 0.08):
+        return True
+    return marker_center_x >= float(row_bbox[0]) + row_width * 0.72
 
 
 def _trim_display_equation_cluster_text(text: str, equation_label: str | None) -> str:
@@ -2229,9 +3099,35 @@ def _trim_display_equation_cluster_text(text: str, equation_label: str | None) -
     return _strip_display_equation_terminal_artifacts(compact)
 
 
+def _row_should_remain_source_text_before_numbered_equation(row_text: str) -> bool:
+    compact = _clean_text(row_text)
+    lowered = compact.lower()
+    if not compact:
+        return False
+    if any(cue in lowered for cue in ("for the purpose of this paper", "defined as the following", "defined by:")):
+        return True
+    if compact.endswith(":") and not _looks_like_display_equation_cluster_block(compact):
+        return True
+    return False
+
+
 def _clean_display_equation_text(text: str, equation_label: str | None) -> str:
     compact = _strip_display_equation_terminal_artifacts(text)
     lowered = compact.lower()
+    transition_match = _DISPLAY_EQUATION_EXPLANATORY_TRANSITION_RE.search(compact)
+    if transition_match and transition_match.start() > 0:
+        prefix = compact[: transition_match.start()].rstrip(" ,;:")
+        prefix_math_signals = len(re.findall(r"[=+\-*/\(\)\[\]\{\}αβγλσθ∑⎧⎨⎩⎪]", prefix))
+        suffix = compact[transition_match.start() :]
+        suffix_alpha_tokens = re.findall(r"[A-Za-z]+", suffix)
+        suffix_prose_tokens = [
+            token
+            for token in suffix_alpha_tokens
+            if token.lower() in _DISPLAY_EQUATION_FRAGMENT_STOPWORDS
+        ]
+        if prefix and prefix_math_signals >= 2 and len(suffix_prose_tokens) >= 1:
+            compact = prefix
+            lowered = compact.lower()
 
     if equation_label in {"(8)", "(9)", "(11)"}:
         if lowered.startswith("n min "):
@@ -2265,15 +3161,29 @@ def _build_numbered_display_equation_cluster(
     cluster_rows: list[dict[str, Any]],
     marker_text: str,
     marker_source_block_ids: list[str] | None = None,
+    marker_bbox: list[float] | None = None,
+    marker_source: str | None = None,
 ) -> dict[str, Any] | None:
     if not cluster_rows:
         return None
 
+    owned_rows = list(cluster_rows)
+    while len(owned_rows) > 1 and _row_should_remain_source_text_before_numbered_equation(
+        _row_compact_text(owned_rows[0]["blocks"])
+    ):
+        owned_rows = owned_rows[1:]
     cluster_blocks = [block for row in cluster_rows for block in row["blocks"]]
+    owned_blocks = [block for row in owned_rows for block in _split_row_blocks_for_numbered_equation_ownership(row)]
     text_rows = [_row_compact_text(row["blocks"]) for row in cluster_rows if _row_compact_text(row["blocks"])]
     original_equation_text = _strip_display_equation_terminal_artifacts(" ".join(text_rows).strip())
+    owned_text_rows = [
+        _row_compact_text(_split_row_blocks_for_numbered_equation_ownership(row))
+        for row in owned_rows
+        if _row_compact_text(_split_row_blocks_for_numbered_equation_ownership(row))
+    ]
+    owned_equation_text = _strip_display_equation_terminal_artifacts(" ".join(owned_text_rows).strip())
     equation_text = _clean_display_equation_text(
-        _trim_display_equation_cluster_text(original_equation_text, marker_text),
+        _trim_display_equation_cluster_text(owned_equation_text or original_equation_text, marker_text),
         marker_text,
     )
     lowered = equation_text.lower()
@@ -2305,7 +3215,12 @@ def _build_numbered_display_equation_cluster(
             "within-class distance are defined as",
         )
     )
-    return {
+    cluster_bbox = _bbox_union([tuple(block.get("bbox", (0.0, 0.0, 0.0, 0.0))) for block in (owned_blocks or cluster_blocks)])
+    bbox_sources: list[list[float] | tuple[float, float, float, float]] = [cluster_bbox]
+    if marker_bbox and len(marker_bbox) >= 4:
+        bbox_sources.append(marker_bbox)
+
+    equation_block = {
         **dict(cluster_blocks[0]),
         "block_id": equation_block_id,
         "equation_id": equation_block_id,
@@ -2313,17 +3228,23 @@ def _build_numbered_display_equation_cluster(
         "semantic_role": "display_equation",
         "unit_role": "equation",
         "text": equation_text,
-        "bbox": _bbox_union([tuple(block.get("bbox", (0.0, 0.0, 0.0, 0.0))) for block in cluster_blocks]),
+        "bbox": _bbox_union(bbox_sources),
         "equation_label": marker_text,
         "source_block_ids": source_block_ids,
         "_cluster_first_source_block_id": first_block_id,
         "_preserve_source_text": preserve_source_text,
     }
+    if marker_bbox and len(marker_bbox) >= 4:
+        equation_block["equation_label_bbox"] = _bbox_to_list(tuple(marker_bbox))
+        if marker_source:
+            equation_block["equation_label_source"] = marker_source
+    return equation_block
 
 
 def _promote_numbered_display_equation_clusters(
     text_blocks: list[dict[str, Any]],
     page_words: list[_Word] | None = None,
+    page_width: float = 0.0,
 ) -> list[dict[str, Any]]:
     if not text_blocks:
         return []
@@ -2351,14 +3272,40 @@ def _promote_numbered_display_equation_clusters(
             row_key = (lane, int(row["row_index"]))
             if row_key in consumed_row_keys:
                 continue
-            internal_marker_text, internal_marker_source_block_ids = _extract_numeric_marker_from_blocks(row["blocks"])
-            external_marker_text, external_marker_source_block_ids = _find_external_numeric_marker(
+            (
+                internal_marker_text,
+                internal_marker_source_block_ids,
+                internal_marker_bbox,
+            ) = _extract_numeric_marker_from_blocks(row["blocks"])
+            (
+                external_marker_text,
+                external_marker_source_block_ids,
+                external_marker_bbox,
+                external_marker_source,
+            ) = _find_external_numeric_marker(
                 row,
                 all_lane_rows,
                 page_words=page_words,
             )
             marker_text = internal_marker_text or external_marker_text
             marker_source_block_ids = internal_marker_source_block_ids or external_marker_source_block_ids
+            marker_bbox = internal_marker_bbox or external_marker_bbox
+            marker_source = "text_block" if internal_marker_bbox else external_marker_source
+            if internal_marker_text and not _is_plausible_numbered_equation_marker_position(
+                row,
+                internal_marker_bbox,
+                page_width=page_width,
+            ):
+                marker_text = external_marker_text
+                marker_source_block_ids = external_marker_source_block_ids
+                marker_bbox = external_marker_bbox
+                marker_source = external_marker_source
+            if marker_text and marker_bbox and not _is_plausible_numbered_equation_marker_position(
+                row,
+                marker_bbox,
+                page_width=page_width,
+            ):
+                continue
             if marker_text is None:
                 continue
             if not (
@@ -2394,6 +3341,8 @@ def _promote_numbered_display_equation_clusters(
                 cluster_rows,
                 marker_text=marker_text,
                 marker_source_block_ids=marker_source_block_ids,
+                marker_bbox=marker_bbox,
+                marker_source=marker_source,
             )
             if equation_block is None:
                 continue
@@ -2532,7 +3481,11 @@ def _promote_display_equation_blocks(
     if not text_blocks:
         return []
 
-    text_blocks = _promote_numbered_display_equation_clusters(text_blocks, page_words=page_words)
+    text_blocks = _promote_numbered_display_equation_clusters(
+        text_blocks,
+        page_words=page_words,
+        page_width=page_width,
+    )
 
     projected: list[dict[str, Any]] = []
     skip_indices: set[int] = set()
@@ -2546,6 +3499,54 @@ def _promote_display_equation_blocks(
             continue
 
         text = _clean_text(str(text_block.get("text", "")))
+        candidate_unnumbered_text = text
+        candidate_left_indices: list[int] = []
+        candidate_bbox_sources: list[list[float] | tuple[float, float, float, float]] = [list(text_block.get("bbox", []))]
+        left_probe = idx - 1
+        while left_probe >= 0 and left_probe not in skip_indices:
+            left_block = text_blocks[left_probe]
+            if str(left_block.get("block_type", "text") or "text") == "equation":
+                break
+            left_text = _clean_text(str(left_block.get("text", "") or ""))
+            if not _looks_like_symbol_only_equation_fragment(left_text):
+                break
+            if not _can_merge_unnumbered_equation_fragment(_bbox_union(candidate_bbox_sources), left_block):
+                break
+            candidate_unnumbered_text = f"{left_text} {candidate_unnumbered_text}".strip()
+            candidate_bbox_sources.insert(0, list(left_block.get("bbox", [])))
+            candidate_left_indices.insert(0, left_probe)
+            left_probe -= 1
+
+        if idx > 0 and _looks_like_unnumbered_display_equation_text(candidate_unnumbered_text):
+            previous_context_index = candidate_left_indices[0] - 1 if candidate_left_indices else idx - 1
+            previous_text = _find_previous_display_equation_cue_text(text_blocks, previous_context_index)
+            if _text_ends_with_display_equation_cue(previous_text):
+                equation_block = dict(text_block)
+                equation_block_id = _build_equation_block_id(str(text_block.get("block_id", "") or ""))
+                source_block_ids = [str(text_block.get("block_id", "")).strip()]
+                source_block_indices = set(_normalized_source_block_indices(text_block))
+                bbox_sources = list(candidate_bbox_sources)
+                merged_text = candidate_unnumbered_text
+                for left_idx in candidate_left_indices:
+                    left_block = text_blocks[left_idx]
+                    block_id = str(left_block.get("block_id", "")).strip()
+                    if block_id:
+                        source_block_ids.insert(0, block_id)
+                    source_block_indices.update(_normalized_source_block_indices(left_block))
+                    skip_indices.add(left_idx)
+                equation_block["block_id"] = equation_block_id
+                equation_block["equation_id"] = equation_block_id
+                equation_block["block_type"] = "equation"
+                equation_block["semantic_role"] = "display_equation"
+                equation_block["unit_role"] = "equation"
+                equation_block["text"] = _clean_display_equation_text(merged_text, None)
+                equation_block["bbox"] = _bbox_union(bbox_sources)
+                equation_block["equation_label"] = None
+                equation_block["source_block_ids"] = [item for item in source_block_ids if item]
+                equation_block["source_block_indices"] = sorted(source_block_indices)
+                projected.append(equation_block)
+                continue
+
         if not _looks_like_display_equation_text(text):
             projected.append(dict(text_block))
             continue
@@ -2661,18 +3662,848 @@ def _promote_display_equation_blocks(
     return _drop_residual_equation_text_fragments(projected)
 
 
-def _build_equation_projection(text_block: dict[str, Any]) -> dict[str, Any]:
+def _build_equation_projection(
+    text_block: dict[str, Any],
+    *,
+    page_words: list[_Word] | None = None,
+) -> dict[str, Any]:
     equation_id = str(text_block.get("equation_id") or text_block.get("block_id") or "").strip()
-    return {
+    latex_text = str(text_block.get("latex_text", "") or "").strip()
+    latex_confidence = float(text_block.get("latex_confidence", 0.0) or 0.0)
+    equation_bbox = list(text_block.get("bbox", []))
+    label_text = str(text_block.get("equation_label", "") or "").strip()
+    label_bbox = list(text_block.get("equation_label_bbox", []) or [])
+    ocr_bbox = _derive_display_equation_ocr_bbox(
+        equation_bbox,
+        label_bbox,
+        page_words=page_words,
+    )
+    formula_spans = _build_display_formula_spans(
+        text=str(text_block.get("text", "")).strip(),
+        ocr_bbox=ocr_bbox,
+        equation_label=label_text,
+        label_bbox=label_bbox,
+    )
+    projection = {
         "equation_id": equation_id,
         "page": int(text_block.get("page", 0) or 0),
-        "bbox": list(text_block.get("bbox", [])),
+        "bbox": equation_bbox,
+        "evidence_bbox": list(equation_bbox),
+        "ocr_bbox": list(ocr_bbox),
         "text": str(text_block.get("text", "")).strip(),
-        "equation_label": str(text_block.get("equation_label", "") or "").strip() or None,
+        "equation_label": label_text or None,
         "source": text_block.get("source", "text-layer"),
         "semantic_role": "display_equation",
+        "layout_label": "display_formula",
+        "formula_kind": "display",
         "source_block_ids": list(text_block.get("source_block_ids", []) or []),
+        "formula_spans": formula_spans,
+        "latex_text": latex_text or None,
+        "latex_candidate_text": str(text_block.get("latex_candidate_text", "") or "").strip() or None,
+        "latex_confidence": latex_confidence,
+        "latex_source": str(text_block.get("latex_source", "") or "").strip() or None,
+        "latex_render_policy": "image_primary_latex_enhancement",
     }
+    formula_number = _formula_number_from_label(label_text)
+    if formula_number:
+        projection["formula_number"] = formula_number
+        projection["latex_tag"] = f"\\tag{{{formula_number}}}"
+    if label_bbox:
+        projection["equation_label_bbox"] = label_bbox
+    if str(text_block.get("equation_label_source", "") or "").strip():
+        projection["equation_label_source"] = str(text_block.get("equation_label_source", "") or "").strip()
+    return projection
+
+
+def _derive_display_equation_ocr_bbox(
+    equation_bbox: list[Any],
+    label_bbox: list[Any],
+    *,
+    page_words: list[_Word] | None = None,
+) -> list[float]:
+    if len(equation_bbox) < 4:
+        return []
+    x0, y0, x1, y1 = [float(value) for value in equation_bbox[:4]]
+    label_x0: float | None = None
+    if len(label_bbox) >= 4:
+        label_x0 = float(label_bbox[0])
+        if label_x0 > x0:
+            x1 = min(x1, max(x0, label_x0 - 2.0))
+    base_bbox = [x0, y0, x1, y1]
+    refined_bbox = _derive_display_equation_ocr_bbox_from_words(
+        equation_bbox=[float(value) for value in equation_bbox[:4]],
+        base_bbox=base_bbox,
+        label_x0=label_x0,
+        page_words=page_words or [],
+    )
+    return refined_bbox or base_bbox
+
+
+def _derive_display_equation_ocr_bbox_from_words(
+    *,
+    equation_bbox: list[float],
+    base_bbox: list[float],
+    label_x0: float | None,
+    page_words: list[_Word],
+) -> list[float] | None:
+    if len(equation_bbox) < 4 or len(base_bbox) < 4 or not page_words:
+        return None
+
+    x0, y0, x1, y1 = equation_bbox[:4]
+    expanded_bbox = [x0 - 8.0, y0 - 2.0, x1 + 2.0, y1 + 2.0]
+    candidate_words = [
+        word
+        for word in page_words
+        if _word_intersects_bbox(word, expanded_bbox)
+        and (label_x0 is None or float(word.x0) < label_x0 - 1.0)
+    ]
+    if not candidate_words:
+        return None
+
+    rows = _group_equation_words_by_visual_rows(candidate_words)
+    if not rows:
+        return None
+
+    formula_indices = [
+        index
+        for index, row in enumerate(rows)
+        if _looks_like_formula_ocr_core_word_row(row)
+    ]
+    if not formula_indices:
+        return None
+
+    start_index = min(formula_indices)
+    end_index = max(formula_indices)
+    while start_index > 0 and _looks_like_formula_ocr_support_word_row(
+        rows[start_index - 1],
+        anchor_rows=rows[start_index : end_index + 1],
+    ):
+        gap = float(rows[start_index]["bbox"][1]) - float(rows[start_index - 1]["bbox"][3])
+        if gap > max(8.0, _bbox_height(rows[start_index]["bbox"]) * 1.4):
+            break
+        start_index -= 1
+    while end_index + 1 < len(rows) and _looks_like_formula_ocr_support_word_row(
+        rows[end_index + 1],
+        anchor_rows=rows[start_index : end_index + 1],
+    ):
+        gap = float(rows[end_index + 1]["bbox"][1]) - float(rows[end_index]["bbox"][3])
+        if gap > max(8.0, _bbox_height(rows[end_index]["bbox"]) * 1.4):
+            break
+        end_index += 1
+
+    selected_words = [
+        word
+        for row in rows[start_index : end_index + 1]
+        for word in row["words"]
+    ]
+    if not selected_words:
+        return None
+
+    refined = [
+        min(float(word.x0) for word in selected_words) - 2.0,
+        min(float(word.y0) for word in selected_words) - 1.5,
+        max(float(word.x1) for word in selected_words) + 2.0,
+        max(float(word.y1) for word in selected_words) + 1.5,
+    ]
+    refined[0] = max(float(base_bbox[0]) - 12.0, refined[0])
+    refined[1] = max(float(equation_bbox[1]), refined[1])
+    refined[2] = min(float(base_bbox[2]), refined[2])
+    refined[3] = min(float(equation_bbox[3]), refined[3])
+    if refined[2] <= refined[0] or refined[3] <= refined[1]:
+        return None
+
+    original_height = max(1.0, float(equation_bbox[3]) - float(equation_bbox[1]))
+    refined_height = refined[3] - refined[1]
+    if refined_height < max(5.0, original_height * 0.16):
+        return None
+    if refined[1] <= float(equation_bbox[1]) + 1.0 and refined[3] >= float(equation_bbox[3]) - 1.0:
+        return None
+    return [round(float(value), 2) for value in refined]
+
+
+def _word_intersects_bbox(word: _Word, bbox: list[float]) -> bool:
+    if len(bbox) < 4:
+        return False
+    return (
+        float(word.x1) >= float(bbox[0])
+        and float(word.x0) <= float(bbox[2])
+        and float(word.y1) >= float(bbox[1])
+        and float(word.y0) <= float(bbox[3])
+    )
+
+
+def _group_equation_words_by_visual_rows(words: list[_Word]) -> list[dict[str, Any]]:
+    if not words:
+        return []
+    heights = sorted(max(1.0, float(word.y1) - float(word.y0)) for word in words)
+    median_height = heights[len(heights) // 2]
+    row_tolerance = max(2.2, median_height * 0.55)
+    rows: list[dict[str, Any]] = []
+    for word in sorted(words, key=lambda item: ((float(item.y0) + float(item.y1)) / 2.0, float(item.x0))):
+        center_y = (float(word.y0) + float(word.y1)) / 2.0
+        best_row: dict[str, Any] | None = None
+        best_delta: float | None = None
+        for row in rows:
+            delta = abs(center_y - float(row["center_y"]))
+            row_bbox = row["bbox"]
+            overlap = max(0.0, min(float(word.y1), float(row_bbox[3])) - max(float(word.y0), float(row_bbox[1])))
+            min_height = max(1.0, min(float(word.y1) - float(word.y0), float(row_bbox[3]) - float(row_bbox[1])))
+            if delta <= row_tolerance or overlap / min_height >= 0.55:
+                if best_delta is None or delta < best_delta:
+                    best_delta = delta
+                    best_row = row
+        if best_row is None:
+            rows.append(
+                {
+                    "words": [word],
+                    "bbox": [float(word.x0), float(word.y0), float(word.x1), float(word.y1)],
+                    "center_y": center_y,
+                }
+            )
+            continue
+        best_row["words"].append(word)
+        best_row["bbox"] = _bbox_union(
+            [best_row["bbox"], [float(word.x0), float(word.y0), float(word.x1), float(word.y1)]]
+        )
+        best_row["center_y"] = sum((float(item.y0) + float(item.y1)) / 2.0 for item in best_row["words"]) / float(
+            len(best_row["words"])
+        )
+    for row in rows:
+        row["words"] = sorted(row["words"], key=lambda item: float(item.x0))
+        row["text"] = _clean_text(" ".join(str(word.text or "") for word in row["words"]))
+    return rows
+
+
+def _formula_ocr_word_row_scores(row: dict[str, Any]) -> dict[str, int]:
+    text = _clean_text(str(row.get("text", "") or ""))
+    lowered = text.lower()
+    alpha_tokens = re.findall(r"[A-Za-z]+", text)
+    long_alpha_count = sum(1 for token in alpha_tokens if len(token) >= 3)
+    short_alpha_count = sum(1 for token in alpha_tokens if len(token) <= 2)
+    prose_cue_count = sum(
+        1
+        for cue in (
+            *_DISPLAY_EQUATION_CLUSTER_PROSE_CUES,
+            "defined",
+            "obtained",
+            "carrying",
+            "search",
+            "direction",
+            "iterations",
+        )
+        if cue in lowered
+    )
+    strong_math_count = len(
+        re.findall(
+            r"[=+*/<>≤≥∑Σ∫∏√|{}[\]⎧⎨⎩⎪−]|(?<![A-Za-z])-(?![A-Za-z])",
+            text,
+        )
+    )
+    weak_math_count = len(re.findall(r"[(),;_^]", text))
+    greek_count = len(re.findall(r"[αβγδθλμσΩωπφψχ]", text, flags=re.IGNORECASE))
+    return {
+        "long_alpha_count": long_alpha_count,
+        "short_alpha_count": short_alpha_count,
+        "prose_cue_count": prose_cue_count,
+        "strong_math_count": strong_math_count,
+        "weak_math_count": weak_math_count,
+        "greek_count": greek_count,
+        "text_length": len(text),
+    }
+
+
+def _looks_like_formula_ocr_core_word_row(row: dict[str, Any]) -> bool:
+    scores = _formula_ocr_word_row_scores(row)
+    if scores["long_alpha_count"] >= 3 and scores["strong_math_count"] < 2:
+        return False
+    if scores["prose_cue_count"] >= 1 and scores["long_alpha_count"] >= 2 and scores["strong_math_count"] < 3:
+        return False
+    math_score = scores["strong_math_count"] * 2 + scores["greek_count"] + min(3, scores["weak_math_count"])
+    symbol_or_short_text = scores["short_alpha_count"] >= max(1, scores["long_alpha_count"])
+    if math_score >= 3 and scores["long_alpha_count"] <= 2:
+        return True
+    if math_score >= 5 and symbol_or_short_text:
+        return True
+    return False
+
+
+def _looks_like_formula_ocr_support_word_row(
+    row: dict[str, Any],
+    *,
+    anchor_rows: list[dict[str, Any]] | None = None,
+) -> bool:
+    scores = _formula_ocr_word_row_scores(row)
+    if scores["prose_cue_count"] or scores["long_alpha_count"] >= 2:
+        return False
+    if scores["text_length"] > 28:
+        return False
+    if scores["strong_math_count"] > 0 or scores["greek_count"] > 0:
+        return True
+    text = _clean_text(str(row.get("text", "") or ""))
+    row_bbox = list(row.get("bbox", []) or [])
+    if (
+        anchor_rows
+        and len(row_bbox) >= 4
+        and re.fullmatch(r"[A-Za-z0-9]{1,2}", text)
+        and float(row_bbox[2]) - float(row_bbox[0]) <= 18.0
+    ):
+        anchor_bbox = _bbox_union([list(anchor.get("bbox", []) or []) for anchor in anchor_rows])
+        if len(anchor_bbox) >= 4 and float(anchor_bbox[0]) - 6.0 <= float(row_bbox[0]) <= float(anchor_bbox[2]) + 6.0:
+            return True
+    return scores["weak_math_count"] >= 2 and scores["long_alpha_count"] == 0
+
+
+def _formula_number_from_label(equation_label: str) -> str | None:
+    match = re.fullmatch(r"\(\s*(\d{1,3})\s*\)", str(equation_label or "").strip())
+    return match.group(1) if match else None
+
+
+def _build_display_formula_spans(
+    *,
+    text: str,
+    ocr_bbox: list[float],
+    equation_label: str,
+    label_bbox: list[Any],
+) -> list[dict[str, Any]]:
+    spans: list[dict[str, Any]] = []
+    if len(ocr_bbox) == 4:
+        spans.append(
+            {
+                "type": "display_equation",
+                "layout_label": "display_formula",
+                "bbox": list(ocr_bbox),
+                "text": str(text or "").strip(),
+                "render": "image_primary_latex_enhancement",
+                "source": "pdf_text_layer_2d_reconstruction",
+            }
+        )
+    formula_number = _formula_number_from_label(equation_label)
+    if formula_number and len(label_bbox) >= 4:
+        spans.append(
+            {
+                "type": "formula_number",
+                "layout_label": "formula_number",
+                "bbox": [float(value) for value in label_bbox[:4]],
+                "text": str(equation_label or "").strip(),
+                "formula_number": formula_number,
+                "latex_tag": f"\\tag{{{formula_number}}}",
+                "source": "pdf_text_layer_marker_detection",
+            }
+        )
+    return spans
+
+
+def _span_bbox(span: dict[str, Any]) -> list[float]:
+    bbox = list(span.get("bbox", []) or [])
+    if len(bbox) < 4:
+        return [0.0, 0.0, 0.0, 0.0]
+    return [float(item) for item in bbox[:4]]
+
+
+def _span_center_y(span: dict[str, Any]) -> float:
+    bbox = _span_bbox(span)
+    return (bbox[1] + bbox[3]) / 2.0
+
+
+def _span_text(span: dict[str, Any]) -> str:
+    return _clean_text(str(span.get("text", "")))
+
+
+def _span_size(span: dict[str, Any]) -> float:
+    try:
+        return float(span.get("font_size", span.get("size", 0.0)) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _is_sum_symbol_text(text: str) -> bool:
+    cleaned = str(text or "").strip()
+    return cleaned in {"∑", "Σ"} or cleaned.startswith("ЁЦ")
+
+
+def _looks_like_inline_math_text_block(text_block: dict[str, Any]) -> bool:
+    text = _clean_text(str(text_block.get("text", "")))
+    if not text or len(text) > 260:
+        return False
+    lowered = text.lower()
+    has_anchor_cue = any(cue in lowered for cue in ("i.e.", "respectively", "where", "denotes", "defined as", "with "))
+    has_non_anchor_math = _looks_like_non_anchor_inline_math_text(text)
+    if not has_anchor_cue and not has_non_anchor_math:
+        return False
+    if not re.search(r"[=∑∫√≤≥<>+\-*/]", text):
+        return False
+    spans = [span for span in text_block.get("spans", []) or [] if _span_text(span)]
+    if len(spans) < 4:
+        return False
+    sizes = sorted(_span_size(span) for span in spans if _span_size(span) > 0)
+    if len(sizes) < 3:
+        return False
+    body_size = sizes[int((len(sizes) - 1) * 0.75)]
+    if has_non_anchor_math:
+        return True
+    return any(0 < _span_size(span) <= body_size * 0.78 for span in spans)
+
+
+def _looks_like_non_anchor_inline_math_text(text: str) -> bool:
+    cleaned = _clean_text(str(text or ""))
+    if not cleaned or "=" not in cleaned:
+        return False
+    lowered = cleaned.lower()
+    if re.match(r"^(?:table|fig\.?|figure|algorithm)\b", lowered):
+        return False
+    math_symbol_count = len(re.findall(r"[=+\-*/∑∫√≤≥<>]", cleaned))
+    alpha_tokens = re.findall(r"[A-Za-z]+", cleaned)
+    if math_symbol_count < 2:
+        return False
+    if any(function_name in lowered for function_name in ("exp", "log", "min", "max", "relu", "sin", "cos", "sqrt")):
+        return True
+    if re.search(r"\b[A-Za-z]\s*\([^)]{1,24}\)\s*=", cleaned):
+        return True
+    if re.search(r"\b[A-Za-z](?:\s+[A-Za-z0-9])?\s*=", cleaned) and math_symbol_count >= 3:
+        return True
+    return len(alpha_tokens) <= 14 and math_symbol_count >= 3
+
+
+def _inline_math_body_baseline(spans: list[dict[str, Any]]) -> tuple[float, float]:
+    sizes = sorted(_span_size(span) for span in spans if _span_size(span) > 0)
+    body_size = sizes[int((len(sizes) - 1) * 0.75)] if sizes else 0.0
+    body_spans = [
+        span
+        for span in spans
+        if _span_size(span) >= body_size * 0.9 and re.search(r"[A-Za-z=∑∫√+\-*/.,]", _span_text(span))
+    ]
+    if not body_spans:
+        body_spans = spans
+    centers = sorted(_span_center_y(span) for span in body_spans)
+    baseline_center = centers[len(centers) // 2] if centers else 0.0
+    return baseline_center, body_size
+
+
+def _is_subscript_span(span: dict[str, Any], baseline_center: float, body_size: float) -> bool:
+    return body_size > 0 and _span_size(span) <= body_size * 0.82 and _span_center_y(span) > baseline_center + body_size * 0.18
+
+
+def _is_superscript_span(span: dict[str, Any], baseline_center: float, body_size: float) -> bool:
+    return body_size > 0 and _span_size(span) <= body_size * 0.82 and _span_center_y(span) < baseline_center - body_size * 0.18
+
+
+def _find_nearby_subscript(
+    spans: list[dict[str, Any]],
+    index: int,
+    baseline_center: float,
+    body_size: float,
+    *,
+    max_gap: float = 3.2,
+) -> tuple[str, int] | None:
+    if index + 1 >= len(spans):
+        return None
+    base_bbox = _span_bbox(spans[index])
+    next_span = spans[index + 1]
+    next_bbox = _span_bbox(next_span)
+    next_text = _span_text(next_span)
+    if not next_text or not re.fullmatch(r"[A-Za-z0-9]+", next_text):
+        return None
+    if not _is_subscript_span(next_span, baseline_center, body_size):
+        return None
+    gap = float(next_bbox[0]) - float(base_bbox[2])
+    if -1.0 <= gap <= max_gap:
+        return next_text, index + 1
+    return None
+
+
+def _find_fraction_denominator(
+    spans: list[dict[str, Any]],
+    numerator_index: int,
+    baseline_center: float,
+    body_size: float,
+) -> tuple[str, int] | None:
+    numerator_bbox = _span_bbox(spans[numerator_index])
+    candidates: list[tuple[float, str, int]] = []
+    for idx in range(numerator_index + 1, min(len(spans), numerator_index + 5)):
+        span = spans[idx]
+        text = _span_text(span)
+        if not text or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*|[A-Za-z0-9]{1,3}", text):
+            continue
+        if not _is_subscript_span(span, baseline_center, body_size):
+            continue
+        bbox = _span_bbox(span)
+        horizontal_gap = abs(((bbox[0] + bbox[2]) / 2.0) - ((numerator_bbox[0] + numerator_bbox[2]) / 2.0))
+        if horizontal_gap > max(7.0, body_size * 1.2):
+            continue
+        denominator = text
+        consumed = idx
+        subscript = _find_nearby_subscript(spans, idx, baseline_center, body_size)
+        if subscript is not None:
+            denominator = f"{denominator}_{subscript[0]}"
+            consumed = subscript[1]
+        candidates.append((horizontal_gap, denominator, consumed))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1], candidates[0][2]
+
+
+def _find_sum_bounds(
+    spans: list[dict[str, Any]],
+    sum_index: int,
+    baseline_center: float,
+    body_size: float,
+) -> tuple[str | None, str | None, int]:
+    sum_bbox = _span_bbox(spans[sum_index])
+    upper_parts: list[tuple[float, int, str]] = []
+    lower_parts: list[tuple[float, int, str]] = []
+    consumed = sum_index
+    bound_right = float(sum_bbox[2]) + max(7.0, body_size * 0.9)
+    for idx in range(sum_index + 1, min(len(spans), sum_index + 7)):
+        span = spans[idx]
+        text = _span_text(span)
+        if not text or text in {"and", ","}:
+            break
+        bbox = _span_bbox(span)
+        if float(bbox[0]) > bound_right:
+            break
+        if _is_superscript_span(span, baseline_center, body_size):
+            upper_parts.append((float(bbox[0]), idx, text))
+            consumed = max(consumed, idx)
+        elif _is_subscript_span(span, baseline_center, body_size):
+            lower_parts.append((float(bbox[0]), idx, text))
+            consumed = max(consumed, idx)
+        elif text == "=":
+            lower_parts.append((float(bbox[0]), idx, text))
+            consumed = max(consumed, idx)
+        elif lower_parts and re.fullmatch(r"[A-Za-z0-9]+", text):
+            lower_parts.append((float(bbox[0]), idx, text))
+            consumed = max(consumed, idx)
+        else:
+            break
+
+    upper_tokens = [text for _, _, text in sorted(upper_parts)]
+    upper = "".join(upper_tokens)
+    if len(upper_tokens) == 2 and all(re.fullmatch(r"[A-Za-z0-9]+", token) for token in upper_tokens):
+        upper = f"{upper_tokens[0]}_{upper_tokens[1]}"
+    lower = "".join(text for _, _, text in sorted(lower_parts))
+    if lower and "=" not in lower and len(lower) >= 2:
+        lower = f"{lower[0]}={lower[1:]}"
+    return lower or None, upper or None, consumed
+
+
+def _find_fraction_from_denominator_first(
+    spans: list[dict[str, Any]],
+    denominator_index: int,
+    baseline_center: float,
+    body_size: float,
+) -> tuple[str, int] | None:
+    denominator_span = spans[denominator_index]
+    denominator_text = _span_text(denominator_span)
+    if not denominator_text or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*|[A-Za-z0-9]{1,3}", denominator_text):
+        return None
+    if not _is_subscript_span(denominator_span, baseline_center, body_size):
+        return None
+    denominator_bbox = _span_bbox(denominator_span)
+    numerator_index = denominator_index + 1
+    if numerator_index >= len(spans):
+        return None
+    numerator_span = spans[numerator_index]
+    if _span_text(numerator_span) != "1" or not _is_superscript_span(numerator_span, baseline_center, body_size):
+        return None
+    numerator_bbox = _span_bbox(numerator_span)
+    center_gap = abs(((denominator_bbox[0] + denominator_bbox[2]) / 2.0) - ((numerator_bbox[0] + numerator_bbox[2]) / 2.0))
+    if center_gap > max(4.5, body_size * 0.7):
+        return None
+    denominator = denominator_text
+    consumed = numerator_index
+    if numerator_index + 1 < len(spans):
+        subscript = spans[numerator_index + 1]
+        subscript_text = _span_text(subscript)
+        subscript_bbox = _span_bbox(subscript)
+        if (
+            subscript_text
+            and re.fullmatch(r"[A-Za-z0-9]+", subscript_text)
+            and _is_subscript_span(subscript, baseline_center, body_size)
+            and float(subscript_bbox[0]) - float(denominator_bbox[2]) <= max(3.2, body_size * 0.45)
+        ):
+            denominator = f"{denominator}_{subscript_text}"
+            consumed = numerator_index + 1
+    return f"\\frac{{1}}{{{denominator}}}", consumed
+
+
+def _format_inline_math_span_text(
+    spans: list[dict[str, Any]],
+    start: int,
+    end: int,
+    baseline_center: float,
+    body_size: float,
+) -> str:
+    parts: list[str] = []
+    idx = start
+    while idx < end:
+        span = spans[idx]
+        text = _span_text(span)
+        if not text:
+            idx += 1
+            continue
+        if "∑" in text and text != "∑":
+            text = text.replace("∑", "\\sum")
+        if _is_sum_symbol_text(text):
+            lower, upper, consumed = _find_sum_bounds(spans, idx, baseline_center, body_size)
+            if lower or upper:
+                parts.append(f"\\sum{f'_{{{lower}}}' if lower else ''}{f'^{{{upper}}}' if upper else ''}")
+                idx = max(consumed + 1, idx + 1)
+                continue
+            parts.append("\\sum")
+            idx += 1
+            continue
+        denominator_first_fraction = _find_fraction_from_denominator_first(
+            spans,
+            idx,
+            baseline_center,
+            body_size,
+        )
+        if denominator_first_fraction is not None:
+            parts.append(denominator_first_fraction[0])
+            idx = denominator_first_fraction[1] + 1
+            continue
+        if text == "1" and _is_superscript_span(span, baseline_center, body_size):
+            denominator = _find_fraction_denominator(spans, idx, baseline_center, body_size)
+            if denominator is not None:
+                parts.append(f"\\frac{{1}}{{{denominator[0]}}}")
+                idx = denominator[1] + 1
+                continue
+        if re.fullmatch(r"[A-Za-z]", text) and not _is_subscript_span(span, baseline_center, body_size):
+            subscript = _find_nearby_subscript(spans, idx, baseline_center, body_size)
+            if subscript is not None:
+                parts.append(f"{text}_{subscript[0]}")
+                idx = subscript[1] + 1
+                continue
+        if text == "(" and idx + 2 < end and _span_text(spans[idx + 2]) == ")":
+            inner = _span_text(spans[idx + 1])
+            if inner:
+                parts.append(f"^{{({inner})}}")
+                idx += 3
+                continue
+        if _is_subscript_span(span, baseline_center, body_size) and re.fullmatch(r"[A-Za-z0-9]+", text):
+            parts.append(f"_{text}")
+        elif _is_superscript_span(span, baseline_center, body_size) and re.fullmatch(r"[A-Za-z0-9]+", text):
+            parts.append(f"^{text}")
+        else:
+            parts.append(text)
+        idx += 1
+
+    joined = " ".join(part for part in parts if part)
+    joined = re.sub(r"\s+([,.;:])", r"\1", joined)
+    joined = re.sub(r"(?<!\\)_\s+", "_", joined)
+    joined = re.sub(r"(\S)\s+\^\{", r"\1^{", joined)
+    joined = re.sub(r"(\S)\s+_", r"\1_", joined)
+    return joined.strip()
+
+
+def _build_inline_math_display_text(text_block: dict[str, Any]) -> str | None:
+    if not _looks_like_inline_math_text_block(text_block):
+        return None
+    spans = sorted(
+        [span for span in text_block.get("spans", []) or [] if _span_text(span)],
+        key=lambda span: (_span_bbox(span)[0], _span_center_y(span)),
+    )
+    if not spans:
+        return None
+    baseline_center, body_size = _inline_math_body_baseline(spans)
+    anchor_index = next(
+        (
+            idx
+            for idx, span in enumerate(spans)
+            if _span_text(span) in {"i.e.", "i.e.,", "where", "denotes"}
+            or _span_text(span).lower() == "respectively,"
+        ),
+        -1,
+    )
+    search_start = anchor_index + 1 if anchor_index >= 0 else 0
+    first_math_index = next(
+        (
+            idx
+            for idx in range(search_start, len(spans))
+            if _looks_like_inline_formula_start_span(spans, idx, baseline_center, body_size)
+        ),
+        -1,
+    )
+    if first_math_index < 0:
+        return None
+    end_index = _inline_formula_end_index(spans, first_math_index)
+    prefix = " ".join(_span_text(span) for span in spans[:first_math_index]).strip()
+    math_text = _format_inline_math_span_text(spans, first_math_index, end_index, baseline_center, body_size)
+    if not math_text:
+        return None
+    suffix = " ".join(_span_text(span) for span in spans[end_index:]).strip()
+    display_text = re.sub(r"\s+([,.;:])", r"\1", f"{prefix} {math_text} {suffix}".strip())
+    return display_text if display_text != _clean_text(str(text_block.get("text", ""))) else None
+
+
+def _looks_like_inline_formula_start_span(
+    spans: list[dict[str, Any]],
+    index: int,
+    baseline_center: float,
+    body_size: float,
+) -> bool:
+    text = _span_text(spans[index])
+    if not text:
+        return False
+    if text in {"=", "+", "-", "−", "∑", "∫", "√"}:
+        return True
+    if text.lower() in {"exp", "log", "min", "max", "relu"}:
+        return True
+    if re.fullmatch(r"[A-Za-z]", text) and not _is_subscript_span(spans[index], baseline_center, body_size):
+        return True
+    return False
+
+
+def _inline_formula_end_index(spans: list[dict[str, Any]], start_index: int) -> int:
+    end_index = len(spans)
+    prose_starts = {
+        "and",
+        "has",
+        "have",
+        "been",
+        "used",
+        "methods",
+        "method",
+        "where",
+        "with",
+        "denotes",
+        "denote",
+        "is",
+        "are",
+        "found",
+        "through",
+        "if",
+        "then",
+        "the",
+        "proof",
+        "complete",
+    }
+    for idx in range(start_index + 1, len(spans)):
+        text = _span_text(spans[idx]).lower()
+        if text in prose_starts and not _inline_formula_should_continue_through_prose_token(spans, idx):
+            return idx
+        if re.match(r"^(?:has|have|been|used|methods?|where|with|denotes?|is|are|found|through|if|then|the|proof|complete)\b", text):
+            return idx
+    return end_index
+
+
+def _inline_formula_should_continue_through_prose_token(spans: list[dict[str, Any]], index: int) -> bool:
+    text = _span_text(spans[index]).lower()
+    if text != "and":
+        return False
+    lookahead = [_span_text(span) for span in spans[index + 1 : min(len(spans), index + 8)]]
+    return "=" in lookahead
+
+
+def _inline_formula_complexity(math_text: str) -> str:
+    text = _clean_text(str(math_text or ""))
+    if not text:
+        return "none"
+    if re.search(r"(?:=|<=|>=|≤|≥|<|>|\\sum|\\frac|\\sqrt|\\int|\b(?:exp|log|min|max|sin|cos)\b)", text):
+        return "inline_formula"
+    if re.search(r"(?:[_^]|\^\{|\b[A-Za-z]\s*\([^)]{1,24}\))", text):
+        return "inline_symbol"
+    return "plain_symbol"
+
+
+def _inline_formula_is_ocr_candidate(math_text: str, complexity: str) -> bool:
+    if complexity != "inline_formula":
+        return False
+    text = _clean_text(str(math_text or ""))
+    if not text:
+        return False
+    if len(re.findall(r"[A-Za-z0-9]", text)) < 2:
+        return False
+    return True
+
+
+def _build_inline_formula_spans(
+    text_block: dict[str, Any],
+    display_text: str | None = None,
+) -> list[dict[str, Any]]:
+    math_text = _build_inline_formula_core_text(text_block)
+    if not str(math_text or "").strip():
+        math_text = str(display_text or _build_inline_math_display_text(text_block) or "").strip()
+    if not str(math_text or "").strip():
+        return []
+    complexity = _inline_formula_complexity(str(math_text or ""))
+    if complexity == "plain_symbol":
+        return []
+    spans = sorted(
+        [span for span in text_block.get("spans", []) or [] if _span_text(span)],
+        key=lambda span: (_span_bbox(span)[0], _span_center_y(span)),
+    )
+    if not spans:
+        return []
+    baseline_center, body_size = _inline_math_body_baseline(spans)
+    anchor_index = next(
+        (
+            idx
+            for idx, span in enumerate(spans)
+            if _span_text(span) in {"i.e.", "i.e.,", "where", "denotes"}
+            or _span_text(span).lower() == "respectively,"
+        ),
+        -1,
+    )
+    first_math_index = next(
+        (
+            idx
+            for idx in range(max(0, anchor_index + 1), len(spans))
+            if _looks_like_inline_formula_start_span(spans, idx, baseline_center, body_size)
+        ),
+        -1,
+    )
+    end_index = _inline_formula_end_index(spans, first_math_index) if first_math_index >= 0 else len(spans)
+    math_spans = spans[first_math_index:end_index] if first_math_index >= 0 else spans
+    bbox = _bbox_union([_span_bbox(span) for span in math_spans])
+    if len(bbox) < 4:
+        bbox = list(text_block.get("bbox", []) or [])
+    return [
+        {
+            "type": "inline_equation",
+            "layout_label": "inline_formula",
+            "bbox": list(bbox),
+            "content": str(math_text or "").strip(),
+            "render": "latex_inline",
+            "source": "pdf_text_layer_2d_reconstruction",
+            "formula_complexity": complexity,
+            "ocr_candidate": _inline_formula_is_ocr_candidate(str(math_text or ""), complexity),
+        }
+    ]
+
+
+def _build_inline_formula_core_text(text_block: dict[str, Any]) -> str:
+    if not _looks_like_inline_math_text_block(text_block):
+        return ""
+    spans = sorted(
+        [span for span in text_block.get("spans", []) or [] if _span_text(span)],
+        key=lambda span: (_span_bbox(span)[0], _span_center_y(span)),
+    )
+    if not spans:
+        return ""
+    baseline_center, body_size = _inline_math_body_baseline(spans)
+    anchor_index = next(
+        (
+            idx
+            for idx, span in enumerate(spans)
+            if _span_text(span) in {"i.e.", "i.e.,", "where", "denotes"}
+            or _span_text(span).lower() == "respectively,"
+        ),
+        -1,
+    )
+    first_math_index = next(
+        (
+            idx
+            for idx in range(max(0, anchor_index + 1), len(spans))
+            if _looks_like_inline_formula_start_span(spans, idx, baseline_center, body_size)
+        ),
+        -1,
+    )
+    if first_math_index < 0:
+        return ""
+    end_index = _inline_formula_end_index(spans, first_math_index)
+    return _format_inline_math_span_text(spans, first_math_index, end_index, baseline_center, body_size)
 
 
 def _build_text_content_evidence(text_block: dict[str, Any]) -> dict[str, Any]:
@@ -2743,7 +4574,42 @@ def _build_text_content_evidence(text_block: dict[str, Any]) -> dict[str, Any]:
             segment["continuation"] = True
         if bool(text_block.get("reference_page_continuation")):
             segment["page_continuation"] = True
-    return {
+    elif semantic_role == "footnote":
+        footnote_text = _clean_text(str(text_block.get("footnote_text", "") or ""))
+        if footnote_text:
+            segment["text"] = footnote_text
+        segment["footnote_id"] = str(text_block.get("footnote_id", "") or "").strip()
+        segment["marker"] = str(text_block.get("footnote_marker", "") or "").strip()
+        segment["source_block_ids"] = list(text_block.get("footnote_source_block_ids", []) or [])
+        if text_block.get("footnote_signals"):
+            segment["footnote_signals"] = list(text_block.get("footnote_signals", []) or [])
+        if text_block.get("separator_line_evidence"):
+            segment["separator_line_evidence"] = dict(text_block.get("separator_line_evidence", {}) or {})
+        if bool(text_block.get("footnote_continuation")):
+            segment["continuation"] = True
+    elif semantic_role == "footnote_continuation":
+        segment["footnote_id"] = str(text_block.get("footnote_id", "") or "").strip()
+        segment["marker"] = str(text_block.get("footnote_marker", "") or "").strip()
+        segment["source_block_ids"] = list(text_block.get("footnote_source_block_ids", []) or [])
+        if text_block.get("footnote_signals"):
+            segment["footnote_signals"] = list(text_block.get("footnote_signals", []) or [])
+        if text_block.get("separator_line_evidence"):
+            segment["separator_line_evidence"] = dict(text_block.get("separator_line_evidence", {}) or {})
+        segment["continuation"] = True
+    if text_block.get("linked_footnote_ids"):
+        segment["linked_footnote_ids"] = list(text_block.get("linked_footnote_ids", []) or [])
+        segment["footnote_refs"] = [dict(item) for item in text_block.get("footnote_refs", []) or []]
+    display_text = _build_inline_math_display_text(text_block)
+    if display_text:
+        segment["display_text"] = display_text
+        segment["math_text"] = display_text
+        segment["text_projection"] = "inline_math_2d"
+    inline_formula_spans = []
+    if semantic_role != "display_equation":
+        inline_formula_spans = _build_inline_formula_spans(text_block, display_text)
+    if inline_formula_spans:
+        segment["inline_formula_spans"] = inline_formula_spans
+    evidence = {
         "evidence_id": f"ce_text_{block_id}",
         "source_type": "text",
         "source_id": block_id,
@@ -2753,7 +4619,39 @@ def _build_text_content_evidence(text_block: dict[str, Any]) -> dict[str, Any]:
         "content_text": text,
         "segments": [segment],
         "source": text_block.get("source", "text-layer"),
+        **(
+            {"linked_footnote_ids": list(text_block.get("linked_footnote_ids", []) or [])}
+            if list(text_block.get("linked_footnote_ids", []) or [])
+            else {}
+        ),
+        **(
+            {"footnote_refs": [dict(item) for item in text_block.get("footnote_refs", []) or []]}
+            if list(text_block.get("footnote_refs", []) or [])
+            else {}
+        ),
+        **(
+            {
+                "footnote_id": str(text_block.get("footnote_id", "") or "").strip(),
+                "footnote_marker": str(text_block.get("footnote_marker", "") or "").strip(),
+                "footnote_source_block_ids": list(text_block.get("footnote_source_block_ids", []) or []),
+                "footnote_signals": list(text_block.get("footnote_signals", []) or []),
+                **(
+                    {"separator_line_evidence": dict(text_block.get("separator_line_evidence", {}) or {})}
+                    if text_block.get("separator_line_evidence")
+                    else {}
+                ),
+            }
+            if semantic_role == "footnote"
+            else {}
+        ),
     }
+    if display_text:
+        evidence["display_text"] = display_text
+        evidence["math_text"] = display_text
+        evidence["text_projection"] = "inline_math_2d"
+    if inline_formula_spans:
+        evidence["inline_formula_spans"] = inline_formula_spans
+    return evidence
 
 
 def _build_image_content_evidence(image_block: dict[str, Any]) -> dict[str, Any]:

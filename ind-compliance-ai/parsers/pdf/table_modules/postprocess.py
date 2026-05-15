@@ -51,7 +51,10 @@ import re
 from typing import Any
 
 from ..settings import get_pdf_parser_settings
-from .cell_text_projection import project_table_grid_display_text
+from .cell_text_projection import (
+    project_pdf_math_symbol_display_text,
+    project_table_grid_display_text,
+)
 
 _CONTINUATION_HINT_KEYWORDS = ["continued", "continued from", "续表", "续页"]
 _CONTINUATION_HINT_KEYWORDS = ["continued", "continued from", "\u7eed\u8868", "\u7eed\u9875"]
@@ -617,12 +620,95 @@ def _row_has_semantic_content(row: list[str | None]) -> bool:
     return False
 
 
+def _effective_data_start_row_for_row_views(
+    raw_grid: list[list[str | None]],
+    *,
+    data_start_row: int,
+) -> int:
+    if data_start_row != 1 or len(raw_grid) < 2:
+        return data_start_row
+    if _rows_share_data_value_profile(raw_grid[0], raw_grid[1]):
+        return 0
+    return data_start_row
+
+
+def _rows_share_data_value_profile(
+    left: list[str | None],
+    right: list[str | None],
+) -> bool:
+    left_texts = [_semantic_cell_text(cell) for cell in left]
+    right_texts = [_semantic_cell_text(cell) for cell in right]
+    if len(left_texts) < 2 or len(left_texts) != len(right_texts):
+        return False
+
+    left_non_empty = [text for text in left_texts if text]
+    right_non_empty = [text for text in right_texts if text]
+    if len(left_non_empty) < 2 or len(right_non_empty) < 2:
+        return False
+    if _rows_look_like_header_then_data(left_texts, right_texts):
+        return False
+
+    comparable_columns = 0
+    matching_profile_columns = 0
+    for left_text, right_text in zip(left_texts, right_texts):
+        if not left_text or not right_text:
+            continue
+        left_kind = _cell_value_profile_kind(left_text)
+        right_kind = _cell_value_profile_kind(right_text)
+        if left_kind == "text" and right_kind == "text":
+            continue
+        comparable_columns += 1
+        if left_kind == right_kind:
+            matching_profile_columns += 1
+    if comparable_columns < 2:
+        return False
+    return matching_profile_columns >= max(2, comparable_columns - 1)
+
+
+def _rows_look_like_header_then_data(
+    header_like_row: list[str],
+    data_like_row: list[str],
+) -> bool:
+    header_schema_cells = sum(1 for text in header_like_row if _cell_value_profile_kind(text) == "header_label")
+    data_value_cells = sum(
+        1
+        for text in data_like_row
+        if _cell_value_profile_kind(text) in {"numeric", "statistical", "pathish", "code"}
+    )
+    return header_schema_cells >= max(2, len(header_like_row) // 2) and data_value_cells >= 1
+
+
+def _cell_value_profile_kind(text: str) -> str:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned:
+        return "empty"
+    if _looks_like_pathish_text(cleaned):
+        return "pathish"
+    normalized = str(project_pdf_math_symbol_display_text(cleaned) or "")
+    if re.search(r"\([+=-]\)", normalized) or re.search(r"\d(?:\.\d+)?e\s*-?\s*\d+", cleaned, re.IGNORECASE):
+        return "statistical"
+    if re.fullmatch(r"[-+]?\d+(?:\.\d+)?(?:\([^)]+\))?", cleaned):
+        return "numeric"
+    if re.fullmatch(r"[A-Z]{2,}[\w.-]*\d[\w.-]*", cleaned):
+        return "code"
+    if re.search(r"\b(?:vs\.?|versus)\b", cleaned, re.IGNORECASE):
+        return "header_label"
+    words = re.findall(r"[A-Za-z]+", cleaned)
+    if words and len(words) <= 4 and not re.search(r"\d", cleaned):
+        return "header_label"
+    return "text"
+
+
 def _build_row_views_from_raw_grid(
     raw_grid: list[list[str | None]],
     *,
     data_start_row: int = 0,
     raw_audit_grid: list[list[str | None]] | None = None,
 ) -> tuple[list[list[str | None]], list[list[str | None]], list[str], list[str], list[str], list[int]]:
+    data_start_row = _effective_data_start_row_for_row_views(
+        raw_grid,
+        data_start_row=data_start_row,
+    )
     projected_grid, projected_data_start_row = _project_sparse_header_continuation_rows(
         raw_grid,
         data_start_row=data_start_row,

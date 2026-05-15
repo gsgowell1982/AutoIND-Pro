@@ -275,6 +275,72 @@ class EctdRegressionSampleTests(unittest.TestCase):
             )
         )
 
+    def test_footnotes_are_structured_and_linked_to_inline_markers(self) -> None:
+        footnotes = {
+            (int(item.get("page", 0) or 0), str(item.get("marker", "")).strip()): item
+            for item in self.result.get("footnotes", [])
+        }
+
+        page20_note = footnotes.get((20, "1"))
+        page39_note = footnotes.get((39, "2"))
+        self.assertIsNotNone(page20_note)
+        self.assertIsNotNone(page39_note)
+        self.assertIn("SAS XPORT", page20_note["text"])
+        self.assertIn("V4.0", page20_note["text"])
+        self.assertIn("https://www.ich.org", page39_note["text"])
+        self.assertIn("https://www.cde.org.cn", page39_note["text"])
+        self.assertEqual(
+            page20_note["source_block_ids"],
+            ["txt_p20_031", "txt_p20_032", "txt_p20_033", "txt_p20_034"],
+        )
+        self.assertEqual(page39_note["source_block_ids"], ["txt_p39_021", "txt_p39_022"])
+
+        page20 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 20)
+        page39 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 39)
+        page20_anchor = next(block for block in page20["blocks"] if block["block_id"] == "txt_p20_005")
+        page39_anchor = next(block for block in page39["blocks"] if block["block_id"] == "txt_p39_002")
+        self.assertIn(page20_note["footnote_id"], page20_anchor.get("linked_footnote_ids", []))
+        self.assertIn(page39_note["footnote_id"], page39_anchor.get("linked_footnote_ids", []))
+
+        footnote_units = [
+            unit
+            for unit in self.result["content_units"]
+            if unit.get("semantic_role") == "footnote"
+        ]
+        self.assertEqual(len(footnote_units), 2)
+        self.assertTrue(all(unit.get("unit_role") == "footnote" for unit in footnote_units))
+        self.assertTrue(all(not unit.get("fact_extraction_eligible") for unit in footnote_units))
+        footnote_source_ids = {
+            source_id
+            for footnote in (page20_note, page39_note)
+            for source_id in footnote.get("footnote_source_block_ids", [])
+        }
+        self.assertFalse(
+            any(
+                unit.get("fact_extraction_eligible") and unit.get("source_id") in footnote_source_ids
+                for unit in self.result["content_units"]
+            )
+        )
+
+    def test_document_ast_footnote_blocks_carry_complete_merged_text_for_markdown(self) -> None:
+        from api.main import _build_full_markdown
+
+        page20 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 20)
+        page39 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 39)
+        page20_note = next(block for block in page20["blocks"] if block.get("block_id") == "txt_p20_031")
+        page39_note = next(block for block in page39["blocks"] if block.get("block_id") == "txt_p39_021")
+
+        self.assertIn("SAS XPORT", page20_note.get("footnote_text", ""))
+        self.assertIn("V4.0", page20_note.get("footnote_text", ""))
+        self.assertIn("https://www.ich.org/", page39_note.get("footnote_text", ""))
+        self.assertIn("https://www.cde.org.cn/", page39_note.get("footnote_text", ""))
+
+        markdown = _build_full_markdown([self.result])
+        page20_definition = markdown[markdown.index("[^1]:") : markdown.index("[^2]:")]
+        self.assertIn("SAS XPORT", page20_definition)
+        self.assertIn("V4.0", page20_definition)
+        self.assertIn("https://www.cde.org.cn", markdown[markdown.index("[^2]:") :])
+
     def test_workbench_projection_preserves_hierarchical_and_boundary_merged_tables(self) -> None:
         if self.workbench is None:
             self.skipTest("api.main unavailable in this environment")

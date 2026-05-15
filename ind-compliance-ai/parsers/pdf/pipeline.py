@@ -68,6 +68,7 @@ from .text_blocks import (
     _extract_page_text_and_images,
     _filter_header_footer_text_blocks,
     _merge_semantic_text_blocks,
+    annotate_table_presentation_bboxes,
     repair_suspicious_body_text_blocks_with_local_ocr,
     reconstruct_visual_text_lines,
     _suppress_table_text_blocks,
@@ -383,6 +384,7 @@ def run_pdf_extraction_pipeline(path: Path) -> PdfPipelineState:
             state.figure_nodes.extend(page_figures)
 
             suppressed_regions = page_tables + page_toc_blocks
+            annotate_table_presentation_bboxes(text_blocks, page_tables)
             text_blocks, suppressed_count = _suppress_table_text_blocks(text_blocks, suppressed_regions)
             state.counters.table_text_suppressed_count += suppressed_count
 
@@ -393,6 +395,7 @@ def run_pdf_extraction_pipeline(path: Path) -> PdfPipelineState:
                     "width": float(page_rect.width),
                     "height": float(page_rect.height),
                     "page_words": page_words,
+                    "page_drawings": page_drawings,
                     "text_blocks": text_blocks,
                     "images": page_images,
                     "tables": page_tables,

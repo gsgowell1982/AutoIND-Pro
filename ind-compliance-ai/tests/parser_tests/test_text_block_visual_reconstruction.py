@@ -19,6 +19,7 @@ from parsers.pdf.text_blocks import (
     _filter_header_footer_text_blocks,
     _merge_semantic_text_blocks,
     _sort_text_blocks_by_visual_rows,
+    build_reading_order_diagnostics,
     order_text_blocks_for_reading,
     reconstruct_visual_text_lines,
 )
@@ -346,6 +347,68 @@ class TextBlockVisualReconstructionTests(unittest.TestCase):
             [block["text"] for block in ordered],
             ["Figure caption", "Left row 1", "Left row 2", "Right row 1", "Right row 2", "Bottom note"],
         )
+
+    def test_mixed_reading_order_restarts_columns_after_full_width_separator(self) -> None:
+        top_heading = _block("Full width article heading", (54.0, 88.0, 540.0, 104.0), font_size=12.0, source_block_index=1)
+        top_heading["layout_lane"] = "full_width"
+        left_a1 = _block("Left A1", (56.0, 120.0, 280.0, 132.0), font_size=9.0, source_block_index=2)
+        left_a1["layout_lane"] = "left"
+        right_a1 = _block("Right A1", (314.0, 120.0, 540.0, 132.0), font_size=9.0, source_block_index=3)
+        right_a1["layout_lane"] = "right"
+        left_a2 = _block("Left A2", (56.0, 136.0, 280.0, 148.0), font_size=9.0, source_block_index=4)
+        left_a2["layout_lane"] = "left"
+        right_a2 = _block("Right A2", (314.0, 136.0, 540.0, 148.0), font_size=9.0, source_block_index=5)
+        right_a2["layout_lane"] = "right"
+        table_caption = _block("Full width table caption", (54.0, 180.0, 540.0, 194.0), font_size=9.0, source_block_index=6)
+        table_caption["layout_lane"] = "full_width"
+        left_b1 = _block("Left B1", (56.0, 214.0, 280.0, 226.0), font_size=9.0, source_block_index=7)
+        left_b1["layout_lane"] = "left"
+        right_b1 = _block("Right B1", (314.0, 214.0, 540.0, 226.0), font_size=9.0, source_block_index=8)
+        right_b1["layout_lane"] = "right"
+
+        ordered = order_text_blocks_for_reading(
+            [right_b1, right_a2, left_a1, table_caption, right_a1, top_heading, left_b1, left_a2],
+            {"mode": "mixed", "page_width": 595.0, "column_mid": 298.0, "lane_tolerance": 20.0},
+        )
+
+        self.assertEqual(
+            [block["text"] for block in ordered],
+            [
+                "Full width article heading",
+                "Left A1",
+                "Left A2",
+                "Right A1",
+                "Right A2",
+                "Full width table caption",
+                "Left B1",
+                "Right B1",
+            ],
+        )
+
+    def test_reading_order_diagnostics_describe_two_column_zones_without_reordering_text(self) -> None:
+        heading = _block("Full width heading", (54.0, 88.0, 540.0, 104.0), font_size=12.0, source_block_index=1)
+        heading["layout_lane"] = "full_width"
+        left_1 = _block("Left 1", (56.0, 120.0, 280.0, 132.0), font_size=9.0, source_block_index=2)
+        left_1["layout_lane"] = "left"
+        right_1 = _block("Right 1", (314.0, 120.0, 540.0, 132.0), font_size=9.0, source_block_index=3)
+        right_1["layout_lane"] = "right"
+        left_2 = _block("Left 2", (56.0, 136.0, 280.0, 148.0), font_size=9.0, source_block_index=4)
+        left_2["layout_lane"] = "left"
+        right_2 = _block("Right 2", (314.0, 136.0, 540.0, 148.0), font_size=9.0, source_block_index=5)
+        right_2["layout_lane"] = "right"
+
+        diagnostics = build_reading_order_diagnostics(
+            [right_2, heading, right_1, left_2, left_1],
+            {"mode": "mixed", "confidence": 0.91, "page_width": 595.0, "column_mid": 298.0, "lane_tolerance": 20.0},
+        )
+
+        self.assertEqual(diagnostics["strategy"], "zone_columns_left_then_right")
+        self.assertEqual(diagnostics["zone_count"], 2)
+        self.assertEqual(diagnostics["column_zone_count"], 1)
+        self.assertEqual(diagnostics["full_width_zone_count"], 1)
+        self.assertEqual(diagnostics["left_block_count"], 2)
+        self.assertEqual(diagnostics["right_block_count"], 2)
+        self.assertFalse(diagnostics["review_required"])
 
     def test_layout_lane_keeps_bottom_column_rows_out_of_full_width_merge_path(self) -> None:
         profile = {

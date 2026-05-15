@@ -47,7 +47,10 @@ from core.run_manager import (
     persist_normalized_artifacts,
     persist_run_outputs,
 )
-from parsers.pdf.table_modules.cell_text_projection import project_table_cell_display_text
+from parsers.pdf.table_modules.cell_text_projection import (
+    project_pdf_math_symbol_display_text,
+    project_table_cell_display_text,
+)
 from parsers.parser_registry import parse_file
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -847,7 +850,7 @@ def _find_uri_for_text_block(
     block: dict[str, Any],
     uri_link_records_by_page: dict[int, list[dict[str, Any]]],
 ) -> str:
-    text = str(block.get("text") or "").strip()
+    text = str(project_pdf_math_symbol_display_text(block.get("display_text") or block.get("text") or "") or "").strip()
     if not text or "http://" in text or "https://" in text:
         return ""
     try:
@@ -950,6 +953,8 @@ def _markdown_display_rows_after_structural_prefix(block: dict[str, Any], column
 
 
 def _markdown_table_display_data_start_index(block: dict[str, Any]) -> int:
+    if _markdown_table_header_is_external_to_display_grid(block):
+        return 0
     data_start = block.get("data_start_row")
     if isinstance(data_start, int) and data_start >= 0:
         return data_start
@@ -960,6 +965,40 @@ def _markdown_table_display_data_start_index(block: dict[str, Any]) -> int:
     if isinstance(title_row, int) and title_row >= 0:
         return title_row + 1
     return 1
+
+
+def _markdown_table_header_is_external_to_display_grid(block: dict[str, Any]) -> bool:
+    header = [
+        str(item.get("text") or "").strip()
+        for item in block.get("header", []) or []
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    display_grid = block.get("display_grid")
+    if not header or not isinstance(display_grid, list) or not display_grid:
+        return False
+    if isinstance(block.get("header_row_index"), int):
+        return False
+    if isinstance(block.get("title_row_index"), int):
+        return False
+    if not bool(block.get("header_rebuilt_by_context") or block.get("header_rebuilt_by_guard")):
+        return False
+
+    first_display_row = next((row for row in display_grid if isinstance(row, list) and any(row)), None)
+    if first_display_row is None:
+        return False
+    first_texts = [str(cell or "").strip() for cell in first_display_row]
+    if len(first_texts) != len(header):
+        return False
+    header_compact = [_markdown_compact_table_text(text) for text in header]
+    first_compact = [_markdown_compact_table_text(text) for text in first_texts]
+    overlap_count = sum(1 for text in first_compact if text and text in set(header_compact))
+    if overlap_count >= max(2, len(header_compact) // 2):
+        return False
+    return True
+
+
+def _markdown_compact_table_text(value: Any) -> str:
+    return re.sub(r"[^\w\u4e00-\u9fff]+", "", str(value or "").lower())
 
 
 def _markdown_table_internal_title(block: dict[str, Any]) -> str:
@@ -1018,7 +1057,7 @@ def _normalize_markdown_table_grid(block: dict[str, Any]) -> list[list[str]]:
 
 
 def _markdown_escape_inline_text(value: Any) -> str:
-    text = str(project_table_cell_display_text(value) or "").strip()
+    text = str(project_pdf_math_symbol_display_text(project_table_cell_display_text(value)) or "").strip()
     text = re.sub(r"\s+", " ", text)
     return text.replace("\\", "\\\\").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
 
@@ -1289,13 +1328,231 @@ def _append_markdown_image(lines: list[str], block: dict[str, Any]) -> None:
     lines.append("")
 
 
+def _render_pdf_bbox_crop_markdown(
+    *,
+    source_path: Any,
+    page_number: int,
+    bbox: Any,
+    alt_text: str,
+    scale: float = 2.0,
+) -> str | None:
+    if not isinstance(source_path, Path) or not source_path.exists():
+        return None
+    if page_number <= 0 or not isinstance(bbox, list) or len(bbox) != 4:
+        return None
+    try:
+        import fitz
+
+        with fitz.open(source_path) as pdf_document:
+            page = pdf_document.load_page(page_number - 1)
+            clip = fitz.Rect(
+                float(bbox[0]),
+                float(bbox[1]),
+                float(bbox[2]),
+                float(bbox[3]),
+            )
+            page_rect = page.rect
+            clip = clip & page_rect
+            if clip.is_empty or clip.width <= 0 or clip.height <= 0:
+                return None
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip, alpha=False)
+            image_bytes = pixmap.tobytes("png")
+    except Exception:
+        return None
+    if not image_bytes:
+        return None
+    safe_alt = str(alt_text or "PDF crop").replace("[", "(").replace("]", ")")
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    return f"![{safe_alt}](data:image/png;base64,{encoded})"
+
+
 def _append_markdown_text_block(lines: list[str], block: dict[str, Any]) -> None:
-    text = str(block.get("text") or "").strip()
+    text = str(project_pdf_math_symbol_display_text(block.get("display_text") or block.get("text") or "") or "").strip()
     if not text:
         return
+    text = _append_markdown_footnote_ref_suffix(text, block)
     text = _markdown_linkify_visible_urls(text)
     lines.append(text)
     lines.append("")
+    _append_markdown_inline_formula_items(lines, block)
+
+
+def _collect_high_confidence_inline_formula_spans(block: dict[str, Any]) -> list[dict[str, Any]]:
+    accepted: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for span in block.get("inline_formula_spans", []) or []:
+        if not isinstance(span, dict):
+            continue
+        if str(span.get("formula_complexity") or "") != "inline_formula":
+            continue
+        latex_text = str(span.get("latex_text") or "").strip()
+        if not latex_text:
+            continue
+        try:
+            latex_confidence = float(span.get("latex_confidence", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            latex_confidence = 0.0
+        if latex_confidence < 0.85:
+            continue
+        key = (str(span.get("content") or "").strip(), latex_text)
+        if key in seen:
+            continue
+        seen.add(key)
+        accepted.append(span)
+    return accepted
+
+
+def _append_markdown_inline_formula_items(lines: list[str], block: dict[str, Any]) -> None:
+    spans = _collect_high_confidence_inline_formula_spans(block)
+    if not spans:
+        return
+
+    lines.append("**公式项**")
+    lines.append("")
+    for span in spans:
+        latex_text = str(span.get("latex_text") or "").strip()
+        source_text = str(project_pdf_math_symbol_display_text(span.get("content") or "") or "").strip()
+        if source_text:
+            lines.append(f"- `{source_text}` -> ${latex_text}$")
+        else:
+            lines.append(f"- ${latex_text}$")
+    lines.append("")
+
+
+def _append_markdown_equation(lines: list[str], block: dict[str, Any]) -> None:
+    equation_label = str(block.get("equation_label") or "").strip()
+    equation_id = str(block.get("equation_id") or block.get("block_id") or "").strip()
+    title = f"公式 {equation_label}" if equation_label else "公式"
+    lines.append(f"**{title}**")
+    lines.append("")
+
+    image_markdown = _render_pdf_bbox_crop_markdown(
+        source_path=block.get("_source_path"),
+        page_number=int(block.get("page", 0) or 0),
+        bbox=block.get("bbox"),
+        alt_text=title,
+        scale=3.0,
+    )
+    if image_markdown is not None:
+        lines.append(image_markdown)
+        lines.append("")
+
+    latex_text = str(block.get("latex_text") or "").strip()
+    try:
+        latex_confidence = float(block.get("latex_confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        latex_confidence = 0.0
+    if latex_text and latex_confidence >= 0.85:
+        lines.append("```latex")
+        lines.append(latex_text)
+        lines.append("```")
+        lines.append("")
+        lines.append("LaTeX 重建为高置信度阅读增强，视觉核对以原文截图为准。")
+        lines.append("")
+
+    text = str(block.get("text") or "").strip()
+    if text:
+        lines.append("```text")
+        lines.append(text)
+        lines.append("```")
+        lines.append("")
+        lines.append("公式文本由 PDF 文本层提取，视觉核对以原文截图为准。")
+        if not (latex_text and latex_confidence >= 0.85):
+            lines.append("LaTeX 重建未达到高置信度，视觉核对以原文截图为准。")
+        lines.append("")
+    elif image_markdown is None and equation_id:
+        lines.append(f"`{equation_id}`")
+        lines.append("")
+
+
+def _append_markdown_footnote_ref_suffix(text: str, block: dict[str, Any]) -> str:
+    refs = [
+        dict(ref)
+        for ref in block.get("footnote_refs", []) or []
+        if str(ref.get("marker") or "").strip()
+    ]
+    if refs:
+        suffix = " ".join(f"[^{str(ref.get('marker') or '').strip()}]" for ref in refs)
+        return f"{text} {suffix}".strip()
+    return text
+
+
+def _append_markdown_footnote_definition(lines: list[str], block: dict[str, Any]) -> None:
+    marker = str(block.get("footnote_marker") or "").strip()
+    text = str(block.get("footnote_text") or block.get("text") or "").strip()
+    if not marker or not text:
+        return
+    text = re.sub(rf"^\s*{re.escape(marker)}\s*", "", text).strip()
+    text = _markdown_linkify_visible_urls(text)
+    lines.append(f"[^{marker}]: {text}")
+    lines.append("")
+
+
+_PUBLICATION_METADATA_MARKDOWN_ROLES = {
+    "author_affiliation",
+    "author_line",
+    "author_note",
+    "contact_email",
+    "contact_name",
+    "correspondence",
+    "citation_metadata",
+    "keyword_metadata",
+    "license_notice",
+    "page_number",
+    "publication_footer",
+    "publication_masthead",
+}
+
+
+def _is_publication_metadata_markdown_block(block: dict[str, Any]) -> bool:
+    semantic_role = str(block.get("semantic_role") or "").strip()
+    unit_role = str(block.get("unit_role") or "").strip()
+    return unit_role in {"metadata", "publication_metadata"} or semantic_role in _PUBLICATION_METADATA_MARKDOWN_ROLES
+
+
+def _should_render_publication_metadata_markdown_block(block: dict[str, Any]) -> bool:
+    semantic_role = str(block.get("semantic_role") or "").strip()
+    if semantic_role in {"page_number", "publication_masthead", "publication_footer", "license_notice"}:
+        return False
+    if str(block.get("unit_role") or "").strip() not in {"metadata", "publication_metadata"}:
+        return False
+    text = str(block.get("display_text") or block.get("text") or "").strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    if "journal of theoretical biology" in lowered:
+        return False
+    if "contents lists available" in lowered or "all rights reserved" in lowered:
+        return False
+    if "doi.org/" in lowered:
+        return False
+    return semantic_role in {
+        "author_affiliation",
+        "author_line",
+        "author_note",
+        "contact_email",
+        "contact_name",
+        "correspondence",
+        "citation_metadata",
+        "keyword_metadata",
+    }
+
+
+def _collect_publication_metadata_markdown_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    collected: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for block in blocks:
+        if not _is_publication_metadata_markdown_block(block):
+            continue
+        if not _should_render_publication_metadata_markdown_block(block):
+            continue
+        block_id = str(block.get("block_id") or block.get("source_id") or "").strip()
+        if block_id and block_id in seen_ids:
+            continue
+        if block_id:
+            seen_ids.add(block_id)
+        collected.append(block)
+    return collected
 
 
 _NUMBERED_BODY_HEADING_RE = re.compile(r"^\s*(\d+(?:\.\d+)*)\.\s+(.+?)\s*$")
@@ -1411,6 +1668,7 @@ def _append_markdown_text_block_with_heading_context(
             _append_markdown_text_block(lines, block)
         return
     text, level = heading
+    text = _append_markdown_footnote_ref_suffix(text, block)
     lines.append(f"{'#' * level} {_markdown_linkify_visible_urls(text)}")
     lines.append("")
 
@@ -1439,6 +1697,8 @@ def _build_document_body_markdown_sections(document: dict[str, Any]) -> list[str
     toc_heading_lookup = _build_toc_heading_lookup(document)
     uri_link_records_by_page = _build_uri_link_records_by_page(document)
     skipped_table_ids: set[str] = set()
+    rendered_footnote_ids: set[str] = set()
+    footnote_definition_lines: list[str] = []
     source_path_value = document.get("source_path")
     source_path = Path(str(source_path_value)) if str(source_path_value or "").strip() else None
     for page in ast_pages:
@@ -1446,6 +1706,7 @@ def _build_document_body_markdown_sections(document: dict[str, Any]) -> list[str
         blocks = [block for block in page.get("blocks", []) or [] if isinstance(block, dict)]
         if not blocks:
             continue
+        page_render_blocks: list[dict[str, Any]] = []
         for block in blocks:
             if page_number is not None and "page" not in block:
                 block = {**block, "page": page_number}
@@ -1456,6 +1717,14 @@ def _build_document_body_markdown_sections(document: dict[str, Any]) -> list[str
             )
             if source_path is not None:
                 block = {**block, "_source_path": source_path}
+            page_render_blocks.append(block)
+
+        publication_metadata_blocks = _collect_publication_metadata_markdown_blocks(page_render_blocks)
+        if publication_metadata_blocks:
+            for metadata_block in publication_metadata_blocks:
+                _append_markdown_text_block(lines, metadata_block)
+
+        for block in page_render_blocks:
             block_type = str(block.get("block_type") or "").strip().lower()
             if block_type == "table":
                 table_id = str(block.get("table_id") or block.get("block_id") or "").strip()
@@ -1473,7 +1742,20 @@ def _build_document_body_markdown_sections(document: dict[str, Any]) -> list[str
                 _append_markdown_table(lines, block)
             elif block_type == "image":
                 _append_markdown_image(lines, block)
+            elif block_type == "equation" or str(block.get("semantic_role") or "").strip() == "display_equation":
+                _append_markdown_equation(lines, block)
             elif block_type == "toc":
+                continue
+            elif str(block.get("semantic_role") or "").strip() == "footnote":
+                footnote_id = str(block.get("footnote_id") or block.get("block_id") or "").strip()
+                if footnote_id and footnote_id in rendered_footnote_ids:
+                    continue
+                _append_markdown_footnote_definition(footnote_definition_lines, block)
+                if footnote_id:
+                    rendered_footnote_ids.add(footnote_id)
+            elif str(block.get("semantic_role") or "").strip() == "footnote_continuation":
+                continue
+            elif _is_publication_metadata_markdown_block(block):
                 continue
             else:
                 _append_markdown_text_block_with_heading_context(
@@ -1482,6 +1764,8 @@ def _build_document_body_markdown_sections(document: dict[str, Any]) -> list[str
                     toc_heading_lookup,
                     uri_link_records_by_page,
                 )
+    if footnote_definition_lines:
+        lines.extend(footnote_definition_lines)
     return lines
 
 

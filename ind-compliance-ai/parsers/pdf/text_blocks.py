@@ -60,6 +60,11 @@ from .shared import (
 _ROMAN_PAGE_NUMBER_RE = re.compile(r"^[ivxlcdm]+$", re.IGNORECASE)
 _HEADING_PREFIX_RE = re.compile(r"^(?:\d{1,3}|[A-Z]|[IVXLCDM]{1,8})[.)]$", re.IGNORECASE)
 _NUMBERED_HEADING_RE = re.compile(r"^(?:\d{1,3}|[A-Z]|[IVXLCDM]{1,8})[.)]\s+\S", re.IGNORECASE)
+_DOTTED_NUMBERED_HEADING_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3})+\s+\S")
+_STRUCTURAL_NUMBERED_HEADING_RE = re.compile(
+    r"^(?:\d{1,3}(?:\.\d{1,3})*|[IVXLCDM]{1,8})[.)]?\s+\S",
+    re.IGNORECASE,
+)
 _QUOTE_CHAR_RE = re.compile(r"[\"'“”‘’]")
 _DOUBLE_QUOTE_CHAR_RE = re.compile(r"[\"\u201c\u201d]")
 _ALPHA_TOKEN_RE = re.compile(r"[A-Za-z]{3,}")
@@ -96,6 +101,38 @@ def _extract_visible_span_metrics(
     return fallback_bbox, visible_font_sizes
 
 
+def _extract_visible_span_records(
+    spans: list[dict[str, Any]],
+    fallback_bbox: tuple[float, float, float, float],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for span in spans:
+        text = _clean_text(str(span.get("text", "")))
+        if not text:
+            continue
+        raw_bbox = span.get("bbox", fallback_bbox)
+        try:
+            bbox = tuple(float(item) for item in raw_bbox)
+        except (TypeError, ValueError):
+            continue
+        if len(bbox) != 4:
+            continue
+        try:
+            font_size = float(span.get("size", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            font_size = 0.0
+        records.append(
+            {
+                "text": text,
+                "bbox": _bbox_to_list(bbox),
+                "font_size": font_size,
+                "font": str(span.get("font", "") or ""),
+                "flags": int(span.get("flags", 0) or 0),
+            }
+        )
+    return records
+
+
 def _extract_page_text_and_images(
     page: "pymupdf.Page",
     page_number: int,
@@ -123,6 +160,7 @@ def _extract_page_text_and_images(
                     continue
                 line_bbox = tuple(float(item) for item in line.get("bbox", bbox))
                 visible_line_bbox, visible_font_sizes = _extract_visible_span_metrics(spans, line_bbox)
+                visible_spans = _extract_visible_span_records(spans, line_bbox)
                 text_blocks.append(
                     {
                         "block_type": "text",
@@ -131,6 +169,7 @@ def _extract_page_text_and_images(
                         "bbox": _bbox_to_list(visible_line_bbox),
                         "text": text,
                         "font_size": statistics.median(visible_font_sizes or font_sizes) if (visible_font_sizes or font_sizes) else 0.0,
+                        "spans": visible_spans,
                         "source_block_index": block_index,
                     }
                 )
@@ -795,6 +834,77 @@ def _looks_like_short_mathish_fragment(text: str) -> bool:
     return has_single_letter_token and len(short_tokens) >= 2 and len(compact) <= 8
 
 
+def _looks_like_inline_math_fragment(text: str, *, allow_atom: bool = True) -> bool:
+    compact = _clean_text(text)
+    if not compact or len(compact) > 120:
+        return False
+    if _looks_like_inline_equation_marker_text(compact):
+        return False
+    lowered = compact.lower()
+    if "http" in lowered or "doi" in lowered:
+        return False
+    if re.match(r"^\d+(?:\.\d+)*\.?\s+[A-Z][A-Za-z ]{3,}$", compact):
+        return False
+    if allow_atom and re.fullmatch(r"(?:[A-Za-z0-9]{1,3}|[∑∫√=+\-*/≤≥<>]{1,4})", compact):
+        return True
+    has_math_operator = bool(re.search(r"[=+\-*/∑∫√≤≥<>伪尾纬位蟽胃]", compact, re.IGNORECASE))
+    has_grouping = bool(re.search(r"[\(\)\[\]\{\}]", compact))
+    short_tokens = _SHORT_ALPHA_TOKEN_RE.findall(compact)
+    has_variable_tokens = sum(1 for token in short_tokens if len(token) <= 2) >= 1
+    if has_math_operator and (has_variable_tokens or has_grouping):
+        return True
+    if has_grouping and sum(1 for token in short_tokens if len(token) == 1) >= 2:
+        return True
+    return _looks_like_short_mathish_fragment(compact)
+
+
+def _has_inline_math_context(text: str) -> bool:
+    compact = _clean_text(text)
+    if not compact:
+        return False
+    lowered = compact.lower()
+    if re.search(r"(?:i\.e\.|e\.g\.|respectively|where|denotes|defined as|given by)", lowered):
+        return bool(re.search(r"[=∑∫√≤≥<>+\-*/\(\)\[\]]", compact))
+    if re.search(r"[A-Za-z]\s*[=≤≥<>]", compact):
+        return True
+    return compact.endswith(("=", "+", "-", "*", "/", "(", "[", "{", ","))
+
+
+def _can_merge_inline_math_row_fragments(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    page_width: float,
+) -> bool:
+    left_text = _clean_text(left.get("text", ""))
+    right_text = _clean_text(right.get("text", ""))
+    if not left_text or not right_text:
+        return False
+    if _text_starts_with_break_marker(right_text):
+        return False
+    left_has_context = _has_inline_math_context(left_text)
+    if not (left_has_context or _looks_like_inline_math_fragment(left_text, allow_atom=False)):
+        return False
+    if not (_looks_like_inline_math_fragment(right_text, allow_atom=left_has_context) or _has_inline_math_context(right_text)):
+        return False
+
+    left_bbox = tuple(left["bbox"])
+    right_bbox = tuple(right["bbox"])
+    if right_bbox[0] < left_bbox[0] - 1.5:
+        return False
+    left_height = max(1.0, left_bbox[3] - left_bbox[1])
+    right_height = max(1.0, right_bbox[3] - right_bbox[1])
+    vertical_overlap = _vertical_overlap_ratio(left_bbox, right_bbox)
+    center_gap = abs(_block_center_y(left) - _block_center_y(right))
+    max_center_gap = max(7.5, min(left_height, right_height) * 1.45)
+    if vertical_overlap < 0.25 and center_gap > max_center_gap:
+        return False
+
+    gap = right_bbox[0] - left_bbox[2]
+    max_gap = max(18.0, page_width * 0.035, min(left_height, right_height) * 2.6)
+    min_gap = -10.0 if left_has_context else -4.0
+    return min_gap <= gap <= max_gap
+
+
 def _vertical_overlap_ratio(
     a_bbox: tuple[float, float, float, float],
     b_bbox: tuple[float, float, float, float],
@@ -949,6 +1059,261 @@ def _row_layout_mode(
     return "columns"
 
 
+def _reading_order_zones(
+    text_blocks: list[dict[str, Any]],
+    layout_profile: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    ordered_rows = _group_text_blocks_by_visual_rows(text_blocks)
+    zones: list[dict[str, Any]] = []
+    for row in ordered_rows:
+        row_mode = _row_layout_mode(row, layout_profile)
+        if not zones or zones[-1]["mode"] != row_mode:
+            zones.append({"mode": row_mode, "rows": [row]})
+            continue
+        zones[-1]["rows"].append(row)
+    return zones
+
+
+def _compact_publication_heading_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _clean_text(text).lower())
+
+
+def _looks_like_article_info_heading(text: str) -> bool:
+    compact = _compact_publication_heading_text(text)
+    return compact in {
+        "articleinfo",
+        "articleinformation",
+        "articlehistory",
+    }
+
+
+def _looks_like_abstract_heading(text: str) -> bool:
+    return _compact_publication_heading_text(text) == "abstract"
+
+
+def _looks_like_publication_body_start(text: str) -> bool:
+    normalized = _clean_text(text)
+    return bool(
+        re.match(
+            r"^(?:\d{1,2}(?:\.\d+)*\.?\s+)?(?:introduction|background)\b",
+            normalized,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _looks_like_publication_footer_block(block: dict[str, Any], page_height: float) -> bool:
+    text = _clean_text(str(block.get("text", "")))
+    if not text:
+        return False
+    bbox = tuple(float(item) for item in block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    if len(bbox) != 4:
+        return False
+    lower_page = bbox[1] >= page_height * 0.84 if page_height > 0 else False
+    compact = text.lower()
+    footer_signal = (
+        "doi.org" in compact
+        or compact.startswith("doi:")
+        or "corresponding author" in compact
+        or "e-mail address" in compact
+        or "email address" in compact
+        or "all rights reserved" in compact
+        or bool(re.search(r"\bissn\b|^\d{4}-\d{3}[\dx]/", compact))
+    )
+    return lower_page and footer_signal
+
+
+def _flatten_visual_rows(rows: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+    for row in rows:
+        flattened.extend(sorted(row, key=lambda item: (item["bbox"][0], _block_center_y(item))))
+    return flattened
+
+
+def _order_publication_front_matter_zone(
+    rows: list[list[dict[str, Any]]],
+    layout_profile: dict[str, Any] | None = None,
+) -> list[dict[str, Any]] | None:
+    """Order article metadata and abstract panels before the body on journal pages."""
+    flattened = _flatten_visual_rows(rows)
+    if not flattened:
+        return None
+
+    article_index = next(
+        (
+            index
+            for index, block in enumerate(flattened)
+            if _looks_like_article_info_heading(str(block.get("text", "")))
+        ),
+        -1,
+    )
+    abstract_index = next(
+        (
+            index
+            for index, block in enumerate(flattened)
+            if _looks_like_abstract_heading(str(block.get("text", "")))
+        ),
+        -1,
+    )
+    if article_index < 0 or abstract_index < 0:
+        return None
+
+    article_heading = flattened[article_index]
+    abstract_heading = flattened[abstract_index]
+    article_bbox = tuple(float(item) for item in article_heading.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    abstract_bbox = tuple(float(item) for item in abstract_heading.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    if len(article_bbox) != 4 or len(abstract_bbox) != 4:
+        return None
+    if abs(_block_center_y(article_heading) - _block_center_y(abstract_heading)) > max(
+        8.0,
+        _block_height(article_heading) * 1.4,
+        _block_height(abstract_heading) * 1.4,
+    ):
+        return None
+    if abstract_bbox[0] <= article_bbox[0]:
+        return None
+
+    body_index = next(
+        (
+            index
+            for index, block in enumerate(flattened)
+            if index > max(article_index, abstract_index)
+            and _looks_like_publication_body_start(str(block.get("text", "")))
+        ),
+        -1,
+    )
+    if body_index < 0:
+        return None
+
+    page_width = float((layout_profile or {}).get("page_width", 0.0) or 0.0)
+    page_height = float((layout_profile or {}).get("page_height", 0.0) or 0.0)
+    abstract_left = abstract_bbox[0]
+    panel_margin = max(10.0, page_width * 0.02) if page_width > 0 else 10.0
+    abstract_y = min(article_bbox[1], abstract_bbox[1])
+
+    prefix = flattened[: min(article_index, abstract_index)]
+    panel_blocks = [
+        block
+        for index, block in enumerate(flattened)
+        if min(article_index, abstract_index) <= index < body_index
+        and tuple(float(item) for item in block.get("bbox", (0.0, 0.0, 0.0, 0.0)))[1] >= abstract_y - panel_margin
+    ]
+
+    article_blocks: list[dict[str, Any]] = []
+    abstract_blocks: list[dict[str, Any]] = []
+    for block in panel_blocks:
+        text = str(block.get("text", ""))
+        bbox = tuple(float(item) for item in block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+        if len(bbox) != 4:
+            continue
+        if block is article_heading or _looks_like_article_info_heading(text):
+            article_blocks.append(block)
+        elif block is abstract_heading or _looks_like_abstract_heading(text):
+            abstract_blocks.append(block)
+        elif bbox[0] >= abstract_left - panel_margin:
+            abstract_blocks.append(block)
+        else:
+            article_blocks.append(block)
+
+    if len(article_blocks) < 2 or len(abstract_blocks) < 2:
+        return None
+
+    body_blocks = flattened[body_index:]
+    body_footer_blocks = [
+        block for block in body_blocks
+        if _looks_like_publication_footer_block(block, page_height)
+    ]
+    body_content_blocks = [
+        block for block in body_blocks
+        if block not in body_footer_blocks
+    ]
+    left_body_blocks = [
+        block for block in body_content_blocks
+        if _layout_lane(block, layout_profile) == "left"
+    ]
+    right_body_blocks = [
+        block for block in body_content_blocks
+        if _layout_lane(block, layout_profile) == "right"
+    ]
+    other_body_blocks = [
+        block for block in body_content_blocks
+        if _layout_lane(block, layout_profile) not in {"left", "right"}
+    ]
+
+    return (
+        prefix
+        + article_blocks
+        + abstract_blocks
+        + left_body_blocks
+        + right_body_blocks
+        + other_body_blocks
+        + body_footer_blocks
+    )
+
+
+def build_reading_order_diagnostics(
+    text_blocks: list[dict[str, Any]],
+    layout_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    mode = str((layout_profile or {}).get("mode", "single_column") or "single_column")
+    confidence = float((layout_profile or {}).get("confidence", 0.0) or 0.0)
+    diagnostics: dict[str, Any] = {
+        "layout_mode": mode,
+        "layout_confidence": round(confidence, 3),
+        "strategy": "visual_rows",
+        "zone_count": 0,
+        "column_zone_count": 0,
+        "full_width_zone_count": 0,
+        "left_block_count": 0,
+        "right_block_count": 0,
+        "full_width_block_count": 0,
+        "ambiguous_lane_block_count": 0,
+        "review_required": False,
+        "signals": [],
+    }
+    if not text_blocks:
+        return diagnostics
+
+    lane_counts = {"left": 0, "right": 0, "full_width": 0, "ambiguous": 0}
+    for block in text_blocks:
+        lane = _layout_lane(block, layout_profile)
+        if lane in {"left", "right", "full_width"}:
+            lane_counts[lane] += 1
+        else:
+            lane_counts["ambiguous"] += 1
+    diagnostics["left_block_count"] = lane_counts["left"]
+    diagnostics["right_block_count"] = lane_counts["right"]
+    diagnostics["full_width_block_count"] = lane_counts["full_width"]
+    diagnostics["ambiguous_lane_block_count"] = lane_counts["ambiguous"]
+
+    has_column_lanes = lane_counts["left"] > 0 or lane_counts["right"] > 0
+    if not has_column_lanes:
+        return diagnostics
+
+    zones = _reading_order_zones(text_blocks, layout_profile)
+    column_zone_count = sum(1 for zone in zones if zone["mode"] == "columns")
+    full_width_zone_count = sum(1 for zone in zones if zone["mode"] == "full_width")
+    diagnostics["strategy"] = "zone_columns_left_then_right"
+    diagnostics["zone_count"] = len(zones)
+    diagnostics["column_zone_count"] = column_zone_count
+    diagnostics["full_width_zone_count"] = full_width_zone_count
+    diagnostics["signals"] = [
+        "column_lanes_detected",
+        "full_width_zone_boundaries" if full_width_zone_count else "column_only_page",
+    ]
+
+    if min(lane_counts["left"], lane_counts["right"]) == 0:
+        diagnostics["review_required"] = True
+        diagnostics["signals"].append("unbalanced_column_lanes")
+    if mode in {"two_column", "mixed"} and confidence < 0.6:
+        diagnostics["review_required"] = True
+        diagnostics["signals"].append("low_layout_confidence")
+    if lane_counts["ambiguous"] > 0:
+        diagnostics["review_required"] = True
+        diagnostics["signals"].append("ambiguous_layout_lanes")
+    return diagnostics
+
+
 def order_text_blocks_for_reading(
     text_blocks: list[dict[str, Any]],
     layout_profile: dict[str, Any] | None = None,
@@ -970,19 +1335,21 @@ def order_text_blocks_for_reading(
             ordered.extend(row)
         return ordered
 
-    zones: list[dict[str, Any]] = []
-    for row in ordered_rows:
-        row_mode = _row_layout_mode(row, layout_profile)
-        if not zones or zones[-1]["mode"] != row_mode:
-            zones.append({"mode": row_mode, "rows": [row]})
-            continue
-        zones[-1]["rows"].append(row)
+    zones = _reading_order_zones(text_blocks, layout_profile)
 
     ordered: list[dict[str, Any]] = []
     for zone in zones:
         if zone["mode"] == "full_width":
             for row in zone["rows"]:
                 ordered.extend(sorted(row, key=lambda item: (item["bbox"][0], _block_center_y(item))))
+            continue
+
+        publication_front_matter_order = _order_publication_front_matter_zone(
+            zone["rows"],
+            layout_profile,
+        )
+        if publication_front_matter_order is not None:
+            ordered.extend(publication_front_matter_order)
             continue
 
         left_blocks: list[dict[str, Any]] = []
@@ -1061,6 +1428,7 @@ def _merge_visual_line_pair(
         "bbox": _bbox_to_list(_bbox_union([tuple(left["bbox"]), tuple(right["bbox"])])),
         "text": _clean_text(merged_text),
         "font_size": statistics.median(font_sizes) if font_sizes else 0.0,
+        "spans": list(left.get("spans", []) or []) + list(right.get("spans", []) or []),
         "source_block_indices": sorted(
             set(_normalized_source_block_indices(left) + _normalized_source_block_indices(right))
         ),
@@ -1200,10 +1568,11 @@ def _should_merge_text_blocks(
     right_is_marker = _looks_like_inline_equation_marker_text(right_text)
     if left_is_marker != right_is_marker:
         return False
+    inline_math_row_merge = _can_merge_inline_math_row_fragments(left, right, page_width)
     if not _shares_source_block_lineage(left, right):
         left_mathish = _looks_like_short_mathish_fragment(left_text)
         right_mathish = _looks_like_short_mathish_fragment(right_text)
-        if left_mathish != right_mathish:
+        if left_mathish != right_mathish and not inline_math_row_merge:
             return False
 
     left_bbox = tuple(left["bbox"])
@@ -1214,7 +1583,7 @@ def _should_merge_text_blocks(
     right_center = (right_bbox[1] + right_bbox[3]) / 2
     vertical_overlap = _vertical_overlap_ratio(left_bbox, right_bbox)
     horizontal_overlap = _horizontal_overlap_ratio(left_bbox, right_bbox)
-    if abs(left_center - right_center) > row_tolerance and vertical_overlap < 0.6:
+    if abs(left_center - right_center) > row_tolerance and vertical_overlap < 0.6 and not inline_math_row_merge:
         return False
 
     gap = right_bbox[0] - left_bbox[2]
@@ -1249,9 +1618,11 @@ def _should_merge_text_blocks(
     right_font = float(right.get("font_size", 0.0) or 0.0)
     if left_font > 0 and right_font > 0:
         ratio = max(left_font, right_font) / max(0.1, min(left_font, right_font))
-        if ratio > 1.45 and not (vertical_overlap >= 0.6 and horizontal_overlap >= 0.18):
+        if ratio > 1.45 and not (vertical_overlap >= 0.6 and horizontal_overlap >= 0.18) and not inline_math_row_merge:
             return False
 
+    if inline_math_row_merge:
+        return True
     if _has_cjk(left_text) or _has_cjk(right_text):
         return True
     return len(left_text) <= 64 and len(right_text) <= 64
@@ -1279,6 +1650,7 @@ def _merge_semantic_text_blocks(
             "bbox": [float(item) for item in block["bbox"]],
             "text": _clean_text(block.get("text", "")),
             "font_size": float(block.get("font_size", 0.0) or 0.0),
+            "spans": list(block.get("spans", []) or []),
             "source_block_indices": _normalized_source_block_indices(block),
             "source": block.get("source", "text-layer"),
         }
@@ -1315,6 +1687,7 @@ def _merge_semantic_text_blocks(
             if normalized["source"] == "image-text-recovery":
                 previous["source"] = "semantic-merged-image-text"
             previous["source_block_indices"].extend(normalized["source_block_indices"])
+            previous["spans"].extend(list(normalized.get("spans", []) or []))
             font_sizes = [float(previous.get("font_size", 0.0) or 0.0), float(normalized.get("font_size", 0.0) or 0.0)]
             font_sizes = [item for item in font_sizes if item > 0]
             previous["font_size"] = statistics.median(font_sizes) if font_sizes else 0.0
@@ -1476,7 +1849,12 @@ def _looks_like_heading_prefix(text: str) -> bool:
 
 
 def _starts_with_numbered_heading(text: str) -> bool:
-    return bool(_NUMBERED_HEADING_RE.match(_clean_text(text)))
+    cleaned = _clean_text(text)
+    return bool(_NUMBERED_HEADING_RE.match(cleaned) or _DOTTED_NUMBERED_HEADING_RE.match(cleaned))
+
+
+def _starts_with_structural_numbered_heading(text: str) -> bool:
+    return bool(_STRUCTURAL_NUMBERED_HEADING_RE.match(_clean_text(text)))
 
 
 def _blocks_share_visual_row(
@@ -1518,6 +1896,34 @@ def _has_heading_prefix_peer(
     return False
 
 
+def _has_same_row_running_header_peer(
+    block: dict[str, Any],
+    page_height: float,
+    peer_blocks: list[dict[str, Any]] | None = None,
+) -> bool:
+    if not peer_blocks or not _is_top_margin_block(block, page_height):
+        return False
+    row_tolerance = _visual_row_tolerance(peer_blocks)
+    for peer in peer_blocks:
+        if peer is block:
+            continue
+        if not _is_top_margin_block(peer, page_height):
+            continue
+        if not _blocks_share_visual_row(block, peer, row_tolerance):
+            continue
+        peer_text = _clean_text(str(peer.get("text", "")))
+        peer_compact = _compact_text(peer_text)
+        if not peer_compact or _looks_like_page_number(peer_text):
+            continue
+        if _looks_like_heading_prefix(peer_text):
+            continue
+        if _starts_with_structural_numbered_heading(peer_text):
+            continue
+        if len(peer_compact) >= 8:
+            return True
+    return False
+
+
 def _margin_text_role(
     block: dict[str, Any],
     page_height: float,
@@ -1548,6 +1954,8 @@ def _margin_text_role(
             return "heading_prefix"
         if _has_heading_prefix_peer(block, page_height, peer_blocks):
             return "section_heading"
+        if _looks_like_page_number(text) and _has_same_row_running_header_peer(block, page_height, peer_blocks):
+            return "footer_artifact"
         return "running_header"
 
     return "none"
@@ -1622,7 +2030,7 @@ def _suppress_table_text_blocks(
 ) -> tuple[list[dict[str, Any]], int]:
     if not text_blocks or not page_tables:
         return text_blocks, 0
-    table_bboxes = [tuple(item.get("bbox", (0.0, 0.0, 0.0, 0.0))) for item in page_tables]
+    table_bboxes = _table_text_suppression_bboxes(text_blocks, page_tables)
     kept: list[dict[str, Any]] = []
     removed = 0
     for block in text_blocks:
@@ -1643,4 +2051,147 @@ def _suppress_table_text_blocks(
             continue
         kept.append(block)
     return kept, removed
+
+
+def annotate_table_presentation_bboxes(
+    text_blocks: list[dict[str, Any]],
+    page_tables: list[dict[str, Any]],
+) -> int:
+    if not text_blocks or not page_tables:
+        return 0
+    annotated = 0
+    for table in page_tables:
+        table_bbox = _valid_bbox_tuple(table.get("bbox"))
+        if table_bbox is None:
+            continue
+        owned_bboxes = _table_owned_text_bboxes(text_blocks, table, table_bbox)
+        if not owned_bboxes:
+            continue
+        presentation_bbox = _bbox_union([table_bbox, *owned_bboxes])
+        table["presentation_bbox"] = _bbox_to_list(presentation_bbox)
+        table["owned_text_bboxes"] = [_bbox_to_list(bbox) for bbox in owned_bboxes]
+        annotated += 1
+    return annotated
+
+
+def _table_text_suppression_bboxes(
+    text_blocks: list[dict[str, Any]],
+    page_tables: list[dict[str, Any]],
+) -> list[tuple[float, float, float, float]]:
+    bboxes: list[tuple[float, float, float, float]] = []
+    for table in page_tables:
+        bbox = _valid_bbox_tuple(table.get("bbox"))
+        if bbox is None:
+            continue
+        owned_bboxes = [bbox]
+        for key in ("title_bbox", "caption_bbox", "header_bbox", "presentation_bbox"):
+            extra_bbox = _valid_bbox_tuple(table.get(key))
+            if extra_bbox is not None:
+                owned_bboxes.append(extra_bbox)
+
+        title_block = table.get("title_block")
+        if isinstance(title_block, dict):
+            title_bbox = _valid_bbox_tuple(title_block.get("bbox"))
+            if title_bbox is not None:
+                owned_bboxes.append(title_bbox)
+
+        owned_bboxes.extend(_table_owned_text_bboxes(text_blocks, table, bbox))
+        presentation_bbox = _bbox_union(owned_bboxes)
+        bboxes.append(tuple(float(item) for item in presentation_bbox))
+    return bboxes
+
+
+def _table_owned_text_bboxes(
+    text_blocks: list[dict[str, Any]],
+    table: dict[str, Any],
+    table_bbox: tuple[float, float, float, float],
+) -> list[tuple[float, float, float, float]]:
+    owned_bboxes: list[tuple[float, float, float, float]] = []
+    for key in ("title_bbox", "caption_bbox", "header_bbox"):
+        extra_bbox = _valid_bbox_tuple(table.get(key))
+        if extra_bbox is not None:
+            owned_bboxes.append(extra_bbox)
+    title_block = table.get("title_block")
+    if isinstance(title_block, dict):
+        title_bbox = _valid_bbox_tuple(title_block.get("bbox"))
+        if title_bbox is not None:
+            owned_bboxes.append(title_bbox)
+    owned_bboxes.extend(_find_table_caption_and_header_text_bboxes(text_blocks, table, table_bbox))
+    deduped: list[tuple[float, float, float, float]] = []
+    seen: set[tuple[float, float, float, float]] = set()
+    for bbox in owned_bboxes:
+        key = tuple(round(float(item), 2) for item in bbox)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(bbox)
+    return deduped
+
+
+def _valid_bbox_tuple(value: Any) -> tuple[float, float, float, float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        bbox = tuple(float(item) for item in value)
+    except (TypeError, ValueError):
+        return None
+    if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        return None
+    return bbox
+
+
+def _find_table_caption_and_header_text_bboxes(
+    text_blocks: list[dict[str, Any]],
+    table: dict[str, Any],
+    table_bbox: tuple[float, float, float, float],
+) -> list[tuple[float, float, float, float]]:
+    title_text = _clean_text(str(table.get("title", "")))
+    header_texts = [
+        _clean_text(str(cell.get("text", "")))
+        for cell in table.get("header", []) or []
+        if isinstance(cell, dict) and _clean_text(str(cell.get("text", "")))
+    ]
+    header_norms = {_compact_text(text) for text in header_texts if _compact_text(text)}
+    if not title_text and not header_norms:
+        return []
+
+    table_width = max(1.0, table_bbox[2] - table_bbox[0])
+    max_gap_above = max(34.0, min(96.0, table_width * 0.18))
+    candidates: list[tuple[float, float, float, float]] = []
+    for block in text_blocks:
+        block_bbox = _valid_bbox_tuple(block.get("bbox"))
+        if block_bbox is None:
+            continue
+        if block_bbox[3] > table_bbox[1] + 10.0:
+            continue
+        gap = table_bbox[1] - block_bbox[3]
+        if gap < -10.0 or gap > max_gap_above:
+            continue
+        if _horizontal_overlap_ratio(block_bbox, table_bbox) < 0.08:
+            continue
+
+        text = _clean_text(str(block.get("text", "")))
+        text_norm = _compact_text(text)
+        if not text_norm:
+            continue
+        if _text_matches_table_title_fragment(text, title_text) or text_norm in header_norms:
+            candidates.append(block_bbox)
+
+    return candidates
+
+
+def _text_matches_table_title_fragment(text: str, title_text: str) -> bool:
+    if not text or not title_text:
+        return False
+    text_norm = _compact_text(text)
+    title_norm = _compact_text(title_text)
+    if not text_norm or not title_norm:
+        return False
+    if text_norm == title_norm:
+        return True
+    if text_norm.startswith("table") and text_norm in title_norm:
+        return True
+    if len(text_norm) >= 12 and text_norm in title_norm:
+        return True
+    return False
 

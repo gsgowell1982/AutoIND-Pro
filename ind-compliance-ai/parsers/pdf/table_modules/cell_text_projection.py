@@ -76,7 +76,7 @@ def project_table_cell_display_text(value: Any) -> Any:
         return value
     text = value.replace("\r\n", "\n").replace("\r", "\n").strip()
     if "\n" not in text:
-        return text
+        return project_pdf_math_symbol_display_text(text)
 
     parts = [part.strip() for part in text.split("\n") if part.strip()]
     if not parts:
@@ -86,8 +86,8 @@ def project_table_cell_display_text(value: Any) -> Any:
     for part in parts:
         enum_parts.extend(_split_cell_enumeration(part))
     if _looks_like_short_cell_enumeration(enum_parts):
-        return " / ".join(enum_parts)
-    return _join_continuation_parts(parts)
+        return project_pdf_math_symbol_display_text(" / ".join(enum_parts))
+    return project_pdf_math_symbol_display_text(_join_continuation_parts(parts))
 
 
 def project_table_grid_display_text(grid: list[list[Any]] | None) -> list[list[Any]]:
@@ -95,6 +95,36 @@ def project_table_grid_display_text(grid: list[list[Any]] | None) -> list[list[A
         [project_table_cell_display_text(cell) for cell in row]
         for row in (grid or [])
     ]
+
+
+def project_pdf_math_symbol_display_text(value: Any) -> Any:
+    """Normalize common PDF math-font decode artifacts for display text.
+
+    Some embedded symbolic fonts expose plus/equal/minus signs as legacy glyph
+    codes through PyMuPDF text extraction. Keep raw evidence unchanged and only
+    repair high-confidence mathematical contexts in display/data projections.
+    """
+    if value is None or not isinstance(value, str):
+        return value
+    text = value.replace("\x00", " ").replace("\x03", "-")
+    if not text.strip():
+        return text
+
+    text = re.sub(r"(?<=\()[þ镁](?=\))", "+", text)
+    text = re.sub(r"(?<=\()[¼录](?=\))", "=", text)
+    text = re.sub(r"(?<=[A-Za-z0-9)\]])[þ镁](?=[A-Za-z0-9(\[])", "+", text)
+    text = re.sub(r"(?<=[A-Za-z0-9)\]])[¼录](?=[A-Za-z0-9(\[])", "=", text)
+    text = re.sub(r"(?i)(\d(?:\.\d+)?e)\s+(\d{1,3})(?=\b)", r"\1-\2", text)
+
+    has_statistical_context = bool(
+        re.search(r"\d(?:\.\d+)?e-\d+\b", text, re.IGNORECASE)
+        or re.search(r"\b\d*\.\d+\b", text)
+        or re.search(r"\([+=-]\)", text)
+    )
+    if has_statistical_context:
+        text = re.sub(r"\(\s+\)(?=\s*\d)", "(-)", text)
+        text = re.sub(r"(?<=\d)\(\s+\)", "(-)", text)
+    return text
 
 
 def _split_cell_enumeration(text: str) -> list[str]:

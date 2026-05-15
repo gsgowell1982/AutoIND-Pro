@@ -194,6 +194,36 @@ class EctdImplementationGuideRegressionTests(unittest.TestCase):
             )
             self.assertNotEqual(block.get("semantic_role"), "section_heading")
 
+    def test_page_bottom_footnotes_expose_optional_separator_line_evidence(self) -> None:
+        footnotes = {
+            (int(item.get("page", 0) or 0), str(item.get("marker", "")).strip()): item
+            for item in self.result.get("footnotes", [])
+        }
+
+        expected_source_blocks = {
+            (14, "1"): ["txt_p14_020"],
+            (17, "2"): ["txt_p17_021"],
+            (35, "3"): ["txt_p35_021", "txt_p35_022"],
+        }
+        for key, source_block_ids in expected_source_blocks.items():
+            with self.subTest(page=key[0], marker=key[1]):
+                footnote = footnotes.get(key)
+                self.assertIsNotNone(footnote)
+                self.assertEqual(footnote.get("source_block_ids"), source_block_ids)
+
+                separator = footnote.get("separator_line_evidence") or {}
+                self.assertTrue(separator.get("present"))
+                bbox = separator.get("bbox") or []
+                self.assertEqual(len(bbox), 4)
+                self.assertLess(float(bbox[1]), float((footnote.get("bbox") or [0, 0, 0, 0])[1]))
+                self.assertIn("separator_line", footnote.get("footnote_signals", []))
+                self.assertIn("inline_anchor", footnote.get("footnote_signals", []))
+
+                page = next(item for item in self.result["document_ast"]["pages"] if item["page"] == key[0])
+                first_source = next(block for block in page["blocks"] if block["block_id"] == source_block_ids[0])
+                self.assertEqual(first_source.get("separator_line_evidence"), separator)
+                self.assertIn("separator_line", first_source.get("footnote_signals", []))
+
     def test_year_month_line_does_not_promote_to_root_heading(self) -> None:
         page1 = next(
             item
@@ -215,6 +245,29 @@ class EctdImplementationGuideRegressionTests(unittest.TestCase):
         )
         self.assertEqual(root_node.get("section_title"), "概述")
         self.assertEqual((root_node.get("page_span") or [None])[0], 5)
+
+    def test_single_digit_dotted_body_roots_are_section_headings(self) -> None:
+        expected_roots = {
+            5: ("1", "概述"),
+            6: ("2", "基本要求"),
+            11: ("3", "eCTD 申报资料中的编号管理"),
+        }
+        for page_number, (outline_index, section_title) in expected_roots.items():
+            with self.subTest(page=page_number, outline=outline_index):
+                page = next(
+                    item
+                    for item in self.result.get("document_ast", {}).get("pages", []) or []
+                    if int(item.get("page", 0) or 0) == page_number
+                )
+                block = next(
+                    item
+                    for item in page.get("blocks", []) or []
+                    if str(item.get("text") or "").strip().startswith(f"{outline_index}. ")
+                )
+                self.assertEqual(block.get("semantic_role"), "section_heading")
+                section_context = block.get("section_context") or {}
+                self.assertEqual(section_context.get("outline_index"), outline_index)
+                self.assertEqual(section_context.get("section_title"), section_title)
 
     def test_page_14_does_not_emit_false_positive_table(self) -> None:
         self.assertEqual(self.pages[14]["table_count"], 0)

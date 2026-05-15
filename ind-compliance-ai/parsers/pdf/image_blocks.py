@@ -31,7 +31,7 @@ from .shared import (
     _horizontal_overlap_ratio,
     _text_contains_text,
 )
-from .text_blocks import _is_footer_artifact_block
+from .text_blocks import _is_footer_artifact_block, _margin_text_role
 
 # Version: v1.0.2
 # Updates:
@@ -550,7 +550,16 @@ def _is_footer_like_text_block(
     block: dict[str, Any],
     page_height: float,
 ) -> bool:
-    return _is_footer_artifact_block(block, page_height)
+    if _is_footer_artifact_block(block, page_height) or _margin_text_role(block, page_height, [block]) == "running_header":
+        return True
+    bbox = tuple(float(item) for item in block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    text = _clean_text(str(block.get("text", "")))
+    top_limit = max(72.0, page_height * 0.11)
+    return bool(
+        bbox[3] <= top_limit
+        and len(_compact_text(text)) >= 8
+        and not _looks_like_figure_caption(text)
+    )
 
 
 def _is_publication_artifact_image(

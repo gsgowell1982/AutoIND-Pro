@@ -259,6 +259,97 @@ class ParseMarkdownExportTests(unittest.TestCase):
         self.assertLess(markdown.index("Before table."), markdown.index("| Folder | Document type |"))
         self.assertLess(markdown.index("| admin | Cover letter |"), markdown.index("After table."))
 
+    def test_full_markdown_renders_structured_footnote_refs_without_duplicate_continuations(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        document = {
+            "filename": "footnote-sample.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf", "footnote_count": 2},
+            "document_ast": {
+                "pages": [
+                    {
+                        "page": 1,
+                        "blocks": [
+                            {
+                                "block_type": "text",
+                                "block_id": "txt_p1_001",
+                                "text": "Allowed characters include underscore1 \"_\".",
+                                "bbox": [72, 120, 460, 136],
+                                "linked_footnote_ids": ["fn_p1_001"],
+                                "footnote_refs": [
+                                    {
+                                        "marker": "1",
+                                        "footnote_id": "fn_p1_001",
+                                        "bbox": [320, 116, 325, 126],
+                                    }
+                                ],
+                            },
+                            {
+                                "block_type": "text",
+                                "block_id": "txt_p1_020",
+                                "text": "1 Footnote first physical line",
+                                "bbox": [72, 720, 460, 732],
+                                "semantic_role": "footnote",
+                                "footnote_id": "fn_p1_001",
+                                "footnote_marker": "1",
+                                "footnote_text": "Footnote first physical line continuation line",
+                            },
+                            {
+                                "block_type": "text",
+                                "block_id": "txt_p1_002",
+                                "text": "5. References2",
+                                "bbox": [72, 160, 460, 176],
+                                "linked_footnote_ids": ["fn_p1_002"],
+                                "footnote_refs": [
+                                    {
+                                        "marker": "2",
+                                        "footnote_id": "fn_p1_002",
+                                        "bbox": [156, 156, 161, 166],
+                                    }
+                                ],
+                            },
+                            {
+                                "block_type": "text",
+                                "block_id": "txt_p1_022",
+                                "text": "2 Reference footnote",
+                                "bbox": [72, 748, 460, 760],
+                                "semantic_role": "footnote",
+                                "footnote_id": "fn_p1_002",
+                                "footnote_marker": "2",
+                                "footnote_text": "Reference footnote",
+                            },
+                            {
+                                "block_type": "text",
+                                "block_id": "txt_p1_021",
+                                "text": "continuation line",
+                                "bbox": [84, 734, 460, 746],
+                                "semantic_role": "footnote_continuation",
+                                "footnote_id": "fn_p1_001",
+                                "footnote_marker": "1",
+                            },
+                        ],
+                    }
+                ]
+            },
+            "pages": [{"page_number": 1, "block_count": 3}],
+            "table_asts": [],
+            "image_blocks": [],
+            "text": "",
+        }
+
+        markdown = api_main._build_full_markdown([document])
+
+        self.assertIn('Allowed characters include underscore1 "_". [^1]', markdown)
+        self.assertIn("5. References2 [^2]", markdown)
+        self.assertIn("[^1]: Footnote first physical line continuation line", markdown)
+        self.assertIn("[^2]: Reference footnote", markdown)
+        self.assertNotIn("\ncontinuation line\n", markdown)
+        self.assertLess(markdown.index("5. References2 [^2]"), markdown.index("[^1]:"))
+
     def test_full_markdown_embeds_pdf_image_crop_when_source_file_is_available(self) -> None:
         try:
             api_main = importlib.import_module("api.main")
@@ -314,6 +405,139 @@ class ParseMarkdownExportTests(unittest.TestCase):
             self.assertNotIn("_图片占位", markdown)
             self.assertNotIn("image_id:", markdown)
             self.assertNotIn("bbox:", markdown)
+
+    def test_full_markdown_embeds_pdf_equation_crop_and_keeps_text_evidence(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+            fitz = importlib.import_module("fitz")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"required module unavailable in this environment: {exc}") from exc
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pdf_path = Path(temp_dir) / "equation-source.pdf"
+            pdf = fitz.open()
+            page = pdf.new_page(width=240, height=120)
+            page.insert_text((30, 58), "f(x)=x^2+1   (1)", fontsize=14)
+            pdf.save(pdf_path)
+            pdf.close()
+
+            document = {
+                "filename": "equation-source.pdf",
+                "source_type": "pdf",
+                "source_path": str(pdf_path),
+                "metadata": {"page_count": 1, "parser_hint": "pdf"},
+                "document_ast": {
+                    "pages": [
+                        {
+                            "page": 1,
+                            "blocks": [
+                                {
+                                    "block_type": "equation",
+                                    "block_id": "eq_p1_001",
+                                    "equation_id": "eq_p1_001",
+                                    "semantic_role": "display_equation",
+                                    "equation_label": "(1)",
+                                    "text": "f(x)=x^2+1 (1)",
+                                    "bbox": [24, 38, 190, 70],
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "pages": [{"page_number": 1, "block_count": 1}],
+                "equation_blocks": [
+                    {
+                        "equation_id": "eq_p1_001",
+                        "page": 1,
+                        "equation_label": "(1)",
+                        "semantic_role": "display_equation",
+                        "text": "f(x)=x^2+1 (1)",
+                        "bbox": [24, 38, 190, 70],
+                    }
+                ],
+                "table_asts": [],
+                "image_blocks": [],
+                "text": "",
+            }
+
+            markdown = api_main._build_full_markdown([document])
+
+            self.assertIn("**公式 (1)**", markdown)
+            self.assertIn("![公式 (1)](data:image/png;base64,", markdown)
+            self.assertIn("```text\nf(x)=x^2+1 (1)\n```", markdown)
+            self.assertIn("公式文本由 PDF 文本层提取，视觉核对以原文截图为准。", markdown)
+
+    def test_full_markdown_renders_high_confidence_inline_formula_spans_as_formula_items(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        document = {
+            "filename": "inline-formula-sample.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {
+                "pages": [
+                    {
+                        "page": 1,
+                        "blocks": [
+                            {
+                                "block_type": "text",
+                                "block_id": "txt_p1_001",
+                                "text": "respectively, i.e., u_j = 1/n_j sum_i x_i^(j) and u = 1/n sum_i x_i.",
+                                "display_text": "respectively, i.e., u_j = 1/n_j sum_i x_i^(j) and u = 1/n sum_i x_i.",
+                                "bbox": [72, 80, 420, 96],
+                                "inline_formula_spans": [
+                                    {
+                                        "type": "inline_equation",
+                                        "layout_label": "inline_formula",
+                                        "bbox": [180, 80, 300, 96],
+                                        "content": "u_j = 1/n_j sum_i x_i^(j)",
+                                        "latex_text": r"u_j=\frac{1}{n_j}\sum_{i=1}^{n_j}x_i^{(j)}",
+                                        "latex_confidence": 0.96,
+                                        "formula_complexity": "inline_formula",
+                                        "ocr_candidate": True,
+                                    },
+                                    {
+                                        "type": "inline_equation",
+                                        "layout_label": "inline_formula",
+                                        "bbox": [320, 80, 390, 96],
+                                        "content": "x_i",
+                                        "latex_text": None,
+                                        "latex_confidence": 0.0,
+                                        "formula_complexity": "inline_symbol",
+                                        "ocr_candidate": False,
+                                    },
+                                    {
+                                        "type": "inline_equation",
+                                        "layout_label": "inline_formula",
+                                        "bbox": [300, 80, 410, 96],
+                                        "content": "u = 1/n sum_i x_i",
+                                        "latex_text": r"u=\frac{1}{n}\sum_{i=1}^{n}x_i",
+                                        "latex_confidence": 0.93,
+                                        "formula_complexity": "inline_formula",
+                                        "ocr_candidate": True,
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            },
+            "pages": [{"page_number": 1, "block_count": 1}],
+            "table_asts": [],
+            "image_blocks": [],
+            "text": "",
+        }
+
+        markdown = api_main._build_full_markdown([document])
+
+        self.assertIn("respectively, i.e., u_j = 1/n_j sum_i x_i^(j) and u = 1/n sum_i x_i.", markdown)
+        self.assertIn("**公式项**", markdown)
+        self.assertIn(r"$u_j=\frac{1}{n_j}\sum_{i=1}^{n_j}x_i^{(j)}$", markdown)
+        self.assertIn(r"$u=\frac{1}{n}\sum_{i=1}^{n}x_i$", markdown)
+        self.assertNotIn("inline_symbol", markdown)
 
     def test_full_markdown_merges_continued_tables_and_uses_display_grid(self) -> None:
         try:
