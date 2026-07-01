@@ -157,6 +157,104 @@ def _profile_detects_columns(layout_profile: dict[str, Any] | None) -> bool:
     return str(layout_profile.get("mode", "single_column")) in {"two_column", "mixed"}
 
 
+def _has_text_block_column_geometry(
+    text_blocks: list[dict[str, Any]],
+    page_width: float,
+    page_height: float,
+) -> bool:
+    if not text_blocks or page_width <= 0 or page_height <= 0:
+        return False
+
+    body_top = _body_top_limit(page_height)
+    body_bottom = _body_bottom_limit(page_height)
+    mid = page_width / 2.0
+    center_sep = page_width * 0.08
+    width_limit = page_width * 0.58
+    left_candidates = 0
+    right_candidates = 0
+    left_centers: list[float] = []
+    right_centers: list[float] = []
+    candidate_blocks: list[dict[str, Any]] = []
+
+    for block in text_blocks:
+        text = _clean_text(str(block.get("text", "")))
+        bbox = tuple(float(item) for item in block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+        if not text or len(bbox) != 4:
+            continue
+        width = max(0.0, bbox[2] - bbox[0])
+        height = max(0.0, bbox[3] - bbox[1])
+        if width <= 0 or height <= 0 or width > width_limit or height > page_height * 0.08:
+            continue
+        center_x = (bbox[0] + bbox[2]) / 2.0
+        center_y = (bbox[1] + bbox[3]) / 2.0
+        if bbox[1] < body_top:
+            allowed_top_overflow = max(18.0, height * 2.0, page_width * 0.06)
+            if body_top - center_y > allowed_top_overflow:
+                continue
+        if bbox[3] > body_bottom:
+            allowed_bottom_overflow = max(18.0, height * 2.0, page_width * 0.08)
+            if center_y - body_bottom > allowed_bottom_overflow:
+                continue
+        if center_x <= mid - center_sep:
+            left_candidates += 1
+            left_centers.append(center_x)
+            candidate_blocks.append(block)
+        elif center_x >= mid + center_sep:
+            right_candidates += 1
+            right_centers.append(center_x)
+            candidate_blocks.append(block)
+
+    if left_candidates < 3 or right_candidates < 3:
+        return False
+    if not left_centers or not right_centers:
+        return False
+    left_center = statistics.median(left_centers)
+    right_center = statistics.median(right_centers)
+    inferred_mid = (left_center + right_center) / 2.0
+    if abs(inferred_mid - (page_width / 2.0)) > page_width * 0.10:
+        return False
+    if _has_table_matrix_row_shape(candidate_blocks):
+        return False
+    return right_center - left_center >= page_width * 0.06
+
+
+def _has_table_matrix_row_shape(candidate_blocks: list[dict[str, Any]]) -> bool:
+    if len(candidate_blocks) < 6:
+        return False
+    heights = [
+        max(1.0, float(block["bbox"][3]) - float(block["bbox"][1]))
+        for block in candidate_blocks
+        if len(block.get("bbox", [])) == 4
+    ]
+    row_tolerance = max(2.5, statistics.median(heights) * 0.45) if heights else 2.5
+    ordered = sorted(
+        candidate_blocks,
+        key=lambda item: (((item["bbox"][1] + item["bbox"][3]) / 2.0), item["bbox"][0]),
+    )
+    rows: list[dict[str, Any]] = []
+    for block in ordered:
+        bbox = tuple(float(item) for item in block["bbox"])
+        center_y = (bbox[1] + bbox[3]) / 2.0
+        target: dict[str, Any] | None = None
+        for row in rows:
+            row_bbox = tuple(row["bbox"])
+            if abs(center_y - float(row["center_y"])) <= row_tolerance or _vertical_overlap_ratio(bbox, row_bbox) >= 0.6:
+                target = row
+                break
+        if target is None:
+            rows.append({"bbox": list(bbox), "center_y": center_y, "blocks": [block]})
+            continue
+        target["blocks"].append(block)
+        target["bbox"] = list(_bbox_union([tuple(target["bbox"]), bbox]))
+        target["center_y"] = statistics.median(
+            [((item["bbox"][1] + item["bbox"][3]) / 2.0) for item in target["blocks"]]
+        )
+    matrix_rows = sum(1 for row in rows if len(row["blocks"]) >= 3)
+    if matrix_rows < 2:
+        return False
+    return matrix_rows / max(1, len(rows)) >= 0.20
+
+
 def infer_page_text_layout_profile(
     text_blocks: list[dict[str, Any]],
     page_words: list[_Word],
@@ -180,7 +278,11 @@ def infer_page_text_layout_profile(
     }
     if not text_blocks or not page_words or page_width <= 0 or page_height <= 0:
         return profile
-    if not is_two_column_layout(page_words, page_width):
+    if not is_two_column_layout(page_words, page_width) and not _has_text_block_column_geometry(
+        text_blocks,
+        page_width,
+        page_height,
+    ):
         return profile
 
     body_top = float(profile["body_top"])

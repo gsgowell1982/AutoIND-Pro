@@ -73,6 +73,14 @@ _MULTILINGUAL_DAMAGE_HARD_CHAR_RE = re.compile(r"[\u00d7\u22c6\u2208\u2212\u2265
 _MULTILINGUAL_DAMAGE_SOFT_CHAR_RE = re.compile(r"[\u00a0\u2002\u2003\u2009\u200a\u202f]")
 _BODY_OCR_RENDER_SCALE = 4.5
 _INLINE_EQUATION_MARKER_RE = re.compile(r"^\(\s*\d{1,3}\s*\)$")
+_URL_CONTINUATION_RE = re.compile(
+    r"(?:https?://|www\.|[A-Za-z0-9.-]+\.(?:org|com|net|gov|edu)\b|网站|网址|下载|download)",
+    re.IGNORECASE,
+)
+_OPEN_CONTINUATION_TAIL_RE = re.compile(
+    r"(?:可从|可在|参见|见|from|at|on|via|see|available(?:\s+from)?|visit)\s*[A-Za-z0-9.-]*$",
+    re.IGNORECASE,
+)
 
 
 def _extract_visible_span_metrics(
@@ -640,6 +648,304 @@ def _build_body_ocr_repair_blocks(
     return repaired_blocks
 
 
+def recover_sparse_text_layer_page_with_full_page_ocr(
+    page: "pymupdf.Page",
+    page_number: int,
+    text_blocks: list[dict[str, Any]],
+    page_width: float,
+    page_height: float,
+    page_words: list[_Word],
+    page_drawings: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Recover body text when the PDF text layer is effectively absent.
+
+    This is a page-level evidence source, not an export-time fallback. It only
+    activates when the existing text/word layer is too sparse for normal layout
+    reconstruction while vector/image evidence suggests visible page content.
+    The recovered rows become ordinary text blocks so downstream ownership,
+    TOC/table/figure arbitration, reading order, and Markdown projection stay
+    shared with text-layer PDFs.
+    """
+    if RapidOCR is None or np is None or pymupdf is None:
+        return text_blocks, 0
+    if not _page_needs_sparse_text_layer_full_page_ocr(
+        text_blocks=text_blocks,
+        page_words=page_words,
+        page_drawings=page_drawings,
+        page_width=page_width,
+        page_height=page_height,
+    ):
+        return text_blocks, 0
+
+    margin_x = max(8.0, page_width * 0.015)
+    margin_y = max(8.0, page_height * 0.015)
+    clip_bbox = (
+        margin_x,
+        margin_y,
+        max(margin_x + 24.0, page_width - margin_x),
+        max(margin_y + 24.0, page_height - margin_y),
+    )
+    ocr_entries = _run_local_body_text_ocr(page, clip_bbox)
+    if not ocr_entries:
+        return text_blocks, 0
+    recovered_blocks = _build_full_page_ocr_text_blocks_from_entries(
+        ocr_entries=ocr_entries,
+        page_number=page_number,
+        page_width=page_width,
+        page_height=page_height,
+    )
+    if not _full_page_ocr_blocks_have_body_text_signal(recovered_blocks):
+        return text_blocks, 0
+    return recovered_blocks, len(recovered_blocks)
+
+
+def _page_needs_sparse_text_layer_full_page_ocr(
+    *,
+    text_blocks: list[dict[str, Any]],
+    page_words: list[_Word],
+    page_drawings: list[dict[str, Any]],
+    page_width: float,
+    page_height: float,
+) -> bool:
+    page_area = max(1.0, float(page_width) * float(page_height))
+    visible_text = _clean_text(" ".join(str(block.get("text", "")) for block in text_blocks))
+    visible_word_text = _clean_text(" ".join(word.text for word in page_words))
+    text_token_count = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]{2,}", visible_text))
+    word_token_count = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]{2,}", visible_word_text))
+    if text_token_count >= 8 or word_token_count >= 8:
+        return False
+
+    drawing_count = len(page_drawings or [])
+    drawing_area = 0.0
+    for drawing in page_drawings or []:
+        rect = drawing.get("rect")
+        if rect is None:
+            continue
+        try:
+            bbox = (float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1))
+        except Exception:
+            continue
+        drawing_area += min(page_area, _bbox_width(bbox) * _bbox_height(bbox))
+
+    has_visual_content = drawing_count >= 80 or drawing_area / page_area >= 0.08
+    has_sparse_noise_text = bool(visible_text) and len(_compact_text(visible_text)) <= 40
+    return has_visual_content or has_sparse_noise_text
+
+
+def _build_full_page_ocr_text_blocks(
+    *,
+    ocr_rows: list[list[tuple[str, float, tuple[float, float, float, float]]]],
+    page_number: int,
+    page_width: float,
+    page_height: float,
+) -> list[dict[str, Any]]:
+    if not ocr_rows:
+        return []
+    row_records: list[dict[str, Any]] = []
+    for entries in ocr_rows:
+        text = _join_ocr_row_text(entries)
+        if not text:
+            continue
+        bbox = _bbox_union([entry[2] for entry in entries])
+        if _bbox_width(bbox) < max(12.0, page_width * 0.015) or _bbox_height(bbox) < 4.0:
+            continue
+        confidence_values = [float(entry[1]) for entry in entries]
+        row_records.append(
+            {
+                "text": text,
+                "bbox": bbox,
+                "confidence": statistics.mean(confidence_values) if confidence_values else 0.0,
+            }
+        )
+    if not row_records:
+        return []
+
+    lane_boundaries = _infer_full_page_ocr_lanes(row_records, page_width)
+    ordered_records = _order_full_page_ocr_rows(row_records, lane_boundaries)
+    blocks: list[dict[str, Any]] = []
+    for row_index, record in enumerate(ordered_records, start=1):
+        bbox = record["bbox"]
+        text = str(record["text"])
+        block: dict[str, Any] = {
+            "block_type": "text",
+            "block_id": f"txt_p{page_number}_fullocr_{row_index:03d}",
+            "page": page_number,
+            "bbox": _bbox_to_list(bbox),
+            "text": text,
+            "font_size": max(0.0, _bbox_height(bbox)),
+            "source": "full-page-ocr",
+            "ocr_repair_reason": "sparse_text_layer_page",
+            "ocr_confidence": round(float(record.get("confidence", 0.0) or 0.0), 3),
+        }
+        lane = _full_page_ocr_lane_for_bbox(bbox, lane_boundaries)
+        if lane:
+            block["layout_lane"] = lane
+            block["layout_mode"] = "two_column"
+            block["layout_confidence"] = 0.72
+        blocks.append(block)
+    return blocks
+
+
+def _build_full_page_ocr_text_blocks_from_entries(
+    *,
+    ocr_entries: list[tuple[str, float, tuple[float, float, float, float]]],
+    page_number: int,
+    page_width: float,
+    page_height: float,
+) -> list[dict[str, Any]]:
+    if not ocr_entries:
+        return []
+    lane_boundaries = _infer_full_page_ocr_lanes_from_entries(ocr_entries, page_width)
+    if lane_boundaries is None:
+        return _build_full_page_ocr_text_blocks(
+            ocr_rows=_group_local_ocr_rows(ocr_entries),
+            page_number=page_number,
+            page_width=page_width,
+            page_height=page_height,
+        )
+
+    full_entries: list[tuple[str, float, tuple[float, float, float, float]]] = []
+    left_entries: list[tuple[str, float, tuple[float, float, float, float]]] = []
+    right_entries: list[tuple[str, float, tuple[float, float, float, float]]] = []
+    for entry in ocr_entries:
+        lane = _full_page_ocr_lane_for_bbox(entry[2], lane_boundaries)
+        if lane == "left":
+            left_entries.append(entry)
+        elif lane == "right":
+            right_entries.append(entry)
+        else:
+            full_entries.append(entry)
+
+    ordered_rows: list[list[tuple[str, float, tuple[float, float, float, float]]]] = []
+    ordered_rows.extend(_group_local_ocr_rows(full_entries))
+    ordered_rows.extend(_group_local_ocr_rows(left_entries))
+    ordered_rows.extend(_group_local_ocr_rows(right_entries))
+    return _build_full_page_ocr_blocks_from_ordered_rows(
+        ordered_rows=ordered_rows,
+        page_number=page_number,
+        lane_boundaries=lane_boundaries,
+    )
+
+
+def _build_full_page_ocr_blocks_from_ordered_rows(
+    *,
+    ordered_rows: list[list[tuple[str, float, tuple[float, float, float, float]]]],
+    page_number: int,
+    lane_boundaries: tuple[float, float] | None,
+) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for row_index, entries in enumerate(ordered_rows, start=1):
+        text = _join_ocr_row_text(entries)
+        if not text:
+            continue
+        bbox = _bbox_union([entry[2] for entry in entries])
+        confidence_values = [float(entry[1]) for entry in entries]
+        block: dict[str, Any] = {
+            "block_type": "text",
+            "block_id": f"txt_p{page_number}_fullocr_{row_index:03d}",
+            "page": page_number,
+            "bbox": _bbox_to_list(bbox),
+            "text": text,
+            "font_size": max(0.0, _bbox_height(bbox)),
+            "source": "full-page-ocr",
+            "ocr_repair_reason": "sparse_text_layer_page",
+            "ocr_confidence": round(statistics.mean(confidence_values) if confidence_values else 0.0, 3),
+        }
+        lane = _full_page_ocr_lane_for_bbox(bbox, lane_boundaries)
+        if lane:
+            block["layout_lane"] = lane
+            block["layout_mode"] = "two_column"
+            block["layout_confidence"] = 0.76
+        blocks.append(block)
+    return blocks
+
+
+def _infer_full_page_ocr_lanes_from_entries(
+    ocr_entries: list[tuple[str, float, tuple[float, float, float, float]]],
+    page_width: float,
+) -> tuple[float, float] | None:
+    records = [
+        {"bbox": entry[2], "text": entry[0]}
+        for entry in ocr_entries
+        if _clean_text(entry[0])
+    ]
+    return _infer_full_page_ocr_lanes(records, page_width)
+
+
+def _infer_full_page_ocr_lanes(
+    row_records: list[dict[str, Any]],
+    page_width: float,
+) -> tuple[float, float] | None:
+    if page_width <= 0 or len(row_records) < 8:
+        return None
+    centers = sorted((float(record["bbox"][0]) + float(record["bbox"][2])) / 2.0 for record in row_records)
+    left = [center for center in centers if center < page_width * 0.48]
+    right = [center for center in centers if center > page_width * 0.52]
+    if len(left) < 3 or len(right) < 3:
+        return None
+    left_max = max(left)
+    right_min = min(right)
+    if right_min - left_max < max(24.0, page_width * 0.05):
+        return None
+    return left_max, right_min
+
+
+def _full_page_ocr_lane_for_bbox(
+    bbox: tuple[float, float, float, float],
+    lane_boundaries: tuple[float, float] | None,
+) -> str:
+    if lane_boundaries is None:
+        return ""
+    left_max, right_min = lane_boundaries
+    center_x = (float(bbox[0]) + float(bbox[2])) / 2.0
+    if center_x <= left_max:
+        return "left"
+    if center_x >= right_min:
+        return "right"
+    return "full_width"
+
+
+def _order_full_page_ocr_rows(
+    row_records: list[dict[str, Any]],
+    lane_boundaries: tuple[float, float] | None,
+) -> list[dict[str, Any]]:
+    if lane_boundaries is None:
+        return sorted(row_records, key=lambda record: (float(record["bbox"][1]), float(record["bbox"][0])))
+    left = [
+        record
+        for record in row_records
+        if _full_page_ocr_lane_for_bbox(record["bbox"], lane_boundaries) == "left"
+    ]
+    right = [
+        record
+        for record in row_records
+        if _full_page_ocr_lane_for_bbox(record["bbox"], lane_boundaries) == "right"
+    ]
+    full = [
+        record
+        for record in row_records
+        if _full_page_ocr_lane_for_bbox(record["bbox"], lane_boundaries) not in {"left", "right"}
+    ]
+    return (
+        sorted(full, key=lambda record: (float(record["bbox"][1]), float(record["bbox"][0])))
+        + sorted(left, key=lambda record: (float(record["bbox"][1]), float(record["bbox"][0])))
+        + sorted(right, key=lambda record: (float(record["bbox"][1]), float(record["bbox"][0])))
+    )
+
+
+def _full_page_ocr_blocks_have_body_text_signal(blocks: list[dict[str, Any]]) -> bool:
+    if len(blocks) < 4:
+        return False
+    text = _clean_text(" ".join(str(block.get("text", "")) for block in blocks))
+    alpha_tokens = re.findall(r"[A-Za-z]{3,}", text)
+    cjk_chars = re.findall(r"[\u4e00-\u9fff]", text)
+    average_confidence = statistics.mean(
+        float(block.get("ocr_confidence", 0.0) or 0.0)
+        for block in blocks
+    )
+    return (len(alpha_tokens) >= 12 or len(cjk_chars) >= 20) and average_confidence >= 0.55
+
+
 def _repair_quote_gap_cluster_with_local_ocr(
     page: "pymupdf.Page",
     cluster_rows: list[list[dict[str, Any]]],
@@ -1074,6 +1380,171 @@ def _reading_order_zones(
     return zones
 
 
+def _valid_text_bbox(block: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    try:
+        bbox = tuple(float(item) for item in block.get("bbox", ()))
+    except (TypeError, ValueError):
+        return None
+    if len(bbox) != 4:
+        return None
+    if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        return None
+    return bbox
+
+
+def _block_center_x(block: dict[str, Any]) -> float:
+    bbox = _valid_text_bbox(block)
+    if bbox is None:
+        return 0.0
+    return (bbox[0] + bbox[2]) / 2.0
+
+
+def _order_local_visual_panel_zone(
+    rows: list[list[dict[str, Any]]],
+    layout_profile: dict[str, Any] | None = None,
+) -> list[dict[str, Any]] | None:
+    """Order local multi-panel visual text by panel before falling back to rows.
+
+    This handles slide/infographic/report pages where several narrow text panels
+    sit side by side inside a larger full-width zone. Those panels are not true
+    document columns, so a page-level left/right lane model flattens them row by
+    row. The panel ordering is deliberately evidence-only and geometry-driven:
+    it clusters narrow text boxes by horizontal interval overlap and only applies
+    when at least three stable local panels are visible.
+    """
+    flattened = _flatten_visual_rows(rows)
+    if len(flattened) < 6:
+        return None
+
+    page_width = float((layout_profile or {}).get("page_width", 0.0) or 0.0)
+    valid_bboxes = [
+        bbox
+        for block in flattened
+        for bbox in [_valid_text_bbox(block)]
+        if bbox is not None and _clean_text(str(block.get("text", "")))
+    ]
+    if not valid_bboxes:
+        return None
+    zone_bbox = _bbox_union(valid_bboxes)
+    effective_width = page_width if page_width > 0 else max(1.0, zone_bbox[2] - zone_bbox[0])
+    local_width_limit = max(80.0, effective_width * 0.52)
+
+    candidates: list[dict[str, Any]] = []
+    widths: list[float] = []
+    for block in flattened:
+        text = _clean_text(str(block.get("text", "")))
+        bbox = _valid_text_bbox(block)
+        if not text or bbox is None:
+            continue
+        width = bbox[2] - bbox[0]
+        if width > local_width_limit:
+            continue
+        candidates.append(block)
+        widths.append(width)
+
+    if len(candidates) < 6:
+        return None
+    median_width = statistics.median(widths) if widths else effective_width * 0.2
+    panel_gap = max(10.0, min(effective_width * 0.04, median_width * 0.28))
+
+    clusters: list[dict[str, Any]] = []
+    for block in sorted(candidates, key=lambda item: (_valid_text_bbox(item) or (0.0, 0.0, 0.0, 0.0))[0]):
+        bbox = _valid_text_bbox(block)
+        if bbox is None:
+            continue
+        assigned_cluster: dict[str, Any] | None = None
+        best_gap: float | None = None
+        for cluster in clusters:
+            cluster_bbox = tuple(cluster["bbox"])
+            overlap = max(0.0, min(cluster_bbox[2], bbox[2]) - max(cluster_bbox[0], bbox[0]))
+            min_width = max(1.0, min(cluster_bbox[2] - cluster_bbox[0], bbox[2] - bbox[0]))
+            gap = max(0.0, bbox[0] - cluster_bbox[2], cluster_bbox[0] - bbox[2])
+            if overlap / min_width < 0.15 and gap > panel_gap:
+                continue
+            if best_gap is None or gap < best_gap:
+                assigned_cluster = cluster
+                best_gap = gap
+        if assigned_cluster is None:
+            clusters.append({"bbox": list(bbox), "blocks": [block]})
+            continue
+        assigned_cluster["blocks"].append(block)
+        assigned_cluster["bbox"] = _bbox_to_list(_bbox_union([tuple(assigned_cluster["bbox"]), bbox]))
+
+    stable_clusters = [
+        cluster
+        for cluster in clusters
+        if len(cluster["blocks"]) >= 2
+    ]
+    if len(stable_clusters) < 3:
+        return None
+
+    stable_clusters.sort(key=lambda cluster: (float(cluster["bbox"][0]), float(cluster["bbox"][1])))
+    panel_block_ids = {id(block) for cluster in stable_clusters for block in cluster["blocks"]}
+    panel_y_values = [
+        value
+        for cluster in stable_clusters
+        for block in cluster["blocks"]
+        for bbox in [_valid_text_bbox(block)]
+        if bbox is not None
+        for value in (bbox[1], bbox[3])
+    ]
+    if not panel_y_values:
+        return None
+    panel_top = min(panel_y_values)
+    panel_bottom = max(panel_y_values)
+    cluster_block_ids_by_index = {
+        cluster_index: {id(item) for item in cluster["blocks"]}
+        for cluster_index, cluster in enumerate(stable_clusters)
+    }
+
+    rows_with_multiple_panels = 0
+    for row in rows:
+        touched_clusters = {
+            cluster_index
+            for cluster_index, cluster_block_ids in cluster_block_ids_by_index.items()
+            for block in row
+            if id(block) in cluster_block_ids
+        }
+        if len(touched_clusters) >= 2:
+            rows_with_multiple_panels += 1
+    if rows_with_multiple_panels < 2:
+        return None
+
+    prefix: list[dict[str, Any]] = []
+    suffix: list[dict[str, Any]] = []
+    for block in flattened:
+        if id(block) in panel_block_ids:
+            continue
+        bbox = _valid_text_bbox(block)
+        if bbox is None:
+            suffix.append(block)
+            continue
+        if _block_center_y(block) < panel_top:
+            prefix.append(block)
+        elif bbox[1] > panel_bottom:
+            suffix.append(block)
+        else:
+            suffix.append(block)
+
+    ordered: list[dict[str, Any]] = []
+    ordered.extend(_sort_text_blocks_by_visual_rows(prefix))
+    for cluster in stable_clusters:
+        ordered.extend(
+            sorted(
+                cluster["blocks"],
+                key=lambda block: (_block_center_y(block), _block_center_x(block)),
+            )
+        )
+    ordered.extend(_sort_text_blocks_by_visual_rows(suffix))
+    if len({id(block) for block in ordered}) != len(ordered):
+        return None
+    if {id(block) for block in ordered} != {id(block) for block in flattened}:
+        return None
+    for block in ordered:
+        block["reading_order_strategy"] = "local_visual_panels"
+    return ordered
+
+
 def _compact_publication_heading_text(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", _clean_text(text).lower())
 
@@ -1254,6 +1725,7 @@ def _order_publication_front_matter_zone(
 def build_reading_order_diagnostics(
     text_blocks: list[dict[str, Any]],
     layout_profile: dict[str, Any] | None = None,
+    structured_regions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     mode = str((layout_profile or {}).get("mode", "single_column") or "single_column")
     confidence = float((layout_profile or {}).get("confidence", 0.0) or 0.0)
@@ -1290,6 +1762,20 @@ def build_reading_order_diagnostics(
     if not has_column_lanes:
         return diagnostics
 
+    if _should_use_structured_table_flow_order(
+        text_blocks,
+        layout_profile,
+        structured_regions,
+    ):
+        diagnostics["strategy"] = "structured_table_flow"
+        diagnostics["signals"] = [
+            "column_lanes_detected",
+            "structured_table_flow",
+            "isolated_url_continuation_lane_split",
+        ]
+        diagnostics["review_required"] = False
+        return diagnostics
+
     zones = _reading_order_zones(text_blocks, layout_profile)
     column_zone_count = sum(1 for zone in zones if zone["mode"] == "columns")
     full_width_zone_count = sum(1 for zone in zones if zone["mode"] == "full_width")
@@ -1314,9 +1800,112 @@ def build_reading_order_diagnostics(
     return diagnostics
 
 
+def _structured_region_bbox(region: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    try:
+        bbox = tuple(float(item) for item in region.get("bbox", []) or [])
+    except (TypeError, ValueError):
+        return None
+    if len(bbox) != 4 or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        return None
+    return bbox
+
+
+def _block_has_url_continuation_signal(block: dict[str, Any]) -> bool:
+    text = _clean_text(str(block.get("text", "") or ""))
+    return bool(text and _URL_CONTINUATION_RE.search(text))
+
+
+def _block_has_open_continuation_tail(block: dict[str, Any]) -> bool:
+    text = _clean_text(str(block.get("text", "") or ""))
+    if not text:
+        return False
+    if _OPEN_CONTINUATION_TAIL_RE.search(text):
+        return True
+    return bool(
+        len(text) >= 12
+        and not re.search(r"[。.!！?？;；:：]$|[。.!！?？][\"'\u201d\u2019）)]?$", text)
+        and re.search(r"(?:可从|可在|from|available|visit|see)\b?", text, re.IGNORECASE)
+    )
+
+
+def _block_lies_in_structured_vertical_span(
+    block: dict[str, Any],
+    structured_regions: list[dict[str, Any]] | None,
+) -> bool:
+    region_bboxes = [
+        bbox for region in structured_regions or [] for bbox in [_structured_region_bbox(region)] if bbox is not None
+    ]
+    if len(region_bboxes) < 2:
+        return False
+    block_bbox = _valid_text_bbox(block)
+    if block_bbox is None:
+        return False
+    min_y = min(bbox[1] for bbox in region_bboxes) - 80.0
+    max_y = max(bbox[3] for bbox in region_bboxes) + 80.0
+    return min_y <= block_bbox[1] <= max_y
+
+
+def _has_isolated_structured_url_continuation_lane_split(
+    text_blocks: list[dict[str, Any]],
+    layout_profile: dict[str, Any] | None,
+    structured_regions: list[dict[str, Any]] | None,
+) -> bool:
+    if not structured_regions:
+        return False
+    ordered_rows = _group_text_blocks_by_visual_rows(text_blocks)
+    visual_order: list[dict[str, Any]] = []
+    for row in ordered_rows:
+        visual_order.extend(sorted(row, key=lambda item: (item["bbox"][1], item["bbox"][0])))
+    if len(visual_order) < 2:
+        return False
+
+    left_blocks = [block for block in visual_order if _layout_lane(block, layout_profile) == "left"]
+    right_blocks = [block for block in visual_order if _layout_lane(block, layout_profile) == "right"]
+    if len(left_blocks) > 1 or len(right_blocks) < 2:
+        return False
+
+    for index, block in enumerate(visual_order[1:], start=1):
+        if _layout_lane(block, layout_profile) != "left":
+            continue
+        if not _block_has_url_continuation_signal(block):
+            continue
+        if not _block_lies_in_structured_vertical_span(block, structured_regions):
+            continue
+        previous = visual_order[index - 1]
+        if _layout_lane(previous, layout_profile) not in {"right", "full_width"}:
+            continue
+        if not _block_has_open_continuation_tail(previous):
+            continue
+        previous_bbox = _valid_text_bbox(previous)
+        block_bbox = _valid_text_bbox(block)
+        if previous_bbox is None or block_bbox is None:
+            continue
+        vertical_gap = block_bbox[1] - previous_bbox[3]
+        if vertical_gap < -2.0 or vertical_gap > 24.0:
+            continue
+        return True
+    return False
+
+
+def _should_use_structured_table_flow_order(
+    text_blocks: list[dict[str, Any]],
+    layout_profile: dict[str, Any] | None,
+    structured_regions: list[dict[str, Any]] | None,
+) -> bool:
+    mode = str((layout_profile or {}).get("mode", "single_column") or "single_column")
+    if mode not in {"mixed", "two_column"}:
+        return False
+    return _has_isolated_structured_url_continuation_lane_split(
+        text_blocks,
+        layout_profile,
+        structured_regions,
+    )
+
+
 def order_text_blocks_for_reading(
     text_blocks: list[dict[str, Any]],
     layout_profile: dict[str, Any] | None = None,
+    structured_regions: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     if not text_blocks:
         return []
@@ -1335,13 +1924,32 @@ def order_text_blocks_for_reading(
             ordered.extend(row)
         return ordered
 
+    if _should_use_structured_table_flow_order(
+        text_blocks,
+        layout_profile,
+        structured_regions,
+    ):
+        ordered: list[dict[str, Any]] = []
+        for row in ordered_rows:
+            ordered.extend(sorted(row, key=lambda item: (item["bbox"][1], item["bbox"][0])))
+        return ordered
+
     zones = _reading_order_zones(text_blocks, layout_profile)
 
     ordered: list[dict[str, Any]] = []
     for zone in zones:
         if zone["mode"] == "full_width":
+            local_panel_order = _order_local_visual_panel_zone(zone["rows"], layout_profile)
+            if local_panel_order is not None:
+                ordered.extend(local_panel_order)
+                continue
             for row in zone["rows"]:
                 ordered.extend(sorted(row, key=lambda item: (item["bbox"][0], _block_center_y(item))))
+            continue
+
+        local_panel_order = _order_local_visual_panel_zone(zone["rows"], layout_profile)
+        if local_panel_order is not None:
+            ordered.extend(local_panel_order)
             continue
 
         publication_front_matter_order = _order_publication_front_matter_zone(

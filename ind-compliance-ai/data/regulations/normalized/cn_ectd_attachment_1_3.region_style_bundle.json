@@ -1,0 +1,106 @@
+{
+  "schema_version": "ectd-region-style-bundle-v1",
+  "bundle_id": "cn_ectd_attachment_1_3",
+  "source_directory": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-3：区域性样式文件",
+  "stylesheet_count": 1,
+  "stylesheets": [
+    {
+      "filename": "cn-regional-1-0.xsl",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-3：区域性样式文件\\cn-regional-1-0.xsl",
+      "stylesheet_version": "1.0",
+      "output_method": "html",
+      "output_encoding": "UTF-8",
+      "output_indent": "no",
+      "template_count": 10,
+      "templates": [
+        {
+          "match": "/",
+          "mode": ""
+        },
+        {
+          "match": "*|@*",
+          "mode": "line"
+        },
+        {
+          "match": "*|@*",
+          "mode": "application-type"
+        },
+        {
+          "match": "*|@*",
+          "mode": "product-type"
+        },
+        {
+          "match": "*|@*",
+          "mode": "regulatory-activity-type"
+        },
+        {
+          "match": "*|@*",
+          "mode": "sequence-type"
+        },
+        {
+          "match": "cn_ectd:cn-envelope",
+          "mode": ""
+        },
+        {
+          "match": "cn_ectd:cn-envelope/cn_ectd:sequence-contact",
+          "mode": ""
+        },
+        {
+          "match": "cn_ectd:leaf",
+          "mode": ""
+        },
+        {
+          "match": "cn_ectd:cn-content",
+          "mode": ""
+        }
+      ],
+      "static_texts": {
+        "html_title_prefix": "模块一 - Schema 版本",
+        "main_heading": "模块一",
+        "schema_version_label": "Schema 版本",
+        "style_version_label": "样式文件版本 1.0"
+      },
+      "controlled_display_mappings": {
+        "application-type": {
+          "cnapt1": "临床试验申请",
+          "cnapt2": "新药申请",
+          "cnapt3": "仿制药申请"
+        },
+        "product-type": {
+          "cnprt1": "化学药品",
+          "cnprt2": "生物制品"
+        },
+        "regulatory-activity-type": {
+          "cnrat1": "首次申请",
+          "cnrat2": "补充申请",
+          "cnrat3": "备案",
+          "cnrat4": "报告",
+          "cnrat5": "新适应症和联合用药",
+          "cnrat6": "新适应症",
+          "cnrat7": "研发期间安全性报告",
+          "cnrat8": "再注册",
+          "cnrat9": "基线"
+        },
+        "sequence-type": {
+          "cnsqt1": "首次提交",
+          "cnsqt2": "回复",
+          "cnsqt3": "撤回",
+          "cnsqt4": "格式转换"
+        }
+      },
+      "xml_root_tag": "stylesheet",
+      "xml_namespace_map": {
+        "xsl": "http://www.w3.org/1999/XSL/Transform",
+        "cn_ectd": "cn_ectd",
+        "xsi": "http://www.w3.org/2001/XMLSchema-instance",
+        "xlink": "http://www.w3.org/1999/xlink"
+      }
+    }
+  ],
+  "style_status_summary": {
+    "status": "ready",
+    "filenames": [
+      "cn-regional-1-0.xsl"
+    ]
+  }
+}

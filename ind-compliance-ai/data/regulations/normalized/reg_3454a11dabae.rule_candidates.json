@@ -1,0 +1,797 @@
+{
+  "schema_version": "regulation-library-v1",
+  "regulation_id": "reg_3454a11dabae",
+  "rule_candidate_count": 46,
+  "rule_candidates": [
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_1_1",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_1_1",
+      "article_no": 1,
+      "title": "1.1 目的",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_1_1",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_1_2",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_1_2",
+      "article_no": 2,
+      "title": "1.2 适用范围",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_1_2",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_1_3",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_1_3",
+      "article_no": 3,
+      "title": "1.3 相关指导原则",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_1_3",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_2_1",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_2_1",
+      "article_no": 4,
+      "title": "2.1 申请人及监管机构的责任",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_2_1",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_2_2",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_2_2",
+      "article_no": 5,
+      "title": "2.2 从纸质递交向eCTD 电子提交过渡的考虑",
+      "recommended_rule_mode": "hard",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_2_2",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_2_3",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_2_3",
+      "article_no": 6,
+      "title": "2.3 存储介质的选择及刻录光盘的要求",
+      "recommended_rule_mode": "hard",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_2_3",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_2_4",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_2_4",
+      "article_no": 7,
+      "title": "2.4 光盘封面信息",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_2_4",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_2_5",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_2_5",
+      "article_no": 8,
+      "title": "2.5 病毒检查",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_2_5",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_2_6",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_2_6",
+      "article_no": 9,
+      "title": "2.6 技术验证",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_2_6",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_2_7",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_2_7",
+      "article_no": 10,
+      "title": "2.7 提交要求",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_2_7",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_2_8",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_2_8",
+      "article_no": 11,
+      "title": "2.8 纸质资料的递交及要求",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_2_8",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_3_1",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_3_1",
+      "article_no": 12,
+      "title": "3.1 原始编号的应用",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_3_1",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_3_2",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_3_2",
+      "article_no": 13,
+      "title": "3.2 申请编号的应用",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_3_2",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_3_3",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_3_3",
+      "article_no": 14,
+      "title": "3.3 序列号的应用",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_3_3",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_3_4",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_3_4",
+      "article_no": 15,
+      "title": "3.4 各编号之间的关联性",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_3_4",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_3_5",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_3_5",
+      "article_no": 16,
+      "title": "3.5 其他编号",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_3_5",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_4_1",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_4_1",
+      "article_no": 17,
+      "title": "4.1 模块一：行政文件和药品信息",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "reg_3454a11dabae#sec_4_1",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_4_1_1",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_4_1_1",
+      "article_no": 18,
+      "title": "4.1.1 申请表的准备",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_4_1_1",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_4_1_2",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_4_1_2",
+      "article_no": 19,
+      "title": "4.1.2 说明函的准备",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_4_1_2",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_4_1_3",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_4_1_3",
+      "article_no": 20,
+      "title": "4.1.3 信封信息的准备",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_4_1_3",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_4_2",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_4_2",
+      "article_no": 21,
+      "title": "4.2 模块二：通用技术文档总结",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "api_supporting_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_4_2",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_4_3",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_4_3",
+      "article_no": 22,
+      "title": "4.3 模块三：质量",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_4_3",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_4_4",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_4_4",
+      "article_no": 23,
+      "title": "4.4 模块四：非临床试验报告",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials",
+        "nonclinical_study_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_4_4",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_4_5",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_4_5",
+      "article_no": 24,
+      "title": "4.5 模块五：临床研究报告",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_4_5",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_5_1",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_5_1",
+      "article_no": 25,
+      "title": "5.1 临床试验申请的新适应症和联合用药",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_5_1",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_5_2",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_5_2",
+      "article_no": 26,
+      "title": "5.2 新药申请和仿制药申请的新适应症",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_5_2",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_5_3",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_5_3",
+      "article_no": 27,
+      "title": "5.3 基线",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_5_3",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_5_4",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_5_4",
+      "article_no": 28,
+      "title": "5.4 再注册",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_5_4",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_5_5",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_5_5",
+      "article_no": 29,
+      "title": "5.5 研发期间安全性报告",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_5_5",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_5_6",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_5_6",
+      "article_no": 30,
+      "title": "5.6 审评期间提交的申报资料",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_5_6",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_5_7",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_5_7",
+      "article_no": 31,
+      "title": "5.7 首次申请的撤回",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_5_7",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_5_8",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_5_8",
+      "article_no": 32,
+      "title": "5.8 首次申请后其他注册行为的撤回",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_5_8",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_6_1",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_6_1",
+      "article_no": 33,
+      "title": "6.1 生命周期操作的基本要求",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_6_1",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_6_2",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_6_2",
+      "article_no": 34,
+      "title": "6.2 首次申请",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_6_2",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_6_3",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_6_3",
+      "article_no": 35,
+      "title": "6.3 撤回操作",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_6_3",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_6_4",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_6_4",
+      "article_no": 36,
+      "title": "6.4 特定文件的生命周期定义",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_6_4",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_6_5",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_6_5",
+      "article_no": 37,
+      "title": "6.5 并行变更的要求",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_6_5",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_6_6",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_6_6",
+      "article_no": 38,
+      "title": "6.6 eCTD 骨架属性的变更管理",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "api_supporting_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_6_6",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_7_1",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_7_1",
+      "article_no": 39,
+      "title": "7.1 外文在提交资料中的要求",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_7_1",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_7_2",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_7_2",
+      "article_no": 40,
+      "title": "7.2 文件格式、版本及OCR 的要求",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_7_2",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_7_3",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_7_3",
+      "article_no": 41,
+      "title": "7.3 页码编制的要求",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [],
+      "citation_anchor": "reg_3454a11dabae#sec_7_3",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_7_4",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_7_4",
+      "article_no": 42,
+      "title": "7.4 书签与超文本链接的要求",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_7_4",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_7_5",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_7_5",
+      "article_no": 43,
+      "title": "7.5 对文件压缩、加密的要求",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_7_5",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_7_6",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_7_6",
+      "article_no": 44,
+      "title": "7.6 文件大小的要求",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_7_6",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_7_7",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_7_7",
+      "article_no": 45,
+      "title": "7.7 电子签名的要求",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_7_7",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    },
+    {
+      "rule_candidate_id": "reg_3454a11dabae:rule_sec_1_2",
+      "regulation_id": "reg_3454a11dabae",
+      "clause_id": "reg_3454a11dabae:sec_1_2",
+      "article_no": 46,
+      "title": "1.2 适用范围",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "reg_3454a11dabae#sec_1_2",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf"
+    }
+  ]
+}

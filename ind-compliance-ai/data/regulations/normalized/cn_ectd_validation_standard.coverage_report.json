@@ -1,0 +1,2167 @@
+{
+  "schema_version": "regulation-library-v1",
+  "coverage_schema_version": "regulation-coverage-report-v1",
+  "regulation_id": "cn_ectd_validation_standard",
+  "regulation_title": "eCTD验证标准",
+  "scope": "chapter_1_to_6",
+  "clause_count": 149,
+  "chapter_count": 6,
+  "chapter_summaries": [
+    {
+      "chapter_no": 1,
+      "chapter_title": "基础识别",
+      "clause_count": 3,
+      "covered_clause_count": 0,
+      "partially_covered_clause_count": 0,
+      "deferred_clause_count": 0,
+      "citation_only_clause_count": 3,
+      "traceability_gap_clause_count": 0
+    },
+    {
+      "chapter_no": 2,
+      "chapter_title": "文件/文件夹",
+      "clause_count": 10,
+      "covered_clause_count": 10,
+      "partially_covered_clause_count": 0,
+      "deferred_clause_count": 0,
+      "citation_only_clause_count": 0,
+      "traceability_gap_clause_count": 0
+    },
+    {
+      "chapter_no": 3,
+      "chapter_title": "ICH 骨架文件",
+      "clause_count": 36,
+      "covered_clause_count": 36,
+      "partially_covered_clause_count": 0,
+      "deferred_clause_count": 0,
+      "citation_only_clause_count": 0,
+      "traceability_gap_clause_count": 0
+    },
+    {
+      "chapter_no": 4,
+      "chapter_title": "区域性管理信息",
+      "clause_count": 54,
+      "covered_clause_count": 54,
+      "partially_covered_clause_count": 0,
+      "deferred_clause_count": 0,
+      "citation_only_clause_count": 0,
+      "traceability_gap_clause_count": 0
+    },
+    {
+      "chapter_no": 5,
+      "chapter_title": "研究标签文件（STF）",
+      "clause_count": 20,
+      "covered_clause_count": 20,
+      "partially_covered_clause_count": 0,
+      "deferred_clause_count": 0,
+      "citation_only_clause_count": 0,
+      "traceability_gap_clause_count": 0
+    },
+    {
+      "chapter_no": 6,
+      "chapter_title": "PDF分析",
+      "clause_count": 26,
+      "covered_clause_count": 26,
+      "partially_covered_clause_count": 0,
+      "deferred_clause_count": 0,
+      "citation_only_clause_count": 0,
+      "traceability_gap_clause_count": 0
+    }
+  ],
+  "clause_coverages": [
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_1_1",
+      "chapter_no": 1,
+      "heading": "1.1 文件数量统计",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "citation_only_recorded",
+      "implemented_rule_ids": [],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Chapter 1 is validation-report informational output rather than a dossier-decidable rule surface."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_1_2",
+      "chapter_no": 1,
+      "heading": "1.2 文件大小统计",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "citation_only_recorded",
+      "implemented_rule_ids": [],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Chapter 1 is validation-report informational output rather than a dossier-decidable rule surface."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_1_3",
+      "chapter_no": 1,
+      "heading": "1.3 空缺的章节统计",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "citation_only_recorded",
+      "implemented_rule_ids": [],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Chapter 1 is validation-report informational output rather than a dossier-decidable rule surface."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_2_1",
+      "chapter_no": 2,
+      "heading": "2.1 文件夹不能为空",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-021"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "No-empty-directory boundary is executable."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_2_2",
+      "chapter_no": 2,
+      "heading": "2.2 不能超出文件大小限制",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-015"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "File-size warning boundary is executable with the validation-standard 500MB / 4GB thresholds."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_2_3",
+      "chapter_no": 2,
+      "heading": "2.3 不允许未被引用的文件",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-010"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Actual package files must be declared by the XML backbone."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_2_4",
+      "chapter_no": 2,
+      "heading": "2.4 文件类型（文件扩展名检查）",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-019"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Allowed eCTD content-file format set is executable."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_2_5",
+      "chapter_no": 2,
+      "heading": "2.5 文件和文件夹命名规范必须正确",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-005"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "File/folder naming-character and path-constraint boundary is executable."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_2_6",
+      "chapter_no": 2,
+      "heading": "2.6 m1文件夹存在但是不存放单个文件",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-015",
+        "HR-ECTD-046"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "m1-folder existence and the no-direct-file-under-m1 boundary are executable from bounded package-root structure checks."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_2_7",
+      "chapter_no": 2,
+      "heading": "2.7 util文件夹必须存在且包含的文件必须正确",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-015",
+        "HR-ECTD-017",
+        "HR-ECTD-047"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "util structure, support-file presence, and authoritative checksum exactness are executable from bounded package-root file checks plus STF leaf stylesheet-reference detection."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_2_8",
+      "chapter_no": 2,
+      "heading": "2.8 序列号根文件夹不允许其他文件",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Unexpected root-level package entries are now rejected by the package-structure rule."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_2_9",
+      "chapter_no": 2,
+      "heading": "2.9 序列文件夹要求",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Sequence-folder 4-digit naming boundary is executable at package-structure scope."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_2_10",
+      "chapter_no": 2,
+      "heading": "2.10 序列编号",
+      "recommended_rule_mode": "soft",
+      "automation_ready": true,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-001"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Sequence-number format plus known-history continuity boundary is executable."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_1",
+      "chapter_no": 3,
+      "heading": "3.1 index.xml文件必须存在",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml required-presence boundary is executable from bounded package-structure checks."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_2",
+      "chapter_no": 3,
+      "heading": "3.2 index.xml中DTD的引用必须指向util文件夹中提供的DTD",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-078"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml DOCTYPE SYSTEM reference is checked for the bounded util/dtd/ich-ectd-3-2.dtd target and local file availability."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_3",
+      "chapter_no": 3,
+      "heading": "3.3 index.xml文件必须有效。",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-079"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml well-formedness and local ich-ectd-3-2.dtd validation are executable when the DTD reference resolves; unresolved DTD validation prerequisites remain explicit guidance rather than false pass/fail."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_4",
+      "chapter_no": 3,
+      "heading": "3.4 文件引用（xlink:href）属性指向的文件必须存在",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "XML leaf xlink:href target-existence boundary is executable from bounded sequence-package file-resolution checks."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_5",
+      "chapter_no": 3,
+      "heading": "3.5 文件在一个序列中不允许对应多个操作",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-065"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml lifecycle target files must not correspond to multiple operations within one sequence, which is executable from all-leaf lifecycle metadata and sequence-root path normalization."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_6",
+      "chapter_no": 3,
+      "heading": "3.6 替换或增补的内容不能与之前文件相同",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-063"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml replace/append leaf checksum values must differ from the resolved modified-file leaf checksum when a prior target leaf is available."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_7",
+      "chapter_no": 3,
+      "heading": "3.7 叶元素：新建、替换或增补的叶元素，必须有“文件引用（xlink:href）”值",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-066"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml new, replace, and append leaf href-value exactness is executable from all-leaf lifecycle metadata extracted from index.xml."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_8",
+      "chapter_no": 3,
+      "heading": "3.8 叶元素：删除的叶元素不能包含“文件引用（xlink:href）”值",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-067"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml delete leaf href-value prohibition is executable from all-leaf lifecycle metadata, including href-less leaf records."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_9",
+      "chapter_no": 3,
+      "heading": "3.9 叶元素：对替换、删除和增补的叶元素，必须有对应的文件“操作（operation）”属性值为“替换（replace）”、“删除（delete）”或“增补（append）”的所有叶元素，对应的“被修改文件对象（modified-file）”必须有值。",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-025",
+        "SR-ECTD-009",
+        "HR-ECTD-068"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Allowed lifecycle-operation values, append scope warning, and index.xml replace/delete/append modified-file value exactness are covered from lifecycle metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_10",
+      "chapter_no": 3,
+      "heading": "3.10 叶元素：初始序列中所有文件必须为新建",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-071"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Initial sequence index.xml leaf operation=new exactness is executable from sequence-package context plus index lifecycle metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_11",
+      "chapter_no": 3,
+      "heading": "3.11 被修改文件对象必须存在",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-072"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml modified-file target existence is executable when the referenced sequence package is available; unavailable prior sequence evidence remains prerequisite-dependent."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_12",
+      "chapter_no": 3,
+      "heading": "3.12 只允许使用相对路径引用",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-073"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml href and modified-file references are checked for relative path usage and forward slashes from preserved lifecycle path strings."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_13",
+      "chapter_no": 3,
+      "heading": "3.13 “checksum-type”属性",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-003"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "checksum-type must be MD5/md5 boundary is executable from XML leaf metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_14",
+      "chapter_no": 3,
+      "heading": "3.14 MD5值校验",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-049"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml leaf-declared checksum values must match actual target-file MD5 values, which is executable from bounded sequence-package file checks."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_15",
+      "chapter_no": 3,
+      "heading": "3.15 骨架文件的MD5值校验",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-048"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml backbone-file MD5 must match the declared value in index-md5.txt, which is executable from bounded package-root file checks."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_16",
+      "chapter_no": 3,
+      "heading": "3.16 扩展节点的使用要求",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-074"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Node-extension usage is executable for objective violations: non-biologic use, use outside 3.2.R, and biologic 3.2.R sections lacking required node-extension; missing product-type remains prerequisite guidance instead of false hard failure."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_17",
+      "chapter_no": 3,
+      "heading": "3.17 扩展节点标题的命名规范",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-026"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "3.2.R node-extension title/path naming is executable as the validation-standard warning counterpart of the technical-spec 3.2 extension-title rule."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_18",
+      "chapter_no": 3,
+      "heading": "3.18 叶标题不能为空",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-069"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml leaf title presence and non-empty value checks are executable from preserved leaf-title metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_19",
+      "chapter_no": 3,
+      "heading": "3.19 删除的叶标题必须和被删除的叶标题保持一致",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-070"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml delete leaf titles must match the prior modified-file leaf title when the modified-file target resolves to known prior lifecycle metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_20",
+      "chapter_no": 3,
+      "heading": "3.20 叶标题开头和结尾不能为空格",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-025"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml leaf title leading/trailing whitespace is executable as a warning from preserved raw title text."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_21",
+      "chapter_no": 3,
+      "heading": "3.21 元素下必须有叶元素",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-062"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml elements whose names begin with m[number] must have at least one descendant leaf, which is executable from index.xml structural metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_22",
+      "chapter_no": 3,
+      "heading": "3.22 m1行政文件和药品信息元素必须存在。",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-086"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml must contain the m1 administrative-information-and-prescribing-information element, which is executable from parsed XML element structure."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_23",
+      "chapter_no": 3,
+      "heading": "3.23 增补（append）的使用",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-028"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml append operations outside an explicit STF scope are surfaced as validation-standard warnings from preserved lifecycle and ancestor-context metadata; explanation-letter adequacy remains reviewer-facing context."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_24",
+      "chapter_no": 3,
+      "heading": "3.24 不能重新定位文件位置",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-029"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml replace/delete/append modified-file pairs are reviewed as a warning-level relocation rule: clear CTD parent/path or eCTD position-attribute mismatches are surfaced when target leaf context resolves; missing or ambiguous target context becomes prerequisite/human-review guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_25",
+      "chapter_no": 3,
+      "heading": "3.25 属性-适应症（indication）",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-075"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml indication attribute presence/non-empty exactness is executable for 2.7.3 and 5.3.5 section elements from preserved XML element and attribute records."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_26",
+      "chapter_no": 3,
+      "heading": "3.26 属性-生产商（manufacturer）",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-076"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml manufacturer attribute presence/non-empty exactness is executable for 2.3.S and 3.2.S section elements from preserved XML element and attribute records."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_27",
+      "chapter_no": 3,
+      "heading": "3.27 属性-活性成分（substance）",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-077"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml substance attribute presence/non-empty exactness is executable for 2.3.S and 3.2.S section elements from preserved XML element and attribute records."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_28",
+      "chapter_no": 3,
+      "heading": "3.28 属性值开头和结尾不能为空格",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-027"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml attribute leading/trailing whitespace is executable as a warning from preserved raw XML attribute values."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_29",
+      "chapter_no": 3,
+      "heading": "3.29 内容的引用",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-087"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml leaf href and modified-file content references are checked against resolvable sequence/application context so cross-application references and later-sequence references fail; unresolved target context remains prerequisite-dependent."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_30",
+      "chapter_no": 3,
+      "heading": "3.30 检测无效的生命周期模式：增补操作造成分支",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-080"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml append operations are checked against available prior lifecycle graph evidence so a leaf already replaced by another leaf cannot be appended; incomplete historical sequences remain explicit prerequisites."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_31",
+      "chapter_no": 3,
+      "heading": "3.31 检测无效的生命周期模式：删除操作造成分支",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-081"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml delete operations are checked against available prior lifecycle graph evidence so a leaf already replaced by another leaf cannot be deleted; incomplete historical sequences remain explicit prerequisites."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_32",
+      "chapter_no": 3,
+      "heading": "3.32 检测无效的生命周期模式：替换操作造成分支",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-082"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml replace operations are checked against available prior lifecycle graph evidence so a leaf already replaced by another leaf cannot be replaced a second time; incomplete historical sequences remain explicit prerequisites."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_33",
+      "chapter_no": 3,
+      "heading": "3.33 检测无效的生命周期模式：对已删除叶元素的操作",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-083"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "index.xml replace/delete/append operations are checked against available prior lifecycle graph evidence so an already deleted leaf cannot be operated on again; incomplete historical sequences remain explicit prerequisites."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_34",
+      "chapter_no": 3,
+      "heading": "3.34 检测无效的生命周期模式：对增补的叶元素进行增补操作",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-084"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Non-STF index.xml append operations are checked against available prior lifecycle graph evidence so they cannot target a leaf whose operation is append; STF-scoped append remains excluded from this rule."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_35",
+      "chapter_no": 3,
+      "heading": "3.35 检测无效的生命周期模式：对不是最新的STF叶元素进行增",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-085"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF-scoped index.xml append operations are checked against available prior lifecycle graph evidence so append targets must be the latest known lifecycle leaf; missing latest-version evidence remains prerequisite guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_3_36",
+      "chapter_no": 3,
+      "heading": "3.36 替换操作时语言属性不得变更",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-026"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Replace-operation language consistency is executable through the technical-spec lifecycle language rule when a unique prior-sequence leaf match is available."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_1",
+      "chapter_no": 4,
+      "heading": "4.1.1 模块一的区域骨架文件必须存在",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml required-presence boundary is executable from bounded package-structure checks."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_2",
+      "chapter_no": 4,
+      "heading": "4.1.2 cn-regional.xml中对Schema的引用必须指向util文件夹中",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-112"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml schema-location references are checked from parser-preserved XML instance evidence: local schema references must resolve and point under util; absent schema-location evidence remains an explicit na/prerequisite boundary rather than an assumed pass/fail."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_3",
+      "chapter_no": 4,
+      "heading": "4.1.3 区域骨架文件必须有效",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-113"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml validity is checked from parser-preserved XML schema validation diagnostics: local schema compilation and validation must succeed for pass, validation errors fail, and missing schema/import prerequisites remain explicit na rather than assumed pass/fail."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_4",
+      "chapter_no": 4,
+      "heading": "4.1.4 当前序列必须使用一个不低于先前序列所用的schema版本",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-114"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Current-sequence cn-regional.xml schema-version ordering is checked only when prior sequence packages in the same application expose comparable numeric schema-version evidence; missing prior history, missing schema-version, or non-numeric versions return na/prerequisite guidance rather than assumed pass/fail."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_5",
+      "chapter_no": 4,
+      "heading": "4.1.5 文件引用（xlink:href）属性指向的文件必须存在",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional XML leaf xlink:href target-existence boundary is executable from bounded sequence-package file-resolution checks."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_6",
+      "chapter_no": 4,
+      "heading": "4.1.6 文件在一个序列中不允许对应多个操作",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-059"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional lifecycle target files must not correspond to multiple operations within one sequence, which is executable from all-leaf lifecycle metadata and sequence-root path normalization."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_7",
+      "chapter_no": 4,
+      "heading": "4.1.7 替换或增补的内容不能与之前文件相同",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-064"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml replace/append leaf checksum values must differ from the resolved modified-file leaf checksum when a prior target leaf is available."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_8",
+      "chapter_no": 4,
+      "heading": "4.1.8 叶元素：新建、替换或增补的叶元素，必须有“文件引用（xlink:href）”值",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-055"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional new, replace, and append leaf href-value exactness is executable from all-leaf lifecycle metadata extracted from cn-regional.xml."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_9",
+      "chapter_no": 4,
+      "heading": "4.1.9 叶元素：删除的叶元素不能包含“文件引用（xlink:href）”值",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-056"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional delete leaf href-value prohibition is executable from all-leaf lifecycle metadata, including href-less leaf records."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_10",
+      "chapter_no": 4,
+      "heading": "4.1.10 叶元素：对替换、删除和增补的叶元素，必须有对应的文件“操作（operation）”属性值为“替换（replace）”、“删除（delete）”或“增补（append）”的所有叶元素，对应的“被修改文件对象（modified-file）”必须有值。",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-057"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional replace, delete, and append leaf modified-file value exactness is executable from additive lifecycle metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_11",
+      "chapter_no": 4,
+      "heading": "4.1.11 叶元素：初始序列中所有文件必须为新建",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-058"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Initial-sequence regional leaf operation=new exactness is executable from sequence-package context plus cn-regional.xml lifecycle metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_12",
+      "chapter_no": 4,
+      "heading": "4.1.12 “checksum-type”属性",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-003"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional XML checksum-type must be MD5/md5 boundary is executable from XML leaf metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_13",
+      "chapter_no": 4,
+      "heading": "4.1.13 MD5值校验",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-050"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml leaf-declared checksum values must match actual target-file MD5 values, which is executable from bounded sequence-package file checks."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_14",
+      "chapter_no": 4,
+      "heading": "4.1.14 说明函的“操作（operations）”属性",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-051"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Cover-letter leaf records under cn-1-0 must declare operation=new, which is executable from bounded regional-backbone leaf metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_15",
+      "chapter_no": 4,
+      "heading": "4.1.15 申请表的“操作（operations）”属性",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-052"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "When sequence-type is initial submission, application-form leaf records under cn-1-2 must declare operation=new, which is executable from bounded sequence metadata plus regional-backbone leaf metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_16",
+      "chapter_no": 4,
+      "heading": "4.1.16 不允许使用“扩展节点（Node Extension）”",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-053"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional backbone node-extension prohibition is executable directly from cn-regional.xml node-extension metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_17",
+      "chapter_no": 4,
+      "heading": "4.1.17 叶标题不能为空",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-054"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional XML leaf title non-empty exactness is executable from additive parser leaf-title records that include href-less leaves."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_18",
+      "chapter_no": 4,
+      "heading": "4.1.18 删除的叶标题必须和被删除的叶标题保持一致",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-060"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional delete leaf title continuity is executable by resolving modified-file targets to prior lifecycle leaf hrefs and comparing preserved leaf titles."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_19",
+      "chapter_no": 4,
+      "heading": "4.1.19 叶标题开头和结尾不能为空格",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-024"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional XML leaf-title leading/trailing whitespace exactness is executable from preserved raw title text in additive leaf-title records."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_20",
+      "chapter_no": 4,
+      "heading": "4.1.20 元素下必须有叶元素",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-061"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional cn-content elements whose names begin with cn-[number] must have at least one descendant leaf, which is executable from cn-regional.xml structural metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_21",
+      "chapter_no": 4,
+      "heading": "4.1.21 申请文件夹名称",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-016"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Application-folder name equality with the envelope application-number is executable from the package identity-chain rule, which compares the resolved application root with cn-regional/index envelope metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_22",
+      "chapter_no": 4,
+      "heading": "4.1.22 序列文件夹名称",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-016"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Sequence-folder name equality with the envelope sequence-number is executable from the package identity-chain rule, which compares the resolved sequence root with cn-regional/index envelope metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_23",
+      "chapter_no": 4,
+      "heading": "4.1.23 m1文件夹目录结构",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-015",
+        "HR-ECTD-046"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Module-1 output folder structure is executable from bounded package-structure checks plus the no-direct-file-under-m1 boundary."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_24",
+      "chapter_no": 4,
+      "heading": "4.1.24 内容的引用",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-027",
+        "HR-ECTD-093"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regional cn-regional.xml content references are checked for cross-application targets and later-sequence targets from resolved leaf href/modified-file path context; unresolved target context remains prerequisite-dependent."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_25",
+      "chapter_no": 4,
+      "heading": "4.1.25 检测无效的生命周期模式：增补操作造成分支",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-094"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml append operations are checked against available prior lifecycle graph evidence so a leaf already replaced by another leaf cannot be appended; incomplete historical sequences remain explicit prerequisites."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_26",
+      "chapter_no": 4,
+      "heading": "4.1.26 检测无效的生命周期模式：删除操作造成分支",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-095"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml delete operations are checked against available prior lifecycle graph evidence so a leaf already replaced by another leaf cannot be deleted; incomplete historical sequences remain explicit prerequisites."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_27",
+      "chapter_no": 4,
+      "heading": "4.1.27 检测无效的生命周期模式：替换操作造成分支",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-096"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml replace operations are checked against available prior lifecycle graph evidence so a leaf already replaced by another leaf cannot be replaced a second time; incomplete historical sequences remain explicit prerequisites."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_28",
+      "chapter_no": 4,
+      "heading": "4.1.28 检测无效的生命周期模式：对已删除叶元素的操作",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-097"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml replace/delete/append operations are checked against available prior lifecycle graph evidence so an already deleted leaf cannot be operated on again; incomplete historical sequences remain explicit prerequisites."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_29",
+      "chapter_no": 4,
+      "heading": "4.1.29 检测无效的生命周期模式：对增补的叶元素进行增补操作",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-098"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml append operations are checked against available prior lifecycle graph evidence so they cannot target a leaf whose operation is append; incomplete historical sequences remain explicit prerequisites."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_30",
+      "chapter_no": 4,
+      "heading": "4.1.30 增补（append）的使用",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-009"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml append operations outside explicit STF scope are surfaced by the existing technical-spec non-STF append warning rule; explanation-letter adequacy remains reviewer-facing context."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_1_31",
+      "chapter_no": 4,
+      "heading": "4.1.31 替换操作时语言属性不得变更",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-026"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "cn-regional.xml replace-operation language consistency is executable through the technical-spec lifecycle language rule when a unique prior-sequence leaf match is available."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_1",
+      "chapter_no": 4,
+      "heading": "4.2.1 信封元素：申请编号",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-002"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Application-number coding-rule exactness is executable through the technical-spec application-number format rule, including x/y/l plus year plus serial format and available application-type prefix semantics."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_2",
+      "chapter_no": 4,
+      "heading": "4.2.2 信封元素：申请类型",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-037"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Application-type controlled-vocabulary validity is executable against cv-application-type.xml or the authoritative Attachment 1-2 bundle."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_3",
+      "chapter_no": 4,
+      "heading": "4.2.3 信封元素：产品类型",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-038"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Product-type controlled-vocabulary validity is executable against cv-product-type.xml or the authoritative Attachment 1-2 bundle."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_4",
+      "chapter_no": 4,
+      "heading": "4.2.4 信封元素：原始编号",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-103"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard non-empty original-number requirement is executable from cn-regional.xml cn-envelope product-number element evidence."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_5",
+      "chapter_no": 4,
+      "heading": "4.2.5 信封元素：相关序列",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-102"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard related-sequence four-digit format and not-after-current ordering rule is executable from cn-regional.xml envelope metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_6",
+      "chapter_no": 4,
+      "heading": "4.2.6 信封元素：注册行为类型",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-039"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Regulatory-activity-type controlled-vocabulary validity is executable against cv-regulatory-activity-type.xml or the authoritative Attachment 1-2 bundle."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_7",
+      "chapter_no": 4,
+      "heading": "4.2.7 信封元素：序列号",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-001"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Sequence-number four-digit exactness is executable through the technical-spec sequence-number rule, with package sequence-directory consistency and known-history continuity checked when evidence is available."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_8",
+      "chapter_no": 4,
+      "heading": "4.2.8 信封元素：序列类型",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-040"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Sequence-type controlled-vocabulary validity is executable against cv-sequence-type.xml or the authoritative Attachment 1-2 bundle."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_9",
+      "chapter_no": 4,
+      "heading": "4.2.9 信封元素：序列描述",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-099"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard non-empty and 120-Chinese-character limit for cn-regional.xml sequence-description is executable from envelope metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_10",
+      "chapter_no": 4,
+      "heading": "4.2.10 信封元素：序列相关信息",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-018"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Application-type, regulatory-activity-type, and sequence-type compatibility is executable against depend-apt-rat-sqt.xml or the authoritative Attachment 1-2 dependency matrix."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_11",
+      "chapter_no": 4,
+      "heading": "4.2.11 相关序列的值",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-100"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard sequence-type-specific related-sequence non-self-reference rule is executable from cn-regional.xml envelope metadata and cv-sequence-type.xml codes."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_12",
+      "chapter_no": 4,
+      "heading": "4.2.12 相关序列的值",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-101"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard initial-submission/reformat related-sequence self-reference rule is executable from cn-regional.xml envelope metadata and cv-sequence-type.xml codes."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_13",
+      "chapter_no": 4,
+      "heading": "4.2.13 申请级别的信封元素必须保持不变",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-115"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "application-level envelope immutability is checked against local initial sequence history for application-number, application-type, product-type, and original-number; missing initial sequence or missing comparable envelope fields return na/prerequisite guidance rather than assumed pass/fail."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_2_14",
+      "chapter_no": 4,
+      "heading": "4.2.14 注册行为类型必须保持不变",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-116"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "same regulatory activity regulatory-activity-type immutability is checked from local same-application sequence packages grouped by related-sequence; missing same-activity history, missing related-sequence, or missing regulatory-activity-type evidence return na/prerequisite guidance rather than assumed pass/fail."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_3_1",
+      "chapter_no": 4,
+      "heading": "4.3.1 模块一完整性验证：",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-106"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard new-drug initial/new-indication first-submission module-1 required-element checklist is executable from cn-regional.xml envelope codes and cn-content element structure."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_3_2",
+      "chapter_no": 4,
+      "heading": "4.3.2 模块一完整性验证：",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-107"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard prohibition on listed module-1 elements for new-drug initial/new-indication first submissions is executable from cn-regional.xml envelope codes and cn-content element structure."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_3_3",
+      "chapter_no": 4,
+      "heading": "4.3.3 模块一完整性验证：",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-108"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard generic-drug initial/new-indication first-submission module-1 required-element checklist is executable from cn-regional.xml envelope codes and cn-content element structure."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_3_4",
+      "chapter_no": 4,
+      "heading": "4.3.4 模块一完整性验证：",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-109"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard prohibition on listed module-1 elements for generic-drug initial/new-indication first submissions is executable from cn-regional.xml envelope codes and cn-content element structure."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_3_5",
+      "chapter_no": 4,
+      "heading": "4.3.5 模块一完整性验证：",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-110"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard clinical-trial initial/new-indication-and-combination first-submission module-1 required-element checklist is executable from cn-regional.xml envelope codes and cn-content element structure."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_3_6",
+      "chapter_no": 4,
+      "heading": "4.3.6 模块一完整性验证：",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-111"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard prohibition on listed module-1 elements for clinical-trial initial/new-indication-and-combination first submissions is executable from cn-regional.xml envelope codes and cn-content element structure."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_3_7",
+      "chapter_no": 4,
+      "heading": "4.3.7 模块一完整性验证：",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-104"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard development-safety-report module-1 completeness requirement is executable from cn-regional.xml envelope codes and cn-content element structure for cn-1-8-1/cn-1-8-2."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_3_8",
+      "chapter_no": 4,
+      "heading": "4.3.8 模块一完整性验证：",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-105"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard prohibition on submitting both development-safety-report module-1 safety elements is executable from cn-regional.xml envelope codes and cn-content element structure."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_4_3_9",
+      "chapter_no": 4,
+      "heading": "4.3.9 元素包含的叶元素数量",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-055"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "The validation-standard advisory leaf-count limit for the listed module-1 elements is executable from cn-regional.xml element structure and descendant leaf counts; multiple descendant leaves are surfaced as a warning."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_1",
+      "chapter_no": 5,
+      "heading": "5.1 STF文件必须有效",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-090"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF XML well-formedness, DOCTYPE reference to local util/dtd/ich-stf-v2-2.dtd, and local DTD validation are executable when the DTD resolves; unresolved validation prerequisites remain explicit guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_2",
+      "chapter_no": 5,
+      "heading": "5.2 检查索引引用",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF XML leaf xlink:href target-existence boundary is covered by the same bounded package file-resolution check used for index.xml and regional XML references."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_3",
+      "chapter_no": 5,
+      "heading": "5.3 不建议使用“content-block”元素",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-030"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF XML content-block usage is detected directly from preserved XML element records and surfaced as a validation-standard warning."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_4",
+      "chapter_no": 5,
+      "heading": "5.4 文件引用值不能使用反斜杠",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-088"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF XML xlink:href values containing backslashes are detected from preserved XML attribute records as a hard validation error."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_5",
+      "chapter_no": 5,
+      "heading": "5.5 研究标识的类别不能空",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-031"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF study-identifier category values are checked for missing or blank content from objective XML element text evidence."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_6",
+      "chapter_no": 5,
+      "heading": "5.6 研究标识的研究ID不能为空",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-032"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF study-identifier study-id values are checked for missing or blank content from objective XML element text evidence."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_7",
+      "chapter_no": 5,
+      "heading": "5.7 研究标识的标题必须与叶元素的叶标题匹配",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-037"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF study-identifier title values are compared with uniquely resolved index.xml leaf titles via doc-content href to leaf ID evidence; unresolved or ambiguous references remain prerequisite guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_8",
+      "chapter_no": 5,
+      "heading": "5.8 标签属性和类别元素的值",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-036"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF file-tag name attributes and named category values are checked against the local Attachment 2-6 valid-values.xml bundle when comparable values are available."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_9",
+      "chapter_no": 5,
+      "heading": "5.9 STF的增补操作",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-043"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF-scoped index.xml append operations are checked so their modified-file target must resolve to another locally classifiable STF leaf; missing historical target metadata remains prerequisite/human-review guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_10",
+      "chapter_no": 5,
+      "heading": "5.10 STF必须提供类别元素（category）信息",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-038"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF study-identifier category presence is checked for the explicitly category-required CTD sections 4.2.3.1, 4.2.3.2, 4.2.3.4.1, and 5.3.5.1 using index.xml section context or clear numeric path evidence; unmapped STF files remain prerequisite/human-review guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_11",
+      "chapter_no": 5,
+      "heading": "5.11 STF不能引用另一个STF",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-044"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF XML leaf references are checked for locally resolvable targets that are strongly classifiable as another STF XML document; unresolved XML targets and ambiguous classifications remain prerequisite/human-review guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_12",
+      "chapter_no": 5,
+      "heading": "5.12 STF文件必须至少引用一个叶元素",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-034"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF XML files are checked for at least one leaf element reference from objective XML element structure evidence."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_13",
+      "chapter_no": 5,
+      "heading": "5.13 STF的“study-id”值必须保持一致",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-039"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF study-id lifecycle consistency is checked only when index.xml replace/append lifecycle metadata links a current STF XML file to a locally available modified-file STF XML file and both sides have unique non-empty study-id values; missing history or ambiguous STF identity remains prerequisite/human-review guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_14",
+      "chapter_no": 5,
+      "heading": "5.14 无效的STF目录位置",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-035"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF-like XML files are checked against bounded module directory classification for Module 4 4.2.x and Module 5 5.3.1.x-5.3.5.x, with unclassified paths kept as prerequisite guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_15",
+      "chapter_no": 5,
+      "heading": "5.15 STF“doc-content”的标签（file-tag）数量",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-033"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Each STF doc-content element is checked for exactly one direct file-tag child from objective XML element structure evidence."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_16",
+      "chapter_no": 5,
+      "heading": "5.16 5.3.7章节病例报告表结构",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-089"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "When index.xml shows explicit STF usage in the current sequence, Module 5 section 5.3.7 case-report-form leafs are prohibited using local leaf structure evidence; absent STF usage remains not applicable/prerequisite guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_17",
+      "chapter_no": 5,
+      "heading": "5.17 使用STF",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-010"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "STF-required zones in Module 4 section 4.2 and Module 5 sections 5.3.1 through 5.3.5 are checked for explicit STF parent structure using index.xml leaf records; cross-document STF content completeness remains prerequisite/human-review guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_18",
+      "chapter_no": 5,
+      "heading": "5.18 临床试验数据集相关文件必须使用正确的STF文件标签",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-040"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Module 5 STF dataset references are checked for the validation-standard 5.18 file-tag/file-type mapping when a doc-content has a directly comparable xpt dataset or define.xml leaf and a unique file-tag name; incomplete STF structure remains prerequisite guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_19",
+      "chapter_no": 5,
+      "heading": "5.19 申请人递交的药物临床试验数据必须有正确的数据集文件和",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-041"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Module 5 STF dataset package families are checked for required dm/adsl xpt dataset and matching data-definition evidence when raw data-tabulation or analysis dataset family tags are locally comparable; broader clinical database completeness remains prerequisite/human-review guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_5_20",
+      "chapter_no": 5,
+      "heading": "5.20 同一个研究下提交的数据集不能重名",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-042"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Module 5 STF dataset names are checked for duplicates within a single local STF study document using normalized xpt filename stems from directly comparable dataset doc-content entries; cross-document same-study grouping and broader package inventory completeness remain prerequisite/human-review guidance."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_1",
+      "chapter_no": 6,
+      "heading": "6.1 PDF文件必须可读。",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-044"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF readability boundary is executable from bounded parser openability and page-count metadata, including graceful unreadable-file fallback."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_2",
+      "chapter_no": 6,
+      "heading": "6.2 书签必须指向相对路径",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-050"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF bookmark relative-path boundary is executable from raw outline/bookmark external-file `/F` target strings without broader target-existence or viewer semantics."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_3",
+      "chapter_no": 6,
+      "heading": "6.3 有网页、邮箱地址或其他外部链接的书签",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-092"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF bookmark external-link boundary is executable from raw outline/bookmark URI target strings such as web or mail links; broader target reachability remains outside this deterministic check."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_4",
+      "chapter_no": 6,
+      "heading": "6.4 不允许有未知动作的书签",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-091"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF bookmark action whitelist boundary is executable from raw outline/bookmark action dictionaries and their `/S` action names; missing metadata remains prerequisite/NA rather than assumed."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_5",
+      "chapter_no": 6,
+      "heading": "6.5 书签不能失效",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-051"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF invalid-bookmark boundary is executable for bookmarks that expose neither an assigned action nor a destination in raw outline/bookmark metadata; broader damaged-target semantics remain separate."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_6",
+      "chapter_no": 6,
+      "heading": "6.6 书签不能被损坏",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-052"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF damaged-bookmark boundary is executable for raw internal bookmark destinations whose destination array is empty, malformed, or points to a non-page object; viewer-normalized navigation behavior is not used as evidence."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_7",
+      "chapter_no": 6,
+      "heading": "6.7 书签不能有多个动作",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-049"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF bookmark single-action boundary is executable from raw outline/bookmark action dictionaries that contain explicit `/Next` action-chain markers; top-level outline sibling `/Next` pointers are not counted."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_8",
+      "chapter_no": 6,
+      "heading": "6.8 书签必须承前缩放（Inherit Zoom）",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-053"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF bookmark inherited-zoom boundary is executable from raw destination arrays: `/XYZ` destinations with `null` or `0` zoom are accepted as inherited/current zoom, while Fit-style or explicit non-zero zoom destinations are surfaced as warnings."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_9",
+      "chapter_no": 6,
+      "heading": "6.9 超文本链接必须使用相对路径",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-021"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF hyperlink relative-path boundary is executable from bounded external-file link target strings without broader viewer semantics."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_10",
+      "chapter_no": 6,
+      "heading": "6.10 有网页、邮箱地址或其他外部链接的超文本链接",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-022"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF external hyperlink prohibition is executable from bounded external URI hyperlink counts without broader hyperlink-action semantics."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_11",
+      "chapter_no": 6,
+      "heading": "6.11 不允许有未知动作的超文本链接",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-045"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF hyperlink action whitelist boundary is executable from bounded link-annotation action names extracted from raw PDF link objects."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_12",
+      "chapter_no": 6,
+      "heading": "6.12 超文本链接不能处于失效状态",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-023"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Broken hyperlink boundary is executable from bounded raw link objects that lack any valid action or destination."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_13",
+      "chapter_no": 6,
+      "heading": "6.13 超文本链接不能被损坏",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-023"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF broken-hyperlink prohibition is executable from bounded raw link objects that lack any valid action or destination."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_14",
+      "chapter_no": 6,
+      "heading": "6.14 超文本链接不能有多个动作",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-048"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF hyperlink single-action boundary is executable from explicit raw link-annotation `/Next` action-chain markers; missing metadata remains prerequisite/NA rather than assumed."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_15",
+      "chapter_no": 6,
+      "heading": "6.15 超文本链接必须承前缩放（Inherit Zoom）",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-054"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF hyperlink inherited-zoom boundary is executable from raw link annotation destination arrays: `/XYZ` destinations with `null` or `0` zoom are accepted as inherited/current zoom, while Fit-style or explicit non-zero zoom destinations are surfaced as warnings."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_16",
+      "chapter_no": 6,
+      "heading": "6.16 PDF版本必须正确",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-018"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Allowed PDF-version boundary is executable from bounded format metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_17",
+      "chapter_no": 6,
+      "heading": "6.17 不允许带附件的PDF文件",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-041"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Embedded PDF attachment prohibition is executable from bounded parser metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_18",
+      "chapter_no": 6,
+      "heading": "6.18 有注释的PDF文件",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-017"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Non-link PDF annotation restriction is executable from bounded parser metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_19",
+      "chapter_no": 6,
+      "heading": "6.19 PDF文件不能有任何安全设置",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-042"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF security-setting prohibition is executable from bounded encryption and permission metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_20",
+      "chapter_no": 6,
+      "heading": "6.20 PDF初始视图正确",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-019"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Initial-view default boundary is executable from bounded catalog metadata (`PageMode`, `PageLayout`, `OpenAction`)."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_21",
+      "chapter_no": 6,
+      "heading": "6.21 PDF文件不能有密码保护",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-043"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Password-protected PDF prohibition is executable from bounded parser preflight metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_22",
+      "chapter_no": 6,
+      "heading": "6.22 PDF应该设置启用“快速Web访问（Fast Web Access）”",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-046"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF Fast Web Access boundary is executable from objective PDF linearization metadata detected near the file header; missing linearization evidence remains prerequisite/NA rather than assumed."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_23",
+      "chapter_no": 6,
+      "heading": "6.23 大于5页的文件必须有书签",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-016"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Long-PDF bookmark requirement is executable from embedded outline metadata."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_24",
+      "chapter_no": 6,
+      "heading": "6.24 PDF内容限制",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-020"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Disallowed active-content boundary is executable from bounded object-marker detection (`JavaScript`, `3D`, `RichMedia`, `Movie`, `Sound`, `Screen`)."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_25",
+      "chapter_no": 6,
+      "heading": "6.25 PDF内容可搜索",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-045"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF searchable-text boundary is executable from existing parser text-layer evidence: readable non-exempt PDFs with pages must expose content evidence or content units; scanned pages without extractable text remain OCR/manual-review warnings."
+    },
+    {
+      "clause_id": "cn_ectd_validation_standard:sec_6_26",
+      "chapter_no": 6,
+      "heading": "6.26 如使用非标准字体，需嵌入在PDF文件中",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-047"
+      ],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "PDF non-standard font embedding is executable from objective page font records and embedded font-program markers; missing font metadata remains prerequisite/NA rather than assumed."
+    }
+  ],
+  "supporting_artifact_coverage": [],
+  "recommended_next_direction": {
+    "primary": "resolve_validation_standard_chapter4_prerequisite_evidence_before_more_automation",
+    "primary_reason": "The remaining validation-standard Chapter 4 partials are intentionally held at a human-review and prerequisite boundary: schema reference/schema validation require local schema resources and validation diagnostics, while schema-version and envelope immutability checks require historical sequence evidence.",
+    "secondary": "implement_schema_or_history_evidence_path_before_promoting_remaining_partials",
+    "secondary_reason": "Further automation should start only after a local schema-validation path or a trusted multi-sequence history comparison path exists; otherwise keep the clauses as prerequisite guidance rather than false coverage."
+  }
+}

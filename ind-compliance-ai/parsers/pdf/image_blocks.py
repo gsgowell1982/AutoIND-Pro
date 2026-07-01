@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import re
+from functools import lru_cache
 from typing import Any
 
 try:
@@ -19,7 +20,13 @@ try:
 except ImportError:  # pragma: no cover - optional runtime dependency
     pytesseract = None  # type: ignore[assignment]
 
+try:
+    from rapidocr_onnxruntime import RapidOCR
+except ImportError:  # pragma: no cover - optional runtime dependency
+    RapidOCR = None  # type: ignore[assignment]
+
 from .layout import _bbox_contains_path, _drawing_rect_to_tuple, _words_in_bbox, _words_to_text
+from .ocr_policy import PageOcrContext, should_attempt_image_evidence_ocr, should_attempt_image_text_ocr
 from .shared import (
     _Word,
     _bbox_area,
@@ -53,11 +60,43 @@ _PUBLICATION_ARTIFACT_KEYWORDS = (
     "contentslistsavailable",
     "journalhomepage",
 )
-_EXPLICIT_FIGURE_CAPTION_RE = re.compile(r"^(?:fig(?:ure)?\.?\s*\d+)\b", re.IGNORECASE)
+_EXPLICIT_FIGURE_CAPTION_RE = re.compile(
+    r"^\s*(?P<label>fig(?:ure)?\.?)\s*(?P<number>\d+)\b(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_FIGURE_BODY_REFERENCE_VERB_RE = re.compile(
+    r"^\s+(?:shows?|showed|shown|depicts?|depicted|illustrates?|illustrated|presents?|presented|"
+    r"reports?|reported|indicates?|indicated|demonstrates?|demonstrated|compares?|compared|"
+    r"summarizes?|summarized|describes?|described|gives?|gave|provides?|provided)\b",
+    re.IGNORECASE,
+)
+_CJK_FIGURE_LABEL_RE = re.compile(
+    r"^\s*(?:图|圖|插图|圖表)\s*[0-9A-Za-z一二三四五六七八九十零〇Xx]+(?:[.\-:：、]|\s|$)"
+)
+_CJK_FIGURE_LEGEND_CUE_RE = re.compile(
+    r"(?:\[参考\]|参考|p\s*[<≤]\s*0\.\d+|统计学显著|平均值|标准误差|自发性高血压|"
+    r"组\）|组\)|n\s*=\s*\d+)"
+)
+
+
+_CODE_MARKUP_CUE_RE = re.compile(
+    r"(?:<\s*/?\s*[A-Za-z_][\w:.-]*(?:\s|>|/>)|"
+    r"\b(?:xml|xlink|href|doctype|dtd|schema|xsd|element|attribute|root\s+element|"
+    r"markup|html|json|yaml)\b)",
+    re.IGNORECASE,
+)
 
 
 def _is_explicit_figure_caption(text: str) -> bool:
-    return bool(_EXPLICIT_FIGURE_CAPTION_RE.match(_clean_text(text)))
+    cleaned = _clean_text(text)
+    match = _EXPLICIT_FIGURE_CAPTION_RE.match(cleaned)
+    if match is None:
+        return False
+    label = str(match.group("label") or "").lower().rstrip(".")
+    rest = str(match.group("rest") or "")
+    if label == "figure" and _FIGURE_BODY_REFERENCE_VERB_RE.match(rest):
+        return False
+    return True
 
 
 def _expanded_bbox(
@@ -331,14 +370,84 @@ def _ocr_text_from_clip(
     page: "pymupdf.Page",
     bbox: tuple[float, float, float, float],
 ) -> tuple[str, float]:
-    if pytesseract is None or Image is None or pymupdf is None:
+    if Image is None or pymupdf is None:
         return "", 0.0
     rect = pymupdf.Rect(*bbox)
     if rect.width < 8 or rect.height < 8:
         return "", 0.0
     try:
         pixmap = page.get_pixmap(clip=rect, dpi=220, alpha=False)
-        image = Image.open(io.BytesIO(pixmap.tobytes("png")))
+        image = Image.open(io.BytesIO(pixmap.tobytes("png"))).convert("RGB")
+    except Exception:
+        return "", 0.0
+
+    rapid_text, rapid_confidence = _rapidocr_text_from_image(image)
+    if rapid_text:
+        return rapid_text, rapid_confidence
+    return _tesseract_text_from_image(image)
+
+
+@lru_cache(maxsize=1)
+def _rapidocr_engine() -> Any:
+    if RapidOCR is None:
+        return None
+    try:
+        return RapidOCR()
+    except Exception:
+        return None
+
+
+def _rapidocr_text_from_image(image: "Image.Image") -> tuple[str, float]:
+    engine = _rapidocr_engine()
+    if engine is None:
+        return "", 0.0
+    try:
+        results, _ = engine(image)
+    except Exception:
+        return "", 0.0
+    if not results:
+        return "", 0.0
+
+    items: list[tuple[float, float, str, float]] = []
+    for result in results:
+        if not isinstance(result, (list, tuple)) or len(result) < 3:
+            continue
+        box, text, confidence_value = result[0], result[1], result[2]
+        text_value = _clean_text(str(text))
+        if not text_value:
+            continue
+        try:
+            confidence = float(confidence_value)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        x0, y0 = _ocr_box_origin(box)
+        items.append((y0, x0, text_value, confidence))
+    if not items:
+        return "", 0.0
+
+    ordered = sorted(items, key=lambda item: (item[0], item[1]))
+    joined = _clean_text(" ".join(item[2] for item in ordered))
+    confidences = [item[3] for item in ordered if item[3] >= 0.0]
+    average_conf = sum(confidences) / len(confidences) if confidences else 0.0
+    return joined, average_conf
+
+
+def _ocr_box_origin(box: Any) -> tuple[float, float]:
+    try:
+        points = list(box or [])
+        xs = [float(point[0]) for point in points if isinstance(point, (list, tuple)) and len(point) >= 2]
+        ys = [float(point[1]) for point in points if isinstance(point, (list, tuple)) and len(point) >= 2]
+    except Exception:
+        return 0.0, 0.0
+    if not xs or not ys:
+        return 0.0, 0.0
+    return min(xs), min(ys)
+
+
+def _tesseract_text_from_image(image: "Image.Image") -> tuple[str, float]:
+    if pytesseract is None:
+        return "", 0.0
+    try:
         try:
             data = pytesseract.image_to_data(
                 image,
@@ -377,11 +486,423 @@ def _looks_like_figure_caption(text: str) -> bool:
     return any(keyword in normalized for keyword in _FIGURE_LABEL_KEYWORDS)
 
 
+def _text_block_bbox(text_block: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    bbox = text_block.get("bbox")
+    if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+        return None
+    try:
+        return tuple(float(value) for value in bbox[:4])
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_figure_label_text(text: str) -> bool:
+    cleaned = _clean_text(text)
+    return _is_explicit_figure_caption(cleaned) or bool(_CJK_FIGURE_LABEL_RE.match(cleaned))
+
+
+def _looks_like_figure_legend_text(text: str) -> bool:
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return False
+    if _is_figure_label_text(cleaned):
+        return True
+    if _CJK_FIGURE_LEGEND_CUE_RE.search(cleaned):
+        return True
+    if re.search(r"\b(?:legend|reference|statistically|significant|mean|standard\s+error)\b", cleaned, re.IGNORECASE):
+        return True
+    return False
+
+
+def _code_markup_signal_count(text: str) -> int:
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return 0
+    return sum(1 for _ in _CODE_MARKUP_CUE_RE.finditer(cleaned))
+
+
+def _looks_like_code_or_markup_figure(
+    *,
+    caption_text: str,
+    embedded_text: str,
+    nearby_context_blocks: list[dict[str, Any]],
+) -> bool:
+    context_text = " ".join(
+        _clean_text(str(block.get("text") or ""))
+        for block in nearby_context_blocks
+        if isinstance(block, dict)
+    )
+    combined = "\n".join(
+        text for text in (caption_text, embedded_text, context_text) if _clean_text(text)
+    )
+    caption_norm = _compact_text(caption_text).lower()
+    context_norm = _compact_text(context_text).lower()
+    embedded_norm = _compact_text(embedded_text).lower()
+    cjk_example_tokens = (
+        "\u793a\u4f8b",
+        "\u9aa8\u67b6\u6587\u4ef6",
+        "\u6839\u5143\u7d20",
+        "\u8282\u70b9",
+        "\u5143\u7d20",
+        "\u5c5e\u6027",
+    )
+    cjk_markup_structure_tokens = (
+        "\u9aa8\u67b6\u6587\u4ef6",
+        "\u8282\u70b9",
+        "\u6839\u5143\u7d20",
+        "\u5143\u7d20",
+        "\u5c5e\u6027",
+    )
+    has_markup_cue = _code_markup_signal_count(combined) >= 1
+    structural_token_count = sum(
+        1
+        for token in cjk_markup_structure_tokens
+        if token in caption_norm or token in context_norm
+    )
+    if not has_markup_cue and structural_token_count < 2:
+        return False
+    figure_example_signal = bool(
+        re.search(r"\b(?:example|sample|skeleton|root|node|element|attribute|file|folder)\b", combined, re.IGNORECASE)
+        or any(token in caption_norm for token in cjk_example_tokens)
+        or any(token in context_norm for token in cjk_example_tokens)
+    )
+    embedded_markup_signal = bool(re.search(r"<\s*/?\s*[A-Za-z_][\w:.-]*", embedded_text))
+    return figure_example_signal or embedded_markup_signal or _code_markup_signal_count(embedded_norm) >= 2
+
+
+def _build_code_or_markup_figure_semantics(
+    *,
+    caption_text: str,
+    embedded_text: str,
+    nearby_context_blocks: list[dict[str, Any]],
+    text_recovery: dict[str, Any],
+) -> dict[str, Any]:
+    context_text = " ".join(
+        _clean_text(str(block.get("text") or ""))
+        for block in nearby_context_blocks
+        if isinstance(block, dict)
+    )
+    evidence_text = "\n".join(
+        text for text in (caption_text, embedded_text, context_text) if _clean_text(text)
+    )
+    signals: list[str] = []
+    if _code_markup_signal_count(evidence_text):
+        signals.append("markup_cue")
+    if re.search(
+        r"(?=.*(?:\u9aa8\u67b6\u6587\u4ef6|\u8282\u70b9|\u6839\u5143\u7d20|\u5143\u7d20|\u5c5e\u6027))"
+        r"(?=.*(?:\u793a\u4f8b|\u9aa8\u67b6\u6587\u4ef6))",
+        evidence_text,
+    ):
+        signals.append("markup_cue")
+        signals.append("structural_markup_example")
+    if _is_figure_label_text(caption_text) or _looks_like_figure_caption(caption_text):
+        signals.append("figure_caption")
+    if embedded_text:
+        signals.append("embedded_text")
+    if context_text:
+        signals.append("nearby_context")
+
+    language = (
+        "xml"
+        if re.search(r"\b(?:xml|xlink|dtd|schema|xsd)\b|<\s*/?\s*[A-Za-z_][\w:.-]*", evidence_text, re.IGNORECASE)
+        or "structural_markup_example" in signals
+        else "unknown"
+    )
+    confidence = 0.68
+    if language != "unknown":
+        confidence += 0.08
+    if caption_text:
+        confidence += 0.04
+    if embedded_text:
+        confidence += 0.08
+    confidence = min(confidence, 0.92)
+
+    return {
+        "semantic_type": "code_or_markup_figure",
+        "content_kind": "embedded_markup",
+        "language": language,
+        "code_text_status": "available" if embedded_text else "not_available",
+        "code_text_source": str(text_recovery.get("source", "none")),
+        "confidence": round(confidence, 3),
+        "evidence_signals": signals,
+    }
+
+
+_CHART_NUMERIC_TOKEN_RE = re.compile(r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)(?:%|[xX])?")
+_CHART_DATE_OR_TIME_RE = re.compile(
+    r"(?:\b\d{1,2}/\d{4}\b|\b\d{4}\b|"
+    r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b)",
+    re.IGNORECASE,
+)
+_CHART_WORD_CUE_RE = re.compile(
+    r"\b(?:axis|frequency|population|workforce|rate|percent|percentage|count|number|"
+    r"employment|participation|performance|score|model|series)\b",
+    re.IGNORECASE,
+)
+
+
+def _chart_evidence_role(text: str) -> str:
+    stripped = _clean_text(text)
+    if not stripped:
+        return "empty"
+    lowered = stripped.lower()
+    if lowered.startswith(("source:", "sources:", "note:", "notes:")):
+        return "source"
+    numeric_tokens = _CHART_NUMERIC_TOKEN_RE.findall(stripped)
+    token_count = max(1, len(stripped.split()))
+    numeric_ratio = len(numeric_tokens) / token_count
+    if len(numeric_tokens) >= 3 and (_CHART_DATE_OR_TIME_RE.search(stripped) or numeric_ratio >= 0.34):
+        return "axis_or_tick"
+    if len(numeric_tokens) == 1 and len(stripped) <= 14:
+        return "axis_or_tick"
+    if _CHART_DATE_OR_TIME_RE.search(stripped) and len(stripped) <= 120:
+        return "axis_or_tick"
+    if len(numeric_tokens) >= 2 and len(stripped) <= 180:
+        return "legend_or_series"
+    if _CHART_WORD_CUE_RE.search(stripped):
+        return "legend_or_series"
+    return "body_text"
+
+
+def _split_chart_evidence_lines(text: str) -> list[str]:
+    lines = [_clean_text(line) for line in str(text or "").splitlines()]
+    if len([line for line in lines if line]) >= 2:
+        return [line for line in lines if line]
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return []
+    return [cleaned]
+
+
+def _build_chart_figure_semantics(
+    *,
+    caption_text: str,
+    embedded_text: str,
+    nearby_context_blocks: list[dict[str, Any]],
+    text_recovery: dict[str, Any],
+) -> dict[str, Any]:
+    evidence_lines = _split_chart_evidence_lines(embedded_text)
+    for block in nearby_context_blocks:
+        text = _clean_text(str(block.get("text") or ""))
+        if text:
+            evidence_lines.append(text)
+
+    axis_or_tick_text: list[str] = []
+    legend_or_series_text: list[str] = []
+    source_text: list[str] = []
+    for line in evidence_lines:
+        role = _chart_evidence_role(line)
+        if role == "axis_or_tick":
+            axis_or_tick_text.append(line)
+        elif role == "legend_or_series":
+            legend_or_series_text.append(line)
+        elif role == "source":
+            source_text.append(line)
+
+    caption_has_figure = bool(_is_explicit_figure_caption(caption_text) or "chart" in _compact_text(caption_text).lower())
+    chart_evidence_count = len(axis_or_tick_text) + len(legend_or_series_text) + len(source_text)
+    if not axis_or_tick_text or chart_evidence_count < 2:
+        return {}
+    if not caption_has_figure and chart_evidence_count < 3:
+        return {}
+
+    signals = ["embedded_chart_text"]
+    if caption_has_figure:
+        signals.append("figure_or_chart_caption")
+    if axis_or_tick_text:
+        signals.append("axis_or_tick_text")
+    if legend_or_series_text:
+        signals.append("legend_or_series_text")
+    if source_text:
+        signals.append("source_text")
+    if text_recovery.get("has_path"):
+        signals.append("vector_path_or_drawing")
+
+    confidence = 0.7
+    if caption_has_figure:
+        confidence += 0.08
+    if len(axis_or_tick_text) >= 2:
+        confidence += 0.05
+    if legend_or_series_text:
+        confidence += 0.03
+    if source_text:
+        confidence += 0.03
+    if text_recovery.get("has_path"):
+        confidence += 0.03
+
+    return {
+        "semantic_type": "chart_figure",
+        "content_kind": "embedded_chart_text",
+        "chart_type": "unknown_chart",
+        "caption_text": caption_text,
+        "axis_or_tick_text": axis_or_tick_text[:16],
+        "legend_or_series_text": legend_or_series_text[:12],
+        "source_text": source_text[:4],
+        "content_analysis": {"status": "evidence_only"},
+        "confidence": round(min(confidence, 0.9), 3),
+        "evidence_signals": signals,
+    }
+
+
+def _has_nearby_figure_text_evidence(
+    image_bbox: tuple[float, float, float, float],
+    text_blocks: list[dict[str, Any]],
+    page_height: float,
+) -> bool:
+    max_gap_above = max(58.0, page_height * 0.075)
+    max_gap_below = max(82.0, page_height * 0.11)
+    has_above_label = False
+    has_above_title = False
+    has_below_legend = False
+
+    for text_block in text_blocks:
+        text = _clean_text(str(text_block.get("text") or ""))
+        if not text:
+            continue
+        text_bbox = _text_block_bbox(text_block)
+        if text_bbox is None or _horizontal_overlap_ratio(image_bbox, text_bbox) < 0.12:
+            continue
+        if text_bbox[3] <= image_bbox[1]:
+            gap = image_bbox[1] - text_bbox[3]
+            if gap > max_gap_above:
+                continue
+            if _is_figure_label_text(text):
+                has_above_label = True
+            elif len(_compact_text(text)) >= 6:
+                has_above_title = True
+        elif text_bbox[1] >= image_bbox[3]:
+            gap = text_bbox[1] - image_bbox[3]
+            if gap <= max_gap_below and _looks_like_figure_legend_text(text):
+                has_below_legend = True
+
+    return has_below_legend and (has_above_label or has_above_title)
+
+
+def _has_adjacent_explicit_figure_caption(
+    image_bbox: tuple[float, float, float, float],
+    text_blocks: list[dict[str, Any]],
+    page_height: float,
+) -> bool:
+    max_gap_above = max(48.0, min(88.0, page_height * 0.085))
+    max_gap_below = max(64.0, min(112.0, page_height * 0.125))
+
+    for text_block in text_blocks:
+        text = _clean_text(str(text_block.get("text") or ""))
+        if not text or not _is_explicit_figure_caption(text):
+            continue
+        text_bbox = _text_block_bbox(text_block)
+        if text_bbox is None:
+            continue
+        if _horizontal_overlap_ratio(image_bbox, text_bbox) < 0.16:
+            continue
+        if text_bbox[3] <= image_bbox[1]:
+            if image_bbox[1] - text_bbox[3] <= max_gap_above:
+                return True
+        elif text_bbox[1] >= image_bbox[3]:
+            if text_bbox[1] - image_bbox[3] <= max_gap_below:
+                return True
+    return False
+
+
+def _recovered_ocr_should_remain_image_evidence(
+    *,
+    recovered_source: str,
+    recovered_text: str,
+    area_ratio: float,
+    has_path: bool,
+    has_adjacent_figure_caption: bool,
+    has_nearby_figure_text_evidence: bool,
+) -> bool:
+    if recovered_source != "ocr" or not _compact_text(recovered_text):
+        return False
+    if has_adjacent_figure_caption or has_nearby_figure_text_evidence:
+        return True
+
+    compact_length = len(_compact_text(recovered_text))
+    if compact_length <= 20:
+        return False
+
+    # OCR on medium/large raster regions usually describes internal figure,
+    # chart, photo, screenshot, or scanned-form content.  Keep it attached to
+    # the image unless stronger downstream evidence promotes it.
+    return area_ratio > (0.045 if has_path else 0.035)
+
+
+def _build_above_figure_caption_text(
+    *,
+    image_bbox: tuple[float, float, float, float],
+    text_blocks: list[dict[str, Any]],
+    page_height: float,
+) -> tuple[str, dict[str, Any] | None, float | None]:
+    max_gap_above = max(58.0, min(96.0, page_height * 0.075))
+    candidates: list[dict[str, Any]] = []
+    for text_block in text_blocks:
+        text_bbox = _text_block_bbox(text_block)
+        if text_bbox is None or text_bbox[3] > image_bbox[1]:
+            continue
+        gap = image_bbox[1] - text_bbox[3]
+        if gap > max_gap_above:
+            continue
+        if _horizontal_overlap_ratio(image_bbox, text_bbox) < 0.12:
+            continue
+        text = _clean_text(str(text_block.get("text") or ""))
+        if not text:
+            continue
+        candidates.append(text_block)
+    if not candidates:
+        return "", None, None
+
+    ordered = sorted(candidates, key=lambda item: (_text_block_bbox(item) or (0.0, 0.0, 0.0, 0.0))[1])
+    label_index = next(
+        (
+            index
+            for index, text_block in enumerate(ordered)
+            if _is_figure_label_text(str(text_block.get("text") or ""))
+        ),
+        None,
+    )
+    if label_index is None:
+        return "", None, None
+
+    caption_rows = [ordered[label_index]]
+    previous_bbox = _text_block_bbox(ordered[label_index])
+    for text_block in ordered[label_index + 1 :]:
+        text_bbox = _text_block_bbox(text_block)
+        if previous_bbox is None or text_bbox is None:
+            break
+        if text_bbox[1] - previous_bbox[3] > 26.0:
+            break
+        text = _clean_text(str(text_block.get("text") or ""))
+        if not text:
+            continue
+        caption_rows.append(text_block)
+        previous_bbox = text_bbox
+
+    caption_text = _clean_text(" ".join(_clean_text(str(block.get("text") or "")) for block in caption_rows))
+    if not caption_text:
+        return "", None, None
+    caption_text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", caption_text)
+    last_bbox = _text_block_bbox(caption_rows[-1])
+    gap = image_bbox[1] - last_bbox[3] if last_bbox is not None else None
+    merged_block = dict(caption_rows[0])
+    merged_block["text"] = caption_text
+    merged_block["source_block_ids"] = [
+        str(block.get("block_id") or "").strip()
+        for block in caption_rows
+        if str(block.get("block_id") or "").strip()
+    ]
+    bboxes = [bbox for block in caption_rows if (bbox := _text_block_bbox(block)) is not None]
+    if bboxes:
+        merged_block["bbox"] = _bbox_to_list(_bbox_union(bboxes))
+    return caption_text[:240], merged_block, gap
+
+
 def _recover_text_from_image_region(
     page: "pymupdf.Page",
     image_bbox: tuple[float, float, float, float],
     page_words: list[_Word],
     page_drawings: list[dict[str, Any]],
+    ocr_context: PageOcrContext | None = None,
 ) -> dict[str, Any]:
     if pymupdf is None:
         return {"text": "", "confidence": 0.0, "source": "none", "has_path": False}
@@ -405,6 +926,28 @@ def _recover_text_from_image_region(
             "has_path": has_path,
         }
 
+    decision = should_attempt_image_text_ocr(ocr_context)
+    if not decision.enabled:
+        evidence_decision = should_attempt_image_evidence_ocr(ocr_context)
+        if evidence_decision.enabled:
+            ocr_text, ocr_confidence = _ocr_text_from_clip(page, image_bbox)
+            if len(ocr_text) >= 2:
+                return {
+                    "text": ocr_text,
+                    "confidence": max(ocr_confidence, 0.7 if has_path else 0.6),
+                    "source": "ocr-image-evidence",
+                    "has_path": has_path,
+                    "evidence_only": True,
+                    "evidence_reason": evidence_decision.reason,
+                }
+        return {
+            "text": "",
+            "confidence": 0.0,
+            "source": "ocr-skipped",
+            "has_path": has_path,
+            "skip_reason": decision.reason,
+        }
+
     ocr_text, ocr_confidence = _ocr_text_from_clip(page, image_bbox)
     if len(ocr_text) >= 2:
         return {
@@ -424,6 +967,7 @@ def _demote_textual_image_blocks(
     text_blocks: list[dict[str, Any]],
     page_words: list[_Word],
     page_drawings: list[dict[str, Any]],
+    ocr_context: PageOcrContext | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     page_area = max(1.0, float(page_rect.width) * float(page_rect.height))
     merged_text_blocks = list(text_blocks)
@@ -433,14 +977,24 @@ def _demote_textual_image_blocks(
     for image_block in image_blocks:
         bbox = tuple(float(item) for item in image_block["bbox"])
         preserve_as_vector_figure = str(image_block.get("synthetic_source", "") or "") == "vector_figure_from_caption"
-        recovered = _recover_text_from_image_region(page, bbox, page_words, page_drawings)
+        recovered = _recover_text_from_image_region(page, bbox, page_words, page_drawings, ocr_context=ocr_context)
         recovered_text = _clean_text(recovered["text"])
         confidence = float(recovered["confidence"])
         has_path = bool(recovered.get("has_path", False))
         recovered_source = str(recovered.get("source", "none"))
+        evidence_only = bool(recovered.get("evidence_only", False))
         image_area = _bbox_area(bbox)
         area_ratio = image_area / page_area
         is_figure_caption = _looks_like_figure_caption(recovered_text)
+        has_adjacent_figure_caption = _has_adjacent_explicit_figure_caption(
+            bbox,
+            merged_text_blocks,
+            float(page_rect.height),
+        )
+        has_nearby_figure_text_evidence = (
+            area_ratio >= 0.045
+            and _has_nearby_figure_text_evidence(bbox, merged_text_blocks, float(page_rect.height))
+        )
 
         image_block["text_recovery"] = {
             "text": recovered_text,
@@ -448,8 +1002,41 @@ def _demote_textual_image_blocks(
             "source": recovered_source,
             "has_path": has_path,
         }
+        if evidence_only:
+            image_block["text_recovery"]["evidence_only"] = True
+            if recovered.get("evidence_reason"):
+                image_block["text_recovery"]["evidence_reason"] = recovered.get("evidence_reason")
 
         if preserve_as_vector_figure:
+            kept_images.append(image_block)
+            continue
+
+        if evidence_only:
+            image_block["demote_guard"] = "ocr_image_evidence_only"
+            kept_images.append(image_block)
+            continue
+
+        if _recovered_ocr_should_remain_image_evidence(
+            recovered_source=recovered_source,
+            recovered_text=recovered_text,
+            area_ratio=area_ratio,
+            has_path=has_path,
+            has_adjacent_figure_caption=has_adjacent_figure_caption,
+            has_nearby_figure_text_evidence=has_nearby_figure_text_evidence,
+        ):
+            image_block["demote_guard"] = (
+                "adjacent_figure_caption"
+                if has_adjacent_figure_caption
+                else "nearby_figure_text_evidence"
+                if has_nearby_figure_text_evidence
+                else "ocr_region_owned_by_image"
+            )
+            kept_images.append(image_block)
+            continue
+
+        if has_nearby_figure_text_evidence:
+            if has_nearby_figure_text_evidence:
+                image_block["demote_guard"] = "nearby_figure_text_evidence"
             kept_images.append(image_block)
             continue
 
@@ -475,6 +1062,16 @@ def _demote_textual_image_blocks(
             confidence_gate = 0.95
 
         short_text_label = len(_compact_text(recovered_text)) <= 20 and len(_compact_text(recovered_text)) >= 2
+        ocr_large_figure_region = (
+            recovered_source == "ocr"
+            and area_ratio > 0.08
+            and len(_compact_text(recovered_text)) > 20
+        )
+        if ocr_large_figure_region:
+            image_block["demote_guard"] = "ocr_large_figure_region"
+            kept_images.append(image_block)
+            continue
+
         should_convert = (
             len(recovered_text) >= 2
             and (
@@ -587,7 +1184,7 @@ def _is_publication_artifact_image(
         if marker in context_norm
     )
 
-    if _looks_like_figure_caption(caption_text):
+    if _is_explicit_figure_caption(caption_text):
         return False
     if any(keyword in caption_norm for keyword in _PUBLICATION_ARTIFACT_KEYWORDS):
         return True
@@ -605,6 +1202,8 @@ def _is_publication_artifact_image(
     ):
         return True
     if "@" in context_norm and small_artifact:
+        return True
+    if has_path and small_artifact and publication_context and not caption_norm and not embedded_norm:
         return True
     if has_path and small_artifact and margin_bound and not caption_norm and embedded_norm in {"", "openaccess"}:
         return True
@@ -624,6 +1223,11 @@ def _assign_figure_titles(
 
     for image_block in image_blocks:
         image_bbox = tuple(image_block["bbox"])
+        title_text, selected_caption_block, selected_caption_gap = _build_above_figure_caption_text(
+            image_bbox=image_bbox,
+            text_blocks=text_blocks,
+            page_height=page_height,
+        )
         candidate_queue: list[tuple[float, int, str, dict[str, Any], float]] = []
         for text_block in text_blocks:
             text_bbox = tuple(text_block["bbox"])
@@ -639,20 +1243,18 @@ def _assign_figure_titles(
             is_below = 0 if distance >= 0 else 1
             candidate_queue.append((abs(distance), is_below, text, text_block, distance))
 
-        title_text = ""
-        selected_caption_block: dict[str, Any] | None = None
-        selected_caption_gap: float | None = None
         seen_captions: set[str] = set()
-        for _, _, candidate_text, source_block, source_distance in sorted(candidate_queue, key=lambda item: (item[0], item[1])):
-            normalized = _compact_text(candidate_text)
-            if not normalized or normalized in seen_captions:
-                continue
-            seen_captions.add(normalized)
-            if not title_text or _looks_like_figure_caption(candidate_text):
+        if not title_text:
+            for _, _, candidate_text, source_block, source_distance in sorted(candidate_queue, key=lambda item: (item[0], item[1])):
+                normalized = _compact_text(candidate_text)
+                if not normalized or normalized in seen_captions:
+                    continue
+                seen_captions.add(normalized)
+                if not _is_explicit_figure_caption(candidate_text):
+                    continue
                 title_text = candidate_text[:160]
                 selected_caption_block = source_block
                 selected_caption_gap = source_distance
-            if _looks_like_figure_caption(candidate_text):
                 break
 
         figure_ref = f"Figure {figure_index}"
@@ -709,6 +1311,59 @@ def _enrich_image_content(
             text_recovery=text_recovery,
             nearby_context_blocks=nearby_context_blocks,
         )
+        code_markup_semantics = (
+            _build_code_or_markup_figure_semantics(
+                caption_text=caption_text,
+                embedded_text=embedded_text,
+                nearby_context_blocks=nearby_context_blocks,
+                text_recovery=text_recovery,
+            )
+            if _looks_like_code_or_markup_figure(
+                caption_text=caption_text,
+                embedded_text=embedded_text,
+                nearby_context_blocks=nearby_context_blocks,
+            )
+            else {}
+        )
+        chart_semantics = (
+            {}
+            if code_markup_semantics
+            else _build_chart_figure_semantics(
+                caption_text=caption_text,
+                embedded_text=embedded_text,
+                nearby_context_blocks=nearby_context_blocks,
+                text_recovery=text_recovery,
+            )
+        )
+        if code_markup_semantics and embedded_text:
+            content_segments.append(
+                {
+                    "role": "embedded_code",
+                    "text": embedded_text,
+                    "language": code_markup_semantics.get("language", "unknown"),
+                    "source": str(text_recovery.get("source", "none")),
+                    "confidence": round(float(text_recovery.get("confidence", 0.0) or 0.0), 3),
+                }
+            )
+        if caption_text and content_segments:
+            caption_bbox = tuple(float(item) for item in image_block.get("caption_bbox", ()) or ())
+            image_bbox = tuple(float(item) for item in image_block.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+            if len(caption_bbox) == 4 and len(image_bbox) == 4 and content_segments[0].get("role") == "caption":
+                relation = "above" if caption_bbox[3] <= image_bbox[1] else "below" if caption_bbox[1] >= image_bbox[3] else "overlap"
+                gap = (
+                    image_bbox[1] - caption_bbox[3]
+                    if relation == "above"
+                    else caption_bbox[1] - image_bbox[3]
+                    if relation == "below"
+                    else 0.0
+                )
+                content_segments[0] = {
+                    **content_segments[0],
+                    "relation": relation,
+                    "gap": round(float(gap), 2),
+                    "bbox": _bbox_to_list(caption_bbox),
+                    "source_block_id": str(image_block.get("caption_source_block_id") or "").strip(),
+                }
         content_text = _join_unique_segment_texts(content_segments)
         image_kind_guess = _guess_image_kind(
             image_bbox=tuple(float(item) for item in image_block.get("bbox", (0.0, 0.0, 0.0, 0.0))),
@@ -718,6 +1373,10 @@ def _enrich_image_content(
             text_recovery=text_recovery,
             nearby_context_blocks=nearby_context_blocks,
         )
+        if code_markup_semantics:
+            image_kind_guess = "code_or_markup_figure"
+        elif chart_semantics:
+            image_kind_guess = "chart_figure"
         content_signals = {
             "has_caption": bool(caption_text),
             "has_embedded_text": bool(embedded_text),
@@ -727,6 +1386,22 @@ def _enrich_image_content(
             "nearby_context_block_count": len(nearby_context_blocks),
             "has_path": bool(text_recovery.get("has_path", False)),
         }
+        if code_markup_semantics:
+            content_signals.update(
+                {
+                    "has_code_or_markup_semantics": True,
+                    "embedded_code_language": code_markup_semantics.get("language", "unknown"),
+                    "embedded_code_text_status": code_markup_semantics.get("code_text_status", "not_available"),
+                }
+            )
+        if chart_semantics:
+            content_signals.update(
+                {
+                    "has_chart_semantics": True,
+                    "chart_content_kind": chart_semantics.get("content_kind", "embedded_chart_text"),
+                    "chart_type": chart_semantics.get("chart_type", "unknown_chart"),
+                }
+            )
 
         image_block["caption_text"] = caption_text
         image_block["embedded_text"] = embedded_text
@@ -738,6 +1413,10 @@ def _enrich_image_content(
         image_block["content_text"] = content_text
         image_block["image_kind_guess"] = image_kind_guess
         image_block["content_signals"] = content_signals
+        if code_markup_semantics:
+            image_block["figure_semantics"] = code_markup_semantics
+        elif chart_semantics:
+            image_block["figure_semantics"] = chart_semantics
 
         figure_node = figure_by_image_id.get(str(image_block.get("image_id", "")))
         if figure_node is not None:
@@ -751,6 +1430,10 @@ def _enrich_image_content(
             figure_node["content_text"] = content_text
             figure_node["image_kind_guess"] = image_kind_guess
             figure_node["content_signals"] = dict(content_signals)
+            if code_markup_semantics:
+                figure_node["figure_semantics"] = dict(code_markup_semantics)
+            elif chart_semantics:
+                figure_node["figure_semantics"] = dict(chart_semantics)
             if image_block.get("caption_bbox"):
                 figure_node["caption_bbox"] = list(image_block["caption_bbox"])
             if image_block.get("caption_source_block_id"):
@@ -836,8 +1519,23 @@ def _filter_non_content_images(
         caption_gap = image_block.get("caption_gap")
         no_nearby_context = not bool(image_block.get("nearby_context_blocks"))
         no_embedded_text = not _compact_text(str(image_block.get("embedded_text", "") or ""))
+        caption_text = str(image_block.get("caption_text", "") or "")
+        has_explicit_caption = _is_explicit_figure_caption(caption_text)
         top_margin_small_icon = bbox[3] <= 220.0 and max(width, height) <= 32.0
+        top_front_matter_graphic = (
+            int(image_block.get("page", 0) or 0) == 1
+            and bbox[3] <= 220.0
+            and max(width, height) <= 72.0
+            and no_embedded_text
+            and not has_explicit_caption
+            and _has_only_front_matter_image_context(image_block)
+        )
         if str(image_block.get("image_kind_guess", "") or "") == "publication_artifact":
+            image_block["analysis_excluded"] = True
+            image_block["analysis_excluded_reason"] = "publication_artifact"
+            removed_image_ids.add(str(image_block.get("image_id", "")))
+            continue
+        if top_front_matter_graphic:
             image_block["analysis_excluded"] = True
             image_block["analysis_excluded_reason"] = "publication_artifact"
             removed_image_ids.add(str(image_block.get("image_id", "")))
@@ -848,7 +1546,7 @@ def _filter_non_content_images(
             and no_embedded_text
             and isinstance(caption_gap, (int, float))
             and float(caption_gap) >= 120.0
-            and not _looks_like_figure_caption(str(image_block.get("caption_text", "") or ""))
+            and not has_explicit_caption
         ):
             image_block["analysis_excluded"] = True
             image_block["analysis_excluded_reason"] = "publication_artifact"
@@ -867,6 +1565,39 @@ def _filter_non_content_images(
             continue
         filtered_figures.append(figure)
     return filtered_images, filtered_figures, len(removed_image_ids)
+
+
+def _has_only_front_matter_image_context(image_block: dict[str, Any]) -> bool:
+    context_blocks = [
+        block
+        for block in image_block.get("nearby_context_blocks", []) or []
+        if isinstance(block, dict)
+    ]
+    if not context_blocks:
+        return True
+    if any(_is_explicit_figure_caption(str(block.get("text", "") or "")) for block in context_blocks):
+        return False
+    if any(str(block.get("relation", "") or "") not in {"below", ""} for block in context_blocks):
+        return False
+    max_gap = max(float(block.get("gap", 0.0) or 0.0) for block in context_blocks)
+    if max_gap > 96.0:
+        return False
+    context_text = " ".join(_clean_text(str(block.get("text", "") or "")) for block in context_blocks)
+    context_lower = context_text.lower()
+    context_compact = _compact_text(context_text).lower()
+    if any(keyword in context_compact for keyword in _FIGURE_LABEL_KEYWORDS):
+        return False
+    front_matter_signal_count = sum(
+        1
+        for pattern in (
+            r"\b(?:abstract|articlehistory|keywords?)\b",
+            r"\b[a-z][a-z]+(?:\s+[a-z]\.?,?[a-z]?)?,\s+[a-z][a-z]+\s+[a-z]",
+            r"\b[a-z][a-z]+(?:-| )based\b",
+            r"\b(?:classification|method|microarray|data|selection|centroid)\b",
+        )
+        if re.search(pattern, context_lower)
+    )
+    return front_matter_signal_count >= 1
 
 
 def _collect_nearby_image_context_blocks(
@@ -1006,12 +1737,12 @@ def _guess_image_kind(
     ):
         return "publication_artifact"
 
-    if has_path:
-        return "path_screenshot"
     if has_caption and embedded_length >= 20:
         return "captioned_textual_figure"
     if has_caption:
         return "captioned_figure"
+    if has_path:
+        return "path_screenshot"
     if embedded_length >= 20 and has_context:
         return "contextual_textual_image"
     if embedded_length >= 20:

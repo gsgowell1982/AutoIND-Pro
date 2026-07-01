@@ -80,6 +80,7 @@ class ATstRegressionTests(unittest.TestCase):
 
         article_info_index = markdown.index("a r t i c l e i n f o")
         abstract_heading_index = markdown.index("a b s t r a c t")
+        keyword_index = markdown.index("Keywords:")
         article_history_index = markdown.index("Article history:")
         abstract_body_index = markdown.index(
             "For classiﬁcation problems based on microarray data"
@@ -87,6 +88,8 @@ class ATstRegressionTests(unittest.TestCase):
         body_heading_index = markdown.index("1. Introduction")
 
         self.assertLess(article_info_index, article_history_index)
+        self.assertLess(article_history_index, keyword_index)
+        self.assertLess(keyword_index, abstract_heading_index)
         self.assertLess(article_history_index, abstract_heading_index)
         self.assertLess(abstract_heading_index, abstract_body_index)
         self.assertLess(abstract_body_index, body_heading_index)
@@ -94,6 +97,72 @@ class ATstRegressionTests(unittest.TestCase):
             "Gene selection\n\nstate-of-the-art methods.\n\n1. Introduction",
             markdown,
         )
+        self.assertNotIn(
+            "Gene selection\n\nlysis), such as Fisher Score",
+            markdown,
+        )
+
+    def test_markdown_keeps_literature_labels_as_standalone_lines(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        expected_boundaries = (
+            ("H I G H L I G H T S", "\x01 A gene selection method is proposed"),
+            ("a r t i c l e i n f o", "Article history:"),
+            ("a b s t r a c t", "For classiﬁcation problems based on microarray data"),
+            ("References", "Argyriou, A., Evgeniou, T., Pontil, M., 2007."),
+        )
+        for label, following in expected_boundaries:
+            self.assertIn(f"{label}\n\n{following}", markdown)
+            self.assertNotIn(f"{label} {following}", markdown)
+
+    def test_markdown_reconstructs_scientific_notation_inline_formula_and_float_notes_as_continuous_paragraphs(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        self.assertIn(r"less than $10^{-5}$", markdown)
+        self.assertIn(r"$k(d)=\exp(-d/\sigma)$", markdown)
+        self.assertIn(r"and $u$ are the centroid", markdown)
+        self.assertIn(r"where $z_i=", markdown)
+        self.assertIn(r"and $c_i$, respectively", markdown)
+        self.assertIn("The boldfaced values are the highest ones", markdown)
+        self.assertIn("The boldfaced values are the best ones", markdown)
+        self.assertIn("In the table", markdown)
+        self.assertNotIn("$u$sed", markdown)
+        self.assertNotIn("10-5", markdown)
+        self.assertNotIn("and u is", markdown)
+
+    def test_page1_markdown_keeps_intro_body_out_of_publication_metadata(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        body_heading_index = markdown.index("1. Introduction")
+        lysis_index = markdown.index(
+            "lysis), such as Fisher Score (Richard et al., 2001), Laplacian Score"
+        )
+        trace_ratio_index = markdown.index(
+            "(He et al., 2005) and Trace Ratio (Nie et al., 2008). However, these"
+        )
+        lasso_index = markdown.index(
+            "genes (Oh et al., 2004; Bolón-Canedo et al., 2014). The LASSO"
+        )
+        author_note_index = markdown.index("n Corresponding author.")
+
+        self.assertLess(author_note_index, body_heading_index)
+        self.assertGreater(lysis_index, body_heading_index)
+        self.assertGreater(trace_ratio_index, body_heading_index)
+        self.assertGreater(lasso_index, body_heading_index)
+
+        page1_units = [
+            unit for unit in self.result["content_units"]
+            if unit.get("page") == 1
+        ]
+        for expected in (
+            "lysis), such as Fisher Score",
+            "(He et al., 2005) and Trace Ratio",
+            "genes (Oh et al., 2004; Bolón-Canedo",
+        ):
+            unit = next(unit for unit in page1_units if expected in str(unit.get("text", "")))
+            self.assertEqual(unit.get("unit_role"), "body")
+            self.assertEqual(unit.get("semantic_role"), "text_block")
+            self.assertTrue(unit.get("fact_extraction_eligible"))
 
     def test_page1_publication_author_notes_and_citation_footer_are_metadata(self) -> None:
         page1_units = [
@@ -391,6 +460,21 @@ class ATstRegressionTests(unittest.TestCase):
         self.assertEqual(equation1_node.get("formula_spans"), spans)
         self.assertEqual(equation1_node.get("ocr_bbox"), ocr_bbox)
 
+    def test_display_equation_images_are_preserved_as_evidence_metadata(self) -> None:
+        labelled_equations = [
+            equation
+            for equation in self.result.get("equation_blocks", []) or []
+            if str(equation.get("equation_label", "") or "").strip()
+        ]
+
+        self.assertEqual(len(labelled_equations), 13)
+        for equation in labelled_equations:
+            evidence_image = dict(equation.get("evidence_image") or {})
+            self.assertEqual(evidence_image.get("source"), "pdf_bbox_crop")
+            self.assertEqual(evidence_image.get("render_role"), "visual_evidence")
+            self.assertEqual(evidence_image.get("page"), equation.get("page"))
+            self.assertEqual(evidence_image.get("bbox"), equation.get("evidence_bbox"))
+
     def test_display_formula_ocr_bbox_excludes_embedded_explanatory_text_rows(self) -> None:
         equations_by_label = {
             str(equation.get("equation_label", "") or "").strip(): equation
@@ -403,24 +487,47 @@ class ATstRegressionTests(unittest.TestCase):
         equation3_evidence_bbox = equation3.get("evidence_bbox") or equation3.get("bbox") or []
         equation3_ocr_bbox = equation3.get("ocr_bbox") or []
         self.assertEqual(len(equation3_ocr_bbox), 4)
-        self.assertLess(float(equation3_evidence_bbox[1]), 350.0)
+        self.assertGreater(
+            float(equation3_evidence_bbox[1]),
+            355.0,
+            msg="Formula evidence bbox should start at the formula row, not the prose row ending in 'defined as:'",
+        )
         self.assertGreater(
             float(equation3_ocr_bbox[1]),
-            float(equation3_evidence_bbox[1]) + 10.0,
+            float(equation3_evidence_bbox[1]) - 2.0,
             msg="OCR crop should trim the prose row ending in 'defined as:' from the formula image evidence",
         )
         self.assertLess(float(equation3_ocr_bbox[1]), float(equation3_evidence_bbox[3]))
+        self.assertNotIn("within-class distance are", str(equation3.get("text", "")).lower())
+        self.assertNotIn("defined as", str(equation3.get("text", "")).lower())
+
+        page3_body_units = [
+            unit
+            for unit in self.result.get("content_units", []) or []
+            if unit.get("page") == 3
+            and unit.get("unit_role") == "body"
+            and unit.get("semantic_role") == "text_block"
+        ]
+        cue_unit = next(
+            (
+                unit for unit in page3_body_units
+                if "within-class distance are de" in str(unit.get("text", ""))
+            ),
+            None,
+        )
+        self.assertIsNotNone(cue_unit)
+        self.assertTrue(cue_unit.get("fact_extraction_eligible"))
 
         equation13_evidence_bbox = equation13.get("evidence_bbox") or equation13.get("bbox") or []
         equation13_ocr_bbox = equation13.get("ocr_bbox") or []
         self.assertEqual(len(equation13_ocr_bbox), 4)
-        self.assertLess(float(equation13_evidence_bbox[1]), 680.0)
+        self.assertGreater(float(equation13_evidence_bbox[1]), 700.0)
         self.assertGreater(
             float(equation13_ocr_bbox[1]),
-            float(equation13_evidence_bbox[1]) + 20.0,
+            float(equation13_evidence_bbox[1]) - 2.0,
             msg="OCR crop should trim preceding natural-language rows from a numbered display formula",
         )
-        self.assertLess(float(equation13_ocr_bbox[0]), 49.0)
+        self.assertLess(float(equation13_ocr_bbox[0]), 50.0)
         self.assertLess(float(equation13_ocr_bbox[2]), float(equation13.get("equation_label_bbox", [999.0])[0]))
 
     def test_page3_equation1_following_inline_math_definition_is_reconstructed_as_text(self) -> None:
@@ -523,6 +630,230 @@ class ATstRegressionTests(unittest.TestCase):
         self.assertEqual(kernel_spans[0].get("layout_label"), "inline_formula")
         self.assertEqual(weighted_norm_spans[0].get("render"), "latex_inline")
 
+    def test_inline_formula_text_layer_reconstruction_handles_common_inline_math_shapes(self) -> None:
+        text_evidence = [
+            evidence
+            for evidence in self.result.get("content_evidence", [])
+            if evidence.get("source_type") == "text" and evidence.get("inline_formula_spans")
+        ]
+
+        class_mean = next(
+            evidence
+            for evidence in text_evidence
+            if evidence.get("page") == 3
+            and "Let u j = H 1 j" in str(evidence.get("content_text", ""))
+        )
+        weighted_norm = next(
+            evidence
+            for evidence in text_evidence
+            if evidence.get("page") == 3
+            and "with U W =" in str(evidence.get("content_text", ""))
+        )
+        squared_weights = next(
+            evidence
+            for evidence in text_evidence
+            if evidence.get("page") == 4
+            and "where w j = v j 2" in str(evidence.get("content_text", ""))
+        )
+        proof_tail = next(
+            evidence
+            for evidence in text_evidence
+            if evidence.get("page") == 4
+            and "The proof is then complete" in str(evidence.get("content_text", ""))
+        )
+
+        class_mean_content = str((class_mean.get("inline_formula_spans") or [{}])[0].get("content") or "")
+        weighted_norm_content = str((weighted_norm.get("inline_formula_spans") or [{}])[0].get("content") or "")
+        squared_weights_content = str((squared_weights.get("inline_formula_spans") or [{}])[0].get("content") or "")
+        proof_tail_content = str((proof_tail.get("inline_formula_spans") or [{}])[0].get("content") or "")
+
+        self.assertIn("u_j =", class_mean_content)
+        self.assertIn(r"\frac{1}{H_j}", class_mean_content)
+        self.assertIn(r"\sum_{x_i \in H_j}", class_mean_content)
+        self.assertNotIn(r"\sum_{x=i \in }_H_j", class_mean_content)
+        self.assertNotIn("Let", class_mean_content)
+
+        self.assertIn("1 \\le i \\le d", weighted_norm_content)
+        self.assertIn("w_i \\ge 0", weighted_norm_content)
+        self.assertNotIn("≤≤", weighted_norm_content)
+
+        self.assertIn("v_j^2", squared_weights_content)
+        self.assertIn("1 \\le j \\le d", squared_weights_content)
+        self.assertNotIn("v_j ^2", squared_weights_content)
+
+        self.assertIn("v_i^2", proof_tail_content)
+        self.assertIn("1 \\le i \\le d", proof_tail_content)
+        self.assertNotIn("≤≤", proof_tail_content)
+
+    def test_text_layer_inline_latex_is_projected_into_markdown_body_text(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        self.assertIn(r"where $x_i^{(j)}$ denotes the i -th sample", markdown)
+        self.assertIn(r"samples, where $x_i$ is the i- th data sample", markdown)
+        self.assertIn(
+            r"the within-class scatter matrix $S_w$, between-class scatter matrix $S_b$,",
+            markdown,
+        )
+        self.assertIn(r"and Total scatter matrix $S_t$.", markdown)
+        self.assertIn(
+            r"clude $\operatorname{tr}(S_b)/\operatorname{tr}(S_w)$ and $S_b/S_w$, where $\operatorname{tr}(A)$",
+            markdown,
+        )
+        self.assertIn(
+            r"Let $S=[x_1,\ldots,x_n]^T \in R^{n \times d}$ be a training data set containing n",
+            markdown,
+        )
+        self.assertIn(
+            r"$Y=[y_1,\ldots,y_n]^T$ is the corresponding class labels",
+            markdown,
+        )
+        self.assertIn(
+            r"where $g$ is the number of classes, $x_{ij}$, $c_{ij}$ the j -th element of $x_i$ and",
+            markdown,
+        )
+        self.assertIn(
+            r"$c_i$, respectively and $d_w(,)$ is a distance function about w.",
+            markdown,
+        )
+        self.assertIn(r"of distances $d_w(,)$ have been proposed", markdown)
+        self.assertIn(
+            r"$u_j = \frac{1}{n_j} \sum_{i=1}^{n_j} x_i^{(j)} and u = \frac{1}{n} \sum_{i=1}^{n} x_i.$",
+            markdown,
+        )
+        self.assertIn(r"$u_j = \frac{1}{H_j} \sum_{x_i \in H_j} x_i,$", markdown)
+        self.assertIn(r"w_j = v_j^2", markdown)
+        self.assertIn(r"1 \le j \le d", markdown)
+        self.assertNotIn("**公式项**", markdown)
+        self.assertNotIn(r"$^h_x_x =_x * = 0$", markdown)
+
+    def test_body_inline_math_general_patterns_cover_vector_constraints_and_where_clauses(self) -> None:
+        markdown = _build_full_markdown([self.result])
+        def formula_index(label: str) -> int:
+            match = re.search(rf"\\tag\{{{re.escape(label)}\}}", markdown)
+            self.assertIsNotNone(match, msg=f"formula {label} not found in markdown")
+            return int(match.start())
+
+        weight_index = markdown.index("In order to calculate the weight")
+        formula3_index = formula_index("3")
+        weight_slice = markdown[weight_index:formula3_index]
+        self.assertIn(r"$w=[w_1,w_2,\ldots,w_d]\in R^{1\times d}$ be a weight vector.", weight_slice)
+        self.assertNotIn("w = [ w 1 , w 2 , … , w d ]", weight_slice)
+        self.assertNotIn("R 1 × d", weight_slice)
+
+        equation9_index = formula_index("9")
+        equation10_index = formula_index("10")
+        logistic_slice = markdown[equation9_index:equation10_index]
+        self.assertIn(r"$z_i$ of (9).", logistic_slice)
+        self.assertIn(r"mework to", logistic_slice)
+        self.assertIn(r"$z_i$, it has high computational cost", logistic_slice)
+        self.assertNotIn("de铿乶e zi", logistic_slice)
+
+        equation11_index = formula_index("11")
+        constraint_slice = markdown[equation10_index:equation11_index]
+        self.assertIn(r"Two reasons for the constraint $w \ge 0$ are:", constraint_slice)
+        self.assertNotIn("Two reasons for the constraint w ≥ 0 are:", constraint_slice)
+        self.assertNotIn("\n\n≥\n\n", constraint_slice)
+
+        equation13_index = formula_index("13")
+        theorem_index = markdown.index("The following theorem shows")
+        formula13_tail = markdown[equation13_index:theorem_index]
+        self.assertIn(
+            r"where $\beta = \frac{\lVert g^{(k)}\rVert}{\lVert g^{(k-1)}\rVert}$, and",
+            formula13_tail,
+        )
+        self.assertIn(r"$g^{(k)}$ is the gradient of", formula13_tail)
+        self.assertIn(r"$F(v)$ at $v^{(k)}$.", formula13_tail)
+        self.assertNotIn(r"where $\beta = 1$, and", formula13_tail)
+        self.assertNotIn("where β =\n\n1 , and", formula13_tail)
+
+        text_evidence = [
+            evidence
+            for evidence in self.result.get("content_evidence", [])
+            if evidence.get("source_type") == "text"
+        ]
+        weight_definition = next(
+            evidence
+            for evidence in text_evidence
+            if "w = [ w 1" in str(evidence.get("content_text", ""))
+        )
+        llfs_definition = next(
+            evidence
+            for evidence in text_evidence
+            if "mework to" in str(evidence.get("content_text", ""))
+            and "zi" in str(evidence.get("content_text", ""))
+        )
+        constraint_definition = next(
+            evidence
+            for evidence in text_evidence
+            if "constraint w" in str(evidence.get("content_text", ""))
+        )
+        beta_definition = next(
+            evidence
+            for evidence in text_evidence
+            if str(evidence.get("content_text", "")).strip() == "where β ="
+        )
+        latex_by_evidence = {
+            "weight": [span.get("latex_text") for span in weight_definition.get("inline_formula_spans") or []],
+            "llfs": [span.get("latex_text") for span in llfs_definition.get("inline_formula_spans") or []],
+            "constraint": [span.get("latex_text") for span in constraint_definition.get("inline_formula_spans") or []],
+            "beta": [span.get("latex_text") for span in beta_definition.get("inline_formula_spans") or []],
+        }
+        self.assertIn(r"w=[w_1,w_2,\ldots,w_d]\in R^{1\times d}", latex_by_evidence["weight"])
+        self.assertIn(r"z_i", latex_by_evidence["llfs"])
+        self.assertIn(r"w \ge 0", latex_by_evidence["constraint"])
+        self.assertIn(
+            r"\beta = \frac{\lVert g^{(k)}\rVert}{\lVert g^{(k-1)}\rVert}",
+            latex_by_evidence["beta"],
+        )
+
+    def test_body_inline_math_general_patterns_cover_limits_norms_and_theorem_conditions(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        note_index = markdown.index("Note that if")
+        formula3_index = re.search(r"\\tag\{3\}", markdown)
+        self.assertIsNotNone(formula3_index)
+        note_slice = markdown[note_index:int(formula3_index.start())]
+        self.assertIn(r"Note that if $\sigma \to +\infty$, we have $v_j = u_j$,", note_slice)
+        self.assertNotIn("σ→+∞", note_slice)
+        self.assertNotIn("v j = u j", note_slice)
+
+        equation13_index_match = re.search(r"\\tag\{13\}", markdown)
+        self.assertIsNotNone(equation13_index_match)
+        theorem_index = markdown.index("The following theorem shows")
+        formula13_tail = markdown[int(equation13_index_match.start()):theorem_index]
+        self.assertIn(
+            r"where $\beta = \frac{\lVert g^{(k)}\rVert}{\lVert g^{(k-1)}\rVert}$, and",
+            formula13_tail,
+        )
+        self.assertIn(r"$g^{(k)}$ is the gradient of", formula13_tail)
+        self.assertIn(r"$F(v)$ at $v^{(k)}$.", formula13_tail)
+        self.assertNotIn("where $\\beta = 1$, and", formula13_tail)
+        self.assertNotIn("\n\n1 , and\n\n", formula13_tail)
+        self.assertNotIn("F v at", formula13_tail)
+
+        theorem_start = markdown.index("Theorem. Let $F(v)$")
+        proof_start = markdown.index("Proof. According to Sun et al.")
+        theorem_slice = markdown[theorem_start:proof_start]
+        self.assertIn(r"If", theorem_slice)
+        self.assertIn(r"\frac{\partial F}{\partial v}(v^*) = 0", theorem_slice)
+        self.assertNotRegex(theorem_slice, r"\*\*(?:公式|鍏紡|閸忣剙绱?)\*\*")
+        self.assertNotIn("![公式]", theorem_slice)
+        self.assertNotIn("\n\n∂\n\n∂\n\n", theorem_slice)
+
+        text_evidence = [
+            evidence
+            for evidence in self.result.get("content_evidence", [])
+            if evidence.get("source_type") == "text"
+        ]
+        limit_definition = next(
+            evidence
+            for evidence in text_evidence
+            if "Note that if" in str(evidence.get("content_text", ""))
+        )
+        limit_latex = [span.get("latex_text") for span in limit_definition.get("inline_formula_spans") or []]
+        self.assertIn(r"\sigma \to +\infty", limit_latex)
+        self.assertIn(r"v_j = u_j", limit_latex)
+
     def test_inline_formula_spans_exclude_following_explanatory_prose(self) -> None:
         inline_evidence = [
             evidence
@@ -593,7 +924,13 @@ class ATstRegressionTests(unittest.TestCase):
             for evidence in plain_variable_definitions
             if "samples, where xi is the i-th data sample" in str(evidence.get("content_text", ""))
         )
-        self.assertFalse(g_definition.get("inline_formula_spans"), msg=g_definition)
+        g_spans = g_definition.get("inline_formula_spans") or []
+        self.assertEqual(
+            [span.get("latex_text") for span in g_spans],
+            ["g", "x_{ij}", "c_{ij}", "x_i"],
+            msg=g_definition,
+        )
+        self.assertTrue(all(not span.get("ocr_candidate") for span in g_spans), msg=g_definition)
         x_i_spans = x_i_definition.get("inline_formula_spans") or []
         self.assertTrue(x_i_spans, msg=x_i_definition)
         self.assertEqual(x_i_spans[0].get("content"), "x_i")
@@ -625,18 +962,228 @@ class ATstRegressionTests(unittest.TestCase):
         self.assertNotIn("x *", initial_point_content)
         self.assertTrue(initial_point_spans[0].get("ocr_candidate"))
 
-    def test_page3_equation1_markdown_keeps_image_primary_and_exposes_latex_policy(self) -> None:
+    def test_page4_theorem_math_terms_are_projected_as_readable_latex(self) -> None:
+        markdown = _build_full_markdown([self.result])
+        theorem_index = markdown.index("Theorem. Let")
+        proof_index = markdown.index("Proof. According to Sun et al.")
+        theorem_slice = markdown[theorem_index:proof_index]
+
+        self.assertIn(r"Theorem. Let $F(v)$ be a function of v deﬁned in (11). If", theorem_slice)
+        self.assertIn(r"\frac{\partial F}{\partial v}(v^*) = 0", theorem_slice)
+        self.assertIn(r"If $\frac{\partial F}{\partial v}(v^*) = 0$ then $v^*$ is not a local minimize", theorem_slice)
+        self.assertIn(r"point of $F(v)$. Moreover, if", theorem_slice)
+        self.assertIn(r"an initial point $v_i^{(0)} \ne 0, 1 \le i \le d$, then $v^*$ is a global minimizer of $F(v)$.", theorem_slice)
+        self.assertNotIn("global minimizer of\n\n*", theorem_slice)
+        self.assertNotIn("F ( v )", theorem_slice)
+        self.assertNotIn("F v v v = * 0 =", theorem_slice)
+        self.assertNotIn("v i ( 0 )", theorem_slice)
+        self.assertNotRegex(theorem_slice, r"\*\*(?:公式|鍏紡|閸忣剙绱?)\*\*")
+        self.assertNotIn("![公式]", theorem_slice)
+        self.assertNotIn("≤≤ i d", theorem_slice)
+
+        text_evidence = [
+            evidence
+            for evidence in self.result.get("content_evidence", [])
+            if evidence.get("source_type") == "text"
+        ]
+        theorem_intro = next(
+            evidence
+            for evidence in text_evidence
+            if "Theorem. Let F ( v )" in str(evidence.get("content_text", ""))
+        )
+        theorem_initial_point = next(
+            evidence
+            for evidence in text_evidence
+            if "an initial point v i ( 0 )" in str(evidence.get("content_text", ""))
+        )
+        intro_latex = [span.get("latex_text") for span in theorem_intro.get("inline_formula_spans") or []]
+        initial_latex = [span.get("latex_text") for span in theorem_initial_point.get("inline_formula_spans") or []]
+
+        self.assertIn("F(v)", intro_latex)
+        self.assertIn(r"v_i^{(0)} \ne 0, 1 \le i \le d", initial_latex)
+
+    def test_page4_proof_math_terms_are_projected_as_readable_latex(self) -> None:
+        markdown = _build_full_markdown([self.result])
+        proof_index = markdown.index("Proof. According to Sun et al.")
+        next_paragraph_index = markdown.index("In the light of Sun et al.", proof_index)
+        proof_slice = markdown[proof_index:next_paragraph_index]
+
+        self.assertIn(r"If $f(x)$ is a strictly convex function of $x \in R^d$ and $h(x)=f(y)$,", proof_slice)
+        self.assertIn(r"where $y=[y_1,\ldots,y_d]=[x_1^2,\ldots,x_d^2]$. If", proof_slice)
+        self.assertIn(r"\frac{\partial h}{\partial x}(x^*) = 0", proof_slice)
+        self.assertIn(r"and $x^*$ is found through", proof_slice)
+        self.assertIn(r"then $x^*$ is a global minimizer of $h(x)$.", proof_slice)
+        self.assertNotIn("h ( x ( )= ( )", proof_slice)
+        self.assertNotIn("f y ,", proof_slice)
+        self.assertNotIn("] ∂", proof_slice)
+        self.assertNotIn("x *", proof_slice)
+        self.assertNotIn("global minimizer of h ( x )", proof_slice)
+
+        text_evidence = [
+            evidence
+            for evidence in self.result.get("content_evidence", [])
+            if evidence.get("source_type") == "text"
+        ]
+        convex_line = next(
+            evidence
+            for evidence in text_evidence
+            if "strictly convex function of x" in str(evidence.get("content_text", ""))
+        )
+        vector_line = next(
+            evidence
+            for evidence in text_evidence
+            if "where y = [ y 1" in str(evidence.get("content_text", ""))
+        )
+        minimizer_line = next(
+            evidence
+            for evidence in text_evidence
+            if "global minimizer of h" in str(evidence.get("content_text", ""))
+        )
+        convex_latex = [span.get("latex_text") for span in convex_line.get("inline_formula_spans") or []]
+        vector_latex = [span.get("latex_text") for span in vector_line.get("inline_formula_spans") or []]
+        minimizer_latex = [span.get("latex_text") for span in minimizer_line.get("inline_formula_spans") or []]
+
+        self.assertIn("f(x)", convex_latex)
+        self.assertIn(r"x \in R^d", convex_latex)
+        self.assertIn("h(x)=f(y)", convex_latex)
+        self.assertIn(r"y=[y_1,\ldots,y_d]=[x_1^2,\ldots,x_d^2]", vector_latex)
+        self.assertIn("h(x)", minimizer_latex)
+
+    def test_page4_indexed_symbol_descriptions_are_projected_as_readable_latex(self) -> None:
+        markdown = _build_full_markdown([self.result])
+        formula11_index = markdown.index(r"\tag{11}")
+        formula11_index = markdown.rfind("$$", 0, formula11_index)
+        theorem_index = markdown.index("Theorem. Let", formula11_index)
+        formula_slice = markdown[formula11_index:theorem_index]
+
+        self.assertIn(r"where $w_j = v_j^2,1 \le j \le d$ and $z_{ij}$ is the j-th element of $z_i$.", formula_slice)
+        self.assertNotIn("and z ij is the j -th element of z i", formula_slice)
+        self.assertNotIn("and zij is the j-th element of zi", formula_slice)
+
+        text_evidence = [
+            evidence
+            for evidence in self.result.get("content_evidence", [])
+            if evidence.get("source_type") == "text"
+        ]
+        z_line = next(
+            evidence
+            for evidence in text_evidence
+            if "zij is the j-th element of zi" in str(evidence.get("content_text", ""))
+        )
+        z_latex = [span.get("latex_text") for span in z_line.get("inline_formula_spans") or []]
+        self.assertIn("z_{ij}", z_latex)
+        self.assertIn("z_i", z_latex)
+
+    def test_page5_complexity_terms_are_projected_as_readable_inline_latex(self) -> None:
+        markdown = _build_full_markdown([self.result])
+        section35_index = markdown.index("3.5. Computational complexity")
+        section4_index = markdown.index("4. Experiments and results analysis")
+        complexity_slice = markdown[section35_index:section4_index]
+
+        self.assertIn(r"plexities are $O(nd)$ and", complexity_slice)
+        self.assertIn(r"$O(Ind)$ respectively.", complexity_slice)
+        self.assertIn(r"for binary problems is $O(I(n^2d + nd))$.", complexity_slice)
+        self.assertIn(r"g is the number of classes and $g \ge 3$.", complexity_slice)
+        self.assertIn(r"complexity of Algorithm 2 is $O((nd + Ind)g)$.", complexity_slice)
+        self.assertNotIn("() O Ind", complexity_slice)
+        self.assertNotIn("() $O(Ind)$", complexity_slice)
+        self.assertNotIn("O I n d", complexity_slice)
+        self.assertNotIn("( (2 + nd))", complexity_slice)
+        self.assertNotIn("O (( nd + Ind ) g ) . +) )", complexity_slice)
+        self.assertNotIn("$O((nd + Ind)g)$. +) )", complexity_slice)
+
+        page5_complexity_evidence = [
+            evidence
+            for evidence in self.result.get("content_evidence", [])
+            if evidence.get("source_type") == "text"
+            and evidence.get("page") == 5
+            and "complexity" in str((evidence.get("section_context") or {}).get("section_title") or "").lower()
+        ]
+        complexity_latex = [
+            span.get("latex_text")
+            for evidence in page5_complexity_evidence
+            for span in evidence.get("inline_formula_spans") or []
+        ]
+        self.assertIn(r"O(nd)", complexity_latex)
+        self.assertIn(r"O(Ind)", complexity_latex)
+        self.assertIn(r"O(I(n^2d + nd))", complexity_latex)
+        self.assertIn(r"g \ge 3", complexity_latex)
+        self.assertIn(r"O((nd + Ind)g)", complexity_latex)
+
+    def test_inline_math_projection_handles_set_membership_vectors_and_formula_residue(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        definition_index = markdown.index("Deﬁnition 1.")
+        equation2_index = markdown.index(r"\tag{2}")
+        definition_slice = markdown[definition_index:equation2_index]
+        self.assertIn(r"$u_j = \frac{1}{H_j} \sum_{x_i \in H_j} x_i,$", definition_slice)
+        self.assertIn(r"where $H_j=\{x_i \mid 1 \le i \le n, y_i=j\}$", definition_slice)
+        self.assertIn(r"and $H_j$", definition_slice)
+        self.assertNotIn("H j ={ x i | 1 ≤≤ i n y", definition_slice)
+        self.assertNotIn(", i = } j and Hj", definition_slice)
+
+        equation5_index = markdown.index(r"\tag{5}")
+        equation6_index = markdown.index(r"\tag{6}")
+        equation5_slice = markdown[equation5_index:equation6_index]
+        equation5_body_after_code = equation5_slice.split("LaTeX 重建未达到高置信度，视觉核对以原文截图为准。", 1)[-1]
+        self.assertNotIn("deﬁned as the following:", equation5_slice)
+        self.assertNotIn("d w ( x , y ,)= x", equation5_slice)
+
+        equation7_index = markdown.index(r"\tag{7}")
+        equation8_index = markdown.index(r"\tag{8}")
+        equation7_slice = markdown[equation7_index:equation8_index]
+        self.assertIn(
+            r"where $z_i=(\lvert x_{i1}-c_{j1}\rvert-\lvert c_{11}-c_{21}\rvert,\ldots,\lvert x_{id}-c_{jd}\rvert-\lvert c_{1d}-c_{2d}\rvert)$,",
+            equation7_slice,
+        )
+        self.assertIn(r"with $x_{ij}$, $c_{ij}$ the j-th element of $x_i$", equation7_slice)
+        self.assertIn(r"and $c_i$, respectively, and $x_i \in H_j$.", equation7_slice)
+        self.assertNotIn("x_i_1", equation7_slice)
+        self.assertNotIn("c_j_1", equation7_slice)
+        self.assertNotIn("c_1_d", equation7_slice)
+
+        text_evidence = [
+            evidence
+            for evidence in self.result.get("content_evidence", [])
+            if evidence.get("source_type") == "text"
+        ]
+        set_definition = next(
+            evidence
+            for evidence in text_evidence
+            if "where H j" in str(evidence.get("content_text", ""))
+        )
+        z_definition = next(
+            evidence
+            for evidence in text_evidence
+            if "where z i" in str(evidence.get("content_text", ""))
+        )
+        membership_tail = next(
+            evidence
+            for evidence in text_evidence
+            if "respectively, and x i" in str(evidence.get("content_text", ""))
+        )
+        set_latex = [span.get("latex_text") for span in set_definition.get("inline_formula_spans") or []]
+        z_latex = [span.get("latex_text") for span in z_definition.get("inline_formula_spans") or []]
+        membership_latex = [span.get("latex_text") for span in membership_tail.get("inline_formula_spans") or []]
+        self.assertIn(r"H_j=\{x_i \mid 1 \le i \le n, y_i=j\}", set_latex)
+        self.assertIn(
+            r"z_i=(\lvert x_{i1}-c_{j1}\rvert-\lvert c_{11}-c_{21}\rvert,\ldots,\lvert x_{id}-c_{jd}\rvert-\lvert c_{1d}-c_{2d}\rvert)",
+            z_latex,
+        )
+        self.assertIn(r"x_i \in H_j", membership_latex)
+        self.assertIn(r"x_i", membership_latex)
+
+    def test_page3_equation1_markdown_keeps_evidence_out_of_user_facing_latex_display(self) -> None:
         equation1 = next(
             equation
             for equation in self.result.get("equation_blocks", [])
             if str(equation.get("equation_label", "") or "").strip() == "(1)"
         )
-        self.assertEqual(equation1.get("latex_render_policy"), "image_primary_latex_enhancement")
-        self.assertEqual(equation1.get("latex_confidence"), 0.0)
-        self.assertIsNone(equation1.get("latex_text"))
-        self.assertEqual(equation1.get("latex_source"), "disabled")
-        self.assertFalse(equation1.get("latex_validation", {}).get("accepted", True))
-        self.assertIn("no_latex_candidate", equation1.get("latex_validation", {}).get("issues", []))
+        self.assertEqual(equation1.get("latex_render_policy"), "latex_primary_with_image_evidence")
+        self.assertEqual(dict(equation1.get("evidence_image") or {}).get("render_role"), "visual_evidence")
+        self.assertEqual(equation1.get("latex_confidence"), 0.88)
+        self.assertIn(r"\begin{cases}", str(equation1.get("latex_text") or ""))
+        self.assertIn(r"S_w", str(equation1.get("latex_text") or ""))
 
         page3 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 3)
         equation1_node = next(
@@ -645,22 +1192,101 @@ class ATstRegressionTests(unittest.TestCase):
             if block.get("block_type") == "equation"
             and str(block.get("equation_label", "") or "").strip() == "(1)"
         )
-        self.assertEqual(equation1_node.get("latex_render_policy"), "image_primary_latex_enhancement")
-        self.assertEqual(equation1_node.get("latex_source"), "disabled")
-        self.assertFalse(equation1_node.get("latex_validation", {}).get("accepted", True))
+        self.assertEqual(equation1_node.get("latex_render_policy"), "latex_primary_with_image_evidence")
+        self.assertEqual(dict(equation1_node.get("evidence_image") or {}).get("render_role"), "visual_evidence")
 
         markdown = _build_full_markdown([self.result])
-        equation_index = markdown.index("**公式 (1)**")
-        inline_index = markdown.index("set, respectively, i.e., u_j")
-        equation_slice = markdown[equation_index:inline_index]
+        equation_index = markdown.index(r"\tag{1}")
+        inline_index = markdown.index(r"set, respectively, i.e., $u_j")
+        equation_slice = markdown[markdown.rfind("$$", 0, equation_index):inline_index]
 
-        self.assertIn("![公式 (1)](data:image/png;base64,", equation_slice)
-        self.assertIn("```text", equation_slice)
-        self.assertIn("S w =", equation_slice)
-        self.assertIn("LaTeX 重建未达到高置信度，视觉核对以原文截图为准。", equation_slice)
-        self.assertNotIn("$$", equation_slice)
-        self.assertIn("\\frac{1}{n_j}", markdown[inline_index:inline_index + 300])
+        self.assertIn("$$", equation_slice)
+        self.assertIn(r"\begin{cases}", equation_slice)
+        self.assertIn(r"\tag{1}", equation_slice)
+        self.assertNotIn("```text", equation_slice)
+        self.assertNotIn("PDF", equation_slice)
+        self.assertNotIn("LaTeX", equation_slice)
+        self.assertIn(r"$u_j = \frac{1}{n_j}", markdown[inline_index:inline_index + 300])
 
+    def test_numbered_display_equations_are_reconstructed_as_latex_for_markdown(self) -> None:
+        labelled_equations = {
+            str(equation.get("equation_label", "") or "").strip(): equation
+            for equation in self.result.get("equation_blocks", []) or []
+            if str(equation.get("equation_label", "") or "").strip()
+        }
+
+        self.assertEqual(len(labelled_equations), 13)
+        for label, equation in labelled_equations.items():
+            latex_text = str(equation.get("latex_text") or "")
+            self.assertTrue(latex_text, msg=f"{label} has no display LaTeX")
+            self.assertGreaterEqual(float(equation.get("latex_confidence") or 0.0), 0.85, msg=label)
+            self.assertIn(str(equation.get("latex_tag") or ""), latex_text, msg=label)
+            self.assertNotIn("LaTeX", latex_text)
+            self.assertNotIn("PDF", latex_text)
+
+        markdown = _build_full_markdown([self.result])
+        self.assertNotRegex(markdown, r"\*\*(?:公式|鍏紡)\s*(?:\(\d+\))?\*\*")
+        for label in labelled_equations:
+            equation_index = markdown.index(str(labelled_equations[label].get("latex_tag") or ""))
+            following = markdown[max(0, equation_index - 80):equation_index + 800]
+            self.assertIn("$$", following, msg=label)
+            self.assertIn(str(labelled_equations[label].get("latex_tag") or ""), following, msg=label)
+            self.assertNotIn("![公式", following, msg=label)
+
+
+    def test_numbered_display_equation_latex_rebuilds_common_math_structures_without_label_residue(self) -> None:
+        labelled_equations = {
+            str(equation.get("equation_label", "") or "").strip(): str(equation.get("latex_text") or "")
+            for equation in self.result.get("equation_blocks", []) or []
+            if str(equation.get("equation_label", "") or "").strip()
+        }
+
+        equation2 = labelled_equations["(2)"]
+        self.assertEqual(equation2.count(r"\sum_{x_i\in H_j}"), 3)
+        self.assertIn(
+            r"c_j=\sum_{x_i\in H_j}P(x_i=c_j)x_i=\frac{\sum_{x_i\in H_j}k(\lVert x_i-u_j\rVert_2)x_i}{\sum_{x_i\in H_j}k(\lVert x_i-u_j\rVert_2)}",
+            equation2,
+        )
+        self.assertNotIn(r"\lVert x_i-u_j\rVert^2", equation2)
+
+        equation3 = labelled_equations["(3)"]
+        self.assertIn(r"S_b=d_w(c_i,c_j)", equation3)
+        self.assertIn(r"\sum_{k=1}^{d}", equation3)
+        self.assertIn(r"w_k\lvert c_{ik}-c_{jk}\rvert", equation3)
+        self.assertNotIn("d_S b", equation3)
+        self.assertNotIn("k=1 ( 3 )", equation3)
+
+        equation4 = labelled_equations["(4)"]
+        self.assertIn(r"S_w=\sum_{j=1}^{g}\sum_{x_i\in H_j}d_w(x_i,c_j)", equation4)
+        self.assertIn(r"\sum_{k=1}^{d}w_k\lvert x_{ik}-c_{jk}\rvert", equation4)
+        self.assertNotIn(r"\sum \sum", equation4)
+        self.assertNotIn("( 4 )", equation4)
+
+        equation5 = labelled_equations["(5)"]
+        self.assertIn(r"d_w(x,y)=\lVert x-y\rVert_w", equation5)
+        self.assertNotIn("( 5 )", equation5)
+        self.assertNotIn("y_w", equation5)
+
+        equation6 = labelled_equations["(6)"]
+        self.assertIn(r"\min_w J(w)=S_w-\gamma S_b", equation6)
+        self.assertNotIn("w()", equation6)
+
+        equation11 = labelled_equations["(11)"]
+        self.assertIn(r"\min_v F(v)", equation11)
+        self.assertIn(r"\sum_{i=1}^{n}", equation11)
+        self.assertIn(r"\sum_j v_j^2z_{ij}", equation11)
+        self.assertIn(r"\lambda\lVert v\rVert_2^2", equation11)
+        self.assertNotIn("v_F", equation11)
+
+        equation12 = labelled_equations["(12)"]
+        self.assertIn(r"v^{(k+1)}=v^{(k)}+\alpha^{(k)}d^{(k)}", equation12)
+        self.assertNotIn("v ( + )", equation12)
+
+        equation13 = labelled_equations["(13)"]
+        self.assertIn(r"d^{(k)}=\begin{cases}", equation13)
+        self.assertIn(r"-g^{(k)}", equation13)
+        self.assertIn(r"\beta^{(k)}d^{(k-1)}", equation13)
+        self.assertNotIn("d - ( k )", equation13)
     def test_page2_narrative_body_is_not_misclassified_as_table(self) -> None:
         page2 = next(page for page in self.result["pages"] if page["page_number"] == 2)
         page2_tables = [table for table in self.result["table_asts"] if table.get("page") == 2]
@@ -824,7 +1450,7 @@ class ATstRegressionTests(unittest.TestCase):
         self.assertIn("Algorithm 1. Regularized Logistic Regression for binary-problems", page4_text)
         self.assertIn("Initialization:", page4_text)
 
-    def test_page4_theorem_condition_is_promoted_as_unnumbered_display_equation(self) -> None:
+    def test_page4_theorem_condition_stays_in_theorem_prose_not_display_equation(self) -> None:
         page4_blocks = next(
             page for page in self.result["document_ast"]["pages"] if page["page"] == 4
         )["blocks"]
@@ -833,18 +1459,39 @@ class ATstRegressionTests(unittest.TestCase):
             if block.get("block_type") == "equation"
             and not str(block.get("equation_label", "") or "").strip()
         ]
-        self.assertTrue(
+        self.assertFalse(
             any("F v v v" in str(block.get("text", "")) for block in unnumbered_equations),
             msg=unnumbered_equations,
         )
 
         markdown = _build_full_markdown([self.result])
-        theorem_index = markdown.index("Theorem. Let F ( v )")
+        theorem_index = markdown.index("Theorem. Let $F(v)$")
         proof_index = markdown.index("Proof. According to Sun et al.")
         theorem_slice = markdown[theorem_index:proof_index]
-        self.assertRegex(theorem_slice, r"\*\*(?:公式|鍏紡)\*\*")
-        self.assertIn("F v v v = * 0 =", theorem_slice)
+        self.assertIn(r"If $\frac{\partial F}{\partial v}(v^*) = 0$ then", theorem_slice)
+        self.assertNotIn("![公式]", theorem_slice)
+        self.assertNotRegex(theorem_slice, r"\*\*(?:公式|鍏紡|閸忣剙绱?)\*\*")
+        self.assertNotIn("F v v v = * 0 =", theorem_slice)
         self.assertNotIn("\n\n( )\n\n∂\n\n∂\n\nF v v v = * 0 =", theorem_slice)
+
+    def test_compact_centroid_subscript_and_theorem_tail_residue_are_repaired_generically(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        centroid_index = markdown.index("where $x_i^{(j)}$ denotes")
+        centroid_slice = markdown[centroid_index:centroid_index + 260]
+        self.assertIn("number of classes, $u_j$ and $u$ are the centroid", centroid_slice)
+        self.assertNotIn("classes, uj and u", centroid_slice)
+
+        theorem_index = markdown.index("Theorem. Let $F(v)$")
+        proof_index = markdown.index("Proof. According to Sun et al.")
+        theorem_slice = markdown[theorem_index:proof_index]
+        self.assertIn(r"then $v^*$ is a global minimizer of $F(v)$.", theorem_slice)
+        self.assertNotIn("\n\n*\n\nProof", markdown[theorem_index:proof_index + 40])
+
+        proof_tail_index = markdown.index(r"$F(v)=L(w)$")
+        proof_tail_slice = markdown[proof_tail_index:proof_tail_index + 180]
+        self.assertIn(r"$F(v)=L(w)$, where $w_i = v_i^2,1 \le i \le d.$ The proof is then complete.", proof_tail_slice)
+        self.assertNotIn("where\n\n)", proof_tail_slice)
 
     def test_page4_and_page5_promote_algorithm_pseudocode_into_structured_algorithm_blocks(self) -> None:
         algorithm_blocks = list(self.result.get("algorithm_blocks", []) or [])
@@ -908,6 +1555,75 @@ class ATstRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(len(algorithm_units), 3)
         self.assertTrue(all(not bool(unit.get("fact_extraction_eligible", True)) for unit in algorithm_units))
 
+    def test_algorithm_pseudocode_math_terms_are_projected_as_readable_latex(self) -> None:
+        algorithm_blocks = list(self.result.get("algorithm_blocks", []) or [])
+        algorithm1 = next(block for block in algorithm_blocks if block.get("algorithm_ref") == "Algorithm 1")
+        algorithm2_page5 = next(
+            block
+            for block in algorithm_blocks
+            if block.get("algorithm_ref") == "Algorithm 2" and block.get("page") == 5
+        )
+
+        algorithm1_latex = [
+            span.get("latex_text")
+            for span in algorithm1.get("inline_formula_spans") or []
+        ]
+        algorithm2_latex = [
+            span.get("latex_text")
+            for span in algorithm2_page5.get("inline_formula_spans") or []
+        ]
+
+        self.assertIn(r"v^{(0)} = w^{(0)} = [1,1,\ldots,1]", algorithm1_latex)
+        self.assertIn(r"F^{(0)} = F(v^{(0)})", algorithm1_latex)
+        self.assertIn(r"v^{(k+1)} = v^{(k)} + \alpha^{(k)}d^{(k)}", algorithm1_latex)
+        self.assertIn(r"v_i^{(k+1)} < 10^{-5}", algorithm1_latex)
+        self.assertIn(r"v_i^{(k+1)} = 0", algorithm1_latex)
+        self.assertIn(r"F^{(k)} - F^{(k-1)} < \theta", algorithm1_latex)
+        self.assertIn(r"w_i^{(k)} = (v_i^{(k)})^2", algorithm1_latex)
+        self.assertIn(r"1 \le i \le d", algorithm1_latex)
+        self.assertIn(r"c_1,c_2", algorithm1_latex)
+        self.assertIn(r"r=1 \text{ to } g", algorithm2_latex)
+        self.assertIn(r"W_r = \operatorname{Algorithm 1}(S,Y,\lambda,\sigma,\theta)", algorithm2_latex)
+        self.assertIn(r"W = W + W_r", algorithm2_latex)
+        self.assertIn(r"W_r", algorithm2_latex)
+
+        algorithm_evidence = [
+            item for item in self.result.get("content_evidence", [])
+            if item.get("source_type") == "algorithm"
+        ]
+        algorithm1_evidence = next(item for item in algorithm_evidence if item.get("source_id") == algorithm1.get("algorithm_id"))
+        segment_latex = [
+            span.get("latex_text")
+            for segment in algorithm1_evidence.get("segments") or []
+            for span in segment.get("inline_formula_spans") or []
+        ]
+        self.assertIn(r"v_i^{(k+1)} < 10^{-5}", segment_latex)
+        self.assertIn(r"F^{(k)} - F^{(k-1)} < \theta", segment_latex)
+
+        markdown = _build_full_markdown([self.result])
+        algorithm1_index = markdown.index("Algorithm 1. Regularized Logistic Regression for binary-problems")
+        section35_index = markdown.index("3.5. Computational complexity")
+        algorithm_slice = markdown[algorithm1_index:section35_index]
+
+        self.assertIn(r"Set $v^{(0)} = w^{(0)} = [1,1,\ldots,1]$, k=0 and $\theta=0.01$.", algorithm_slice)
+        self.assertIn(r"2. Compute $F^{(0)} = F(v^{(0)})$ using Eq. (11);", algorithm_slice)
+        self.assertIn(r"1. Compute $c_1,c_2$ using Eq. (2);", algorithm_slice)
+        self.assertIn(r"5. Update $v^{(k+1)} = v^{(k)} + \alpha^{(k)}d^{(k)}$, where $\alpha^{(k)}$ is determined via", algorithm_slice)
+        self.assertIn(r"6. if $v_i^{(k+1)} < 10^{-5}$, then", algorithm_slice)
+        self.assertIn(r"$v_i^{(k+1)} = 0$;", algorithm_slice)
+        self.assertIn(r"10. Until $F^{(k)} - F^{(k-1)} < \theta$;", algorithm_slice)
+        self.assertIn(r"11. $w_i^{(k)} = (v_i^{(k)})^2$, $1 \le i \le d$.", algorithm_slice)
+        self.assertIn(r"1. For $r=1$ to $g$ do", algorithm_slice)
+        self.assertIn(r"3. Calculate feature weights $W_r$ by calling", algorithm_slice)
+        self.assertIn(r"$W_r = \operatorname{Algorithm 1}(S,Y,\lambda,\sigma,\theta)$", algorithm_slice)
+        self.assertIn(r"4. $W = W + W_r$", algorithm_slice)
+        self.assertNotIn("cate$g$ories", algorithm_slice)
+        self.assertNotIn("1. Compute c c", algorithm_slice)
+        self.assertNotIn("feature weights Wr by calling", algorithm_slice)
+        self.assertNotIn("v (( + )", algorithm_slice)
+        self.assertNotIn("10 − 5", algorithm_slice)
+        self.assertNotIn("W r = Algorithm 1 ( S , Y , , , λ σ θ ,)", algorithm_slice)
+
     def test_page5_content_units_are_anchored_to_local_section_headings(self) -> None:
         heading_42 = next(
             unit
@@ -959,6 +1675,36 @@ class ATstRegressionTests(unittest.TestCase):
         self.assertTrue(metadata_units)
         self.assertTrue(all(unit.get("unit_role") == "metadata" for unit in metadata_units))
         self.assertTrue(all(not bool(unit.get("fact_extraction_eligible", True)) for unit in metadata_units))
+
+    def test_markdown_merges_wrapped_two_column_body_lines_into_continuous_paragraphs(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        related_work_index = markdown.index("2. Related work")
+        section3_index = markdown.index("3. The proposed method")
+        related_work_slice = markdown[related_work_index:section3_index]
+
+        self.assertIn(
+            "This section gives a brief review of existing methods that are relevant to our work. "
+            "More details can be referred to (Yuan et al., 2012; Chandrashekar and Sahin, 2014).",
+            related_work_slice,
+        )
+        self.assertIn(
+            "For example, Laplacian Score (He et al., 2005), Trace Ratio (Nie et al., 2008) "
+            "and Similarity Preserving Feature Selection",
+            related_work_slice,
+        )
+        self.assertNotIn(
+            "Yuan et al.,\n\n2012; Chandrashekar",
+            related_work_slice,
+        )
+        self.assertNotIn(
+            "Trace\n\nRatio",
+            related_work_slice,
+        )
+        self.assertNotIn(
+            "Feature Selection\n\n(SPFS)",
+            related_work_slice,
+        )
 
     def test_table_captions_and_header_rows_are_owned_by_tables_not_body_text(self) -> None:
         self.assertEqual(self.metadata["table_count"], 4)
@@ -1012,6 +1758,41 @@ class ATstRegressionTests(unittest.TestCase):
                 if line.strip() in {"Dataset", "RLR", "RFS", "MSVM-RFE", "LLFS", "F-test", "KernelPLS", "mRMR"}
             }
             self.assertEqual(standalone_header_terms, set(), msg=f"page {page_number} leaked table headers")
+
+    def test_markdown_renders_table_titles_and_places_floats_in_reading_order(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        table_titles = [
+            str(table.get("title") or "").strip()
+            for table in sorted(
+                self.result.get("table_asts", []) or [],
+                key=lambda item: str(item.get("table_id") or ""),
+            )
+            if str(table.get("title") or "").strip()
+        ]
+        self.assertEqual(len(table_titles), 4)
+        for title in table_titles:
+            self.assertIn(f"**{title}**", markdown)
+
+        table1_title = next(title for title in table_titles if title.startswith("Table 1"))
+        table2_title = next(title for title in table_titles if title.startswith("Table 2"))
+        table3_title = next(title for title in table_titles if title.startswith("Table 3"))
+
+        table1_reference = markdown.index("information of these datasets.")
+        table1_title_index = markdown.index(f"**{table1_title}**")
+        table1_grid_index = markdown.index("| Dataset | #Instances | #Features | #Classes |")
+        table2_reference = markdown.index("The experiments use")
+        right_column_body_after_table1 = markdown.index("held out for training")
+        table2_title_index = markdown.index(f"**{table2_title}**")
+        table3_reference = markdown.index("The proposed RLR is computationally")
+        table3_title_index = markdown.index(f"**{table3_title}**")
+
+        self.assertGreater(table1_title_index, table1_reference)
+        self.assertLess(table1_title_index, table1_grid_index)
+        self.assertGreater(table1_title_index, table2_reference)
+        self.assertLess(table1_title_index, right_column_body_after_table1)
+        self.assertGreater(table2_title_index, table2_reference)
+        self.assertGreater(table3_title_index, table3_reference)
 
     def test_literature_section_headings_do_not_accept_dates_or_grant_numbers(self) -> None:
         heading_units = [
@@ -1151,10 +1932,87 @@ class ATstRegressionTests(unittest.TestCase):
         self.assertNotIn("In the table (þ)", markdown)
         self.assertNotIn("(¼) means", markdown)
 
+    def test_table_notes_are_owned_by_adjacent_tables_instead_of_body_text(self) -> None:
+        table2 = next(table for table in self.result["table_asts"] if table.get("page") == 6)
+        table3 = next(table for table in self.result["table_asts"] if table.get("page") == 8)
+        table4 = next(table for table in self.result["table_asts"] if table.get("page") == 9)
+
+        self.assertIn("The boldfaced values are the highest ones", table2.get("content_text", ""))
+        self.assertIn("The boldfaced values are the best ones.", table3.get("content_text", ""))
+        self.assertIn("In the table", table4.get("content_text", ""))
+
+        for table in (table2, table3, table4):
+            note_segments = [
+                segment for segment in table.get("content_segments", []) or []
+                if segment.get("role") == "note"
+            ]
+            self.assertTrue(note_segments, msg=table.get("table_id"))
+            for segment in note_segments:
+                self.assertEqual(segment.get("source_type"), "text_block")
+                self.assertEqual(segment.get("relation"), "below")
+                self.assertIn("source_block_id", segment)
+
+        body_note_units = [
+            unit for unit in self.result.get("content_units", [])
+            if unit.get("source_type") == "text"
+            and (
+                "The boldfaced values are the highest ones" in str(unit.get("text", ""))
+                or "The boldfaced values are the best ones." in str(unit.get("text", ""))
+                or "In the table" in str(unit.get("text", ""))
+            )
+        ]
+        self.assertEqual(body_note_units, [])
+
+    def test_markdown_attaches_table_notes_and_figure_captions_to_float_blocks(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        table2_grid = markdown.index("| Dataset | RLR | RFS | MSVM-RFE |")
+        table2_note = markdown.index("The boldfaced values are the highest ones")
+        self.assertGreater(table2_note, table2_grid)
+        self.assertLess(table2_note - table2_grid, 3600)
+
+        table3_grid = markdown.index("| Dataset | RLR | RFS | MSVM-RFE |", table2_grid + 1)
+        table3_note = markdown.index("The boldfaced values are the best ones.")
+        fig2_image = markdown.index("Fig. 2. Sensibility of the regularization parameter")
+        self.assertGreater(table3_note, table3_grid)
+        self.assertLess(table3_note, fig2_image)
+
+        table4_grid = markdown.index("| Dataset | RLR vs. RFS | RLR vs. MSVM-RFE |")
+        table4_note = markdown.index("In the table (+) implies")
+        next_reference = markdown.index("Bol", table4_note)
+        self.assertGreater(table4_note, table4_grid)
+        self.assertLess(table4_note - table4_grid, 2400)
+        self.assertLess(table4_note, next_reference)
+
+        for caption in (
+            "Fig. 1. Relationship between feature dimension",
+            "Fig. 2. Sensibility of the regularization parameter",
+            "Fig. 3. Sensibility of the kernel width",
+        ):
+            self.assertEqual(markdown.count(caption), 1)
+
+    def test_wide_tables_and_figures_stay_before_later_back_matter_sections(self) -> None:
+        markdown = _build_full_markdown([self.result])
+
+        table3_index = markdown.index("**Table 3 CPU time per run")
+        fig2_index = markdown.index("Fig. 2. Sensibility of the regularization parameter")
+        conclusion_index = markdown.index("5. Conclusion")
+        acknowledgments_index = markdown.index("Acknowledgments")
+        fig3_index = markdown.index("Fig. 3. Sensibility of the kernel width")
+        table4_index = markdown.index("**Table 4 Statistical")
+        references_index = markdown.index("References")
+
+        self.assertLess(table3_index, conclusion_index)
+        self.assertLess(fig2_index, conclusion_index)
+        self.assertLess(fig3_index, acknowledgments_index)
+        self.assertLess(table4_index, references_index)
+
     def test_markdown_normalizes_math_symbol_font_artifacts_outside_tables(self) -> None:
         markdown = _build_full_markdown([self.result])
-        self.assertIn("1. For r=1 to g do", markdown)
-        self.assertIn("k=0 and θ=0.01", markdown)
+        self.assertIn(r"1. For $r=1$ to $g$ do", markdown)
+        self.assertIn(r"k=0 and $\theta=0.01$", markdown)
+        self.assertNotIn("1. For r=1 to g do", markdown)
+        self.assertNotIn("k=0 and θ=0.01", markdown)
         self.assertNotIn("1. For r录1 to g do", markdown)
         self.assertNotIn("k录0 and θ=0.01", markdown)
         self.assertNotIn("(镁)", markdown)
@@ -1181,7 +2039,7 @@ class ATstRegressionTests(unittest.TestCase):
         self.assertGreater(float(image["width"]), 450.0)
         self.assertGreater(float(image["height"]), 300.0)
 
-    def test_page4_equations_11_and_13_absorb_symbol_only_fragments_and_keep_fuller_bboxes(self) -> None:
+    def test_page4_equations_11_and_13_absorb_symbol_only_fragments_without_prose_cue_rows(self) -> None:
         page4_equations = [
             equation for equation in self.result.get("equation_blocks", [])
             if equation.get("page") == 4
@@ -1204,10 +2062,11 @@ class ATstRegressionTests(unittest.TestCase):
         equation13_text = str(equation13.get("text", "")).strip()
         self.assertTrue(equation13_text.startswith("d") or equation13_text.startswith("( ) d"))
         self.assertIn("g", equation13_text)
-        self.assertLess(float(equation13["bbox"][1]), 682.0)
+        self.assertGreater(float(equation13["bbox"][1]), 700.0)
         self.assertLess(float(equation13["bbox"][2]), 300.0)
         self.assertLess(float(equation13["bbox"][3]), 730.0)
         self.assertNotIn("where", equation13_text.lower())
+        self.assertNotIn("defined by", equation13_text.lower())
         self.assertNotIn("gradient", equation13_text.lower())
         self.assertNotIn("Algorithm 2", equation13_text)
 
@@ -1219,6 +2078,10 @@ class ATstRegressionTests(unittest.TestCase):
         page4_symbol_fragments = {str(unit.get("text", "")).strip() for unit in page4_text_units}
         self.assertNotIn("⎝", page4_symbol_fragments)
         self.assertNotIn("⎝ j ⎠ ⎠", page4_symbol_fragments)
+        self.assertTrue(
+            any("de" in str(unit.get("text", "")).lower() and "ned by:" in str(unit.get("text", "")).lower() for unit in page4_text_units),
+            msg="The prose cue introducing equation (13) should remain body text, not formula content",
+        )
 
     def test_workbench_projection_keeps_a_tst_page5_non_toc_state(self) -> None:
         pdf_document = self.workbench["pdf_document"]

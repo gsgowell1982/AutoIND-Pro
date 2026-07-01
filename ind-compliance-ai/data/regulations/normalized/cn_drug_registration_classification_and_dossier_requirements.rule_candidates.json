@@ -1,0 +1,292 @@
+{
+  "schema_version": "regulation-library-v1",
+  "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+  "rule_candidate_count": 17,
+  "rule_candidates": [
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_001",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_001",
+      "article_no": 1,
+      "title": "1类",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_001",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_002",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_002",
+      "article_no": 2,
+      "title": "2类",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_002",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_003",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_003",
+      "article_no": 3,
+      "title": "3类",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "reference_sample_materials"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_003",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_004",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_004",
+      "article_no": 4,
+      "title": "4类",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "reference_sample_materials"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_004",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_005",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_005",
+      "article_no": 5,
+      "title": "5类",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_005",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_006",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_006",
+      "article_no": 6,
+      "title": "原研药品定义",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_006",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_007",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_007",
+      "article_no": 7,
+      "title": "参比制剂定义",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "reference_sample_materials"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_007",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_008",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_008",
+      "article_no": 8,
+      "title": "（一）",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_008",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_009",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_009",
+      "article_no": 9,
+      "title": "（二）",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_009",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_010",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_010",
+      "article_no": 10,
+      "title": "（三）",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "reference_sample_materials"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_010",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_011",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_011",
+      "article_no": 11,
+      "title": "（四）",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "reference_sample_materials"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_011",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_012",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_012",
+      "article_no": 12,
+      "title": "（五）",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials",
+        "reference_sample_materials"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_012",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_013",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_013",
+      "article_no": 13,
+      "title": "（六）",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_013",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_014",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_014",
+      "article_no": 14,
+      "title": "（七）",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "high",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_014",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_015",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_015",
+      "article_no": 15,
+      "title": "（一）",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials",
+        "api_supporting_materials"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_015",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_016",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_016",
+      "article_no": 16,
+      "title": "（二）",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_016",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    },
+    {
+      "rule_candidate_id": "cn_drug_registration_classification_and_dossier_requirements:rule_017",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_017",
+      "article_no": 17,
+      "title": "（三）",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_017",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc"
+    }
+  ]
+}

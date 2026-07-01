@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    BSfileC03 cv-sequence-type.xml 
+	序列类型的受控词汇文件
+
+	Version 1.0 - 2021年9月1日
+-->
+<controlled-vocabulary name="sequence-type">
+	<description xml:lang="zh">序列类型</description>
+	<description xml:lang="en">Sequence Type</description>
+	<version number="1.0" valid-from="2021-9-1">
+		<code name="cnsqt1">
+			<description xml:lang="zh">首次提交</description>
+			<description xml:lang="en">Original</description>
+		</code>
+		<code name="cnsqt2">
+			<description xml:lang="zh">回复</description>
+			<description xml:lang="en">Response</description>
+		</code>
+		<code name="cnsqt3">
+			<description xml:lang="zh">撤回</description>
+			<description xml:lang="en">Withdrawal</description>
+		</code>
+		<code name="cnsqt4">
+			<description xml:lang="zh">格式转换</description>
+			<description xml:lang="en">Reformat</description>
+		</code>
+	</version>
+</controlled-vocabulary>

@@ -1,0 +1,101 @@
+{
+  "schema_version": "regulation-library-v1",
+  "regulation": {
+    "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+    "title": "药品注册分类及申报资料要求",
+    "issuer": "国家药品监督管理局",
+    "jurisdiction": "CN",
+    "domain": "drug_registration",
+    "version_label": "unknown",
+    "source_filename": "药品注册分类及申报资料要求.doc",
+    "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+    "source_type": "word",
+    "parser_hint": "doc-via-windows-word",
+    "paragraph_count": 30,
+    "chapter_count": 3,
+    "article_count": 17,
+    "chapter_refs": [
+      "cn_drug_registration_classification_and_dossier_requirements:sec_01",
+      "cn_drug_registration_classification_and_dossier_requirements:sec_02",
+      "cn_drug_registration_classification_and_dossier_requirements:sec_03"
+    ],
+    "clause_refs": [
+      "cn_drug_registration_classification_and_dossier_requirements:art_001",
+      "cn_drug_registration_classification_and_dossier_requirements:art_002",
+      "cn_drug_registration_classification_and_dossier_requirements:art_003",
+      "cn_drug_registration_classification_and_dossier_requirements:art_004",
+      "cn_drug_registration_classification_and_dossier_requirements:art_005",
+      "cn_drug_registration_classification_and_dossier_requirements:art_006",
+      "cn_drug_registration_classification_and_dossier_requirements:art_007",
+      "cn_drug_registration_classification_and_dossier_requirements:art_008",
+      "cn_drug_registration_classification_and_dossier_requirements:art_009",
+      "cn_drug_registration_classification_and_dossier_requirements:art_010",
+      "cn_drug_registration_classification_and_dossier_requirements:art_011",
+      "cn_drug_registration_classification_and_dossier_requirements:art_012",
+      "cn_drug_registration_classification_and_dossier_requirements:art_013",
+      "cn_drug_registration_classification_and_dossier_requirements:art_014",
+      "cn_drug_registration_classification_and_dossier_requirements:art_015",
+      "cn_drug_registration_classification_and_dossier_requirements:art_016",
+      "cn_drug_registration_classification_and_dossier_requirements:art_017"
+    ],
+    "rule_candidate_refs": [
+      "cn_drug_registration_classification_and_dossier_requirements:rule_001",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_002",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_003",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_004",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_005",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_006",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_007",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_008",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_009",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_010",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_011",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_012",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_013",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_014",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_015",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_016",
+      "cn_drug_registration_classification_and_dossier_requirements:rule_017"
+    ],
+    "classification_summary": {
+      "material_checkability_counts": {
+        "direct": 3,
+        "partial": 7,
+        "external_only": 7
+      },
+      "recommended_rule_mode_counts": {
+        "hard": 0,
+        "soft": 5,
+        "review_only": 5,
+        "citation_only": 7
+      },
+      "automation_ready_clause_count": 3
+    }
+  },
+  "chapters": [
+    {
+      "chapter_id": "cn_drug_registration_classification_and_dossier_requirements:sec_01",
+      "chapter_no_raw": "一",
+      "chapter_no": 1,
+      "chapter_title": "化学药品注册分类",
+      "heading": "一、化学药品注册分类",
+      "line_index": 3
+    },
+    {
+      "chapter_id": "cn_drug_registration_classification_and_dossier_requirements:sec_02",
+      "chapter_no_raw": "二",
+      "chapter_no": 2,
+      "chapter_title": "相关注册管理要求",
+      "heading": "二、相关注册管理要求",
+      "line_index": 18
+    },
+    {
+      "chapter_id": "cn_drug_registration_classification_and_dossier_requirements:sec_03",
+      "chapter_no_raw": "三",
+      "chapter_no": 3,
+      "chapter_title": "申报资料要求",
+      "heading": "三、申报资料要求",
+      "line_index": 27
+    }
+  ]
+}

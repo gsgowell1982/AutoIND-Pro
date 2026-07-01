@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    BSfileC04 cv-product-type.xml 
+	产品类型的受控词汇文件
+
+	Version 1.0 - 2021年9月1日
+-->
+<controlled-vocabulary name="product-type">
+	<description xml:lang="zh">产品类型</description>
+	<description xml:lang="en">Product Type</description>
+	<version number="1.0" valid-from="2021-9-1">
+		<code name="cnprt1">
+			<description xml:lang="zh">化学药品</description>
+			<description xml:lang="en">Chemical Product</description>
+		</code>
+		<code name="cnprt2">
+			<description xml:lang="zh">生物制品</description>
+			<description xml:lang="en">Biological Product</description>
+		</code>
+	</version>
+</controlled-vocabulary>

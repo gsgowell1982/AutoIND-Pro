@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import unittest
 
-from api.main import _build_workbench
+from api.main import _build_full_markdown, _build_workbench
 from parsers.pdf_parser import parse_pdf
 
 
@@ -49,6 +50,16 @@ class TwoColumnLiteratureRegressionTests(unittest.TestCase):
             [{"id": "file_two_column_regression", "filename": cls.sample_path.name}],
             [],
             None,
+        )
+        cls.full_markdown = _build_full_markdown(
+            [
+                {
+                    **cls.result,
+                    "file_id": "file_two_column_regression",
+                    "filename": cls.sample_path.name,
+                    "source_path": str(cls.sample_path),
+                }
+            ]
         )
 
     def test_metadata_baseline(self) -> None:
@@ -235,6 +246,22 @@ class TwoColumnLiteratureRegressionTests(unittest.TestCase):
         self.assertTrue(all(unit.get("unit_role") == "equation" for unit in equation_units))
         self.assertTrue(all(not unit.get("fact_extraction_eligible") for unit in equation_units))
 
+    def test_page5_display_equations_have_validated_latex_projection(self) -> None:
+        equations = [equation for equation in self.result.get("equation_blocks", []) if equation.get("page") == 5]
+        by_number = {str(equation.get("formula_number")): equation for equation in equations}
+
+        formula1 = str(by_number["1"].get("latex_text") or "")
+        formula2 = str(by_number["2"].get("latex_text") or "")
+
+        self.assertIn(r"f_r(h,t)=r^T(h\star t)", formula1)
+        self.assertIn(r"\tag{1}", formula1)
+        self.assertGreaterEqual(float(by_number["1"].get("latex_confidence") or 0.0), 0.85)
+
+        self.assertIn(r"h\star t=\operatorname{ReLU}", formula2)
+        self.assertIn(r"W[h;t]^T+b", formula2)
+        self.assertIn(r"\tag{2}", formula2)
+        self.assertGreaterEqual(float(by_number["2"].get("latex_confidence") or 0.0), 0.85)
+
     def test_page5_inline_math_stays_in_text_blocks_instead_of_becoming_equation_blocks(self) -> None:
         page5_text = str(self.page5.get("text", ""))
         self.assertIn("sentence S = {w1, w2, ..., wL} and a set of relations", page5_text)
@@ -279,6 +306,121 @@ class TwoColumnLiteratureRegressionTests(unittest.TestCase):
         self.assertNotIn("v(wi, rk, wj)K", page6_text_blocks)
         self.assertNotIn("(3)", page6_text_blocks)
 
+    def test_page6_tensor_score_equation_latex_keeps_subscripts_superscripts_and_parentheses(self) -> None:
+        equation = next(equation for equation in self.result.get("equation_blocks", []) if equation.get("page") == 6)
+        latex = str(equation.get("latex_text") or "")
+
+        self.assertIn(r"\{v(w_i,r_k,w_j)\}_{k=1}^{K}", latex)
+        self.assertIn(r"R^T", latex)
+        self.assertIn(r"\operatorname{ReLU}", latex)
+        self.assertIn(r"\operatorname{drop}", latex)
+        self.assertIn(r"W[e_i;e_j]^T+b", latex)
+        self.assertIn(r"\tag{3}", latex)
+        self.assertNotIn("RTReLU drop", latex)
+        self.assertNotIn("“", latex)
+        self.assertGreaterEqual(float(equation.get("latex_confidence") or 0.0), 0.85)
+
+    def test_page6_where_clauses_project_matrix_dimension_membership_as_inline_latex(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertIn(r"$W \in R^{d_e \times 2d}$ and b are trainable weight and bias", markdown)
+        self.assertIn(r"$R \in R^{d_e \times 4k}$ is a trainable weight", markdown)
+        self.assertNotIn("W ∈Rde×2d and b are trainable", markdown)
+        self.assertNotIn("R ∈Rde×4k is a trainable", markdown)
+
+    def test_page6_where_clause_projects_indexed_tuple_range_and_drops_quote_residue(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertIn(r"score of $\{(w_i,r_k,w_j)\}_{k=1}^{K}$ for the token pair", markdown)
+        self.assertIn(r"drop(·) is a dropout strategy used to prevent over-fitting", markdown)
+        self.assertNotIn("score of (wi, rk, wj)K", markdown)
+        self.assertNotIn("k=1 for the token pair", markdown)
+        self.assertNotIn("\n“\n", markdown)
+
+    def test_page5_same_block_indexed_set_formula_projects_range_tail(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertIn(r"triples $T=\{(h_i,r_i,t_i)\}_{i=1}^{n}$, where L denotes", markdown)
+        self.assertNotIn(r"$T=\{(h_i,r_i,t_i)\}$$n_i$=1", markdown)
+        self.assertNotIn(r"$T=\{(h_i,r_i,t_i)\}$n i=1", markdown)
+
+    def test_page6_tensor_dimension_chain_projects_as_inline_latex(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertIn(r"third-order tensor $M^{L \times K \times L}$.", markdown)
+        self.assertNotIn("third-order tensor ML×K×L.", markdown)
+        self.assertNotIn("third-order tensor MLKL.", markdown)
+
+    def test_page6_body_paragraph_drops_intra_line_duplicate_ocr_residue(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertNotIn(
+            "resulting in the subject entity WI where etag 2 islocated, resulting in the subject entity",
+            markdown,
+        )
+        self.assertNotIn("object is joined from the column where tag 1 is 3, the object is joined", markdown)
+        self.assertNotIn("located to the column where tag 3 is located, resulting in located to the column", markdown)
+
+    def test_page6_figure2_caption_does_not_absorb_preceding_body_sentence(self) -> None:
+        fig2_image = next(
+            image
+            for image in self.result.get("image_blocks", [])
+            if "Fig. 2 Single-module global pointer decoding" in str(image.get("content_text", ""))
+        )
+        caption_text = " ".join(
+            str(segment.get("text") or "")
+            for segment in fig2_image.get("caption_blocks", []) or []
+            if isinstance(segment, dict)
+        )
+
+        self.assertIn("Fig. 2 Single-module global pointer decoding", caption_text)
+        self.assertNotIn("As shown in Fig. 2", caption_text)
+        self.assertNotIn("As shown in Fig. 2, given a sentence, we use a sin- Fig. 2", self.full_markdown)
+        self.assertIn(
+            "Fig. 2 Single-module global pointer decoding: a the normal case, b the special case",
+            self.full_markdown,
+        )
+
+    def test_page9_figure4_caption_does_not_absorb_following_body_reference(self) -> None:
+        fig4_caption = "Fig. 4 F1-score (%) of extracting triples from sentences with different number"
+        fig4_image = next(
+            image
+            for image in self.result.get("image_blocks", [])
+            if fig4_caption in str(image.get("content_text", ""))
+        )
+        caption_text = " ".join(
+            str(segment.get("text") or "")
+            for segment in fig4_image.get("caption_blocks", []) or []
+            if isinstance(segment, dict)
+        )
+
+        self.assertIn(fig4_caption, caption_text)
+        self.assertNotIn("Figure 5 shows the F1 of the top three relations among", caption_text)
+        self.assertNotIn("Figure 5 shows the F1 of the top three relations among", str(fig4_image.get("caption_text", "")))
+        self.assertNotIn("Figure 5 shows the F1 of the top three relations among", str(fig4_image.get("title", "")))
+        self.assertNotIn(
+            "Figure 5 shows the F1 of the top three relations among Fig. 4 F1-score",
+            self.full_markdown,
+        )
+        self.assertIn(
+            "Fig. 4 F1-score (%) of extracting triples from sentences with different number (denotes as N) of triples",
+            self.full_markdown,
+        )
+
+    def test_page9_chart_axes_are_not_promoted_to_embedded_ocr_table(self) -> None:
+        page9_embedded_tables = [
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 9
+            and str(table.get("detection_source") or table.get("detection_method") or "") == "embedded_image_ocr"
+        ]
+
+        self.assertEqual(
+            page9_embedded_tables,
+            [],
+            msg="figure chart axes and data labels must remain figure evidence, not embedded OCR table ASTs",
+        )
+
     def test_page6_multilingual_quote_rows_recover_missing_chinese(self) -> None:
         text = str(self.page6.get("text", ""))
         self.assertIn("咽喉炎,发病部位咽喉", text)
@@ -291,6 +433,11 @@ class TwoColumnLiteratureRegressionTests(unittest.TestCase):
         ]
         self.assertTrue(any("咽喉炎,发病部位咽喉" in str(block.get("text", "")) for block in page6_ocr_blocks))
         self.assertTrue(any("胃疼 stomachache" in str(block.get("text", "")) for block in page6_ocr_blocks))
+        self.assertTrue(any("咽喉炎 throat infections" in str(block.get("text", "")) for block in page6_ocr_blocks))
+        self.assertFalse(any("因喉炎 throat infections" in str(block.get("text", "")) for block in page6_ocr_blocks))
+        self.assertFalse(any("因候炎 throat infections" in str(block.get("text", "")) for block in page6_ocr_blocks))
+        self.assertNotIn("因喉炎 throat infections", self.full_markdown)
+        self.assertNotIn("因候炎 throat infections", self.full_markdown)
 
     def test_page5_page6_body_ocr_repairs_do_not_straddle_the_column_gutter(self) -> None:
         for page_number in (5, 6):
@@ -441,6 +588,29 @@ class TwoColumnLiteratureRegressionTests(unittest.TestCase):
         )
         self.assertEqual((table8.get("raw_row_texts") or [None, None, None, None])[3], "Model | null | null | null")
 
+    def test_full_markdown_does_not_repeat_table6_table7_table8_titles(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertEqual(markdown.count("Table 6 Precision"), 1)
+        self.assertEqual(markdown.count("Table 7 Precision"), 1)
+        self.assertEqual(markdown.count("Table 8 Precision"), 1)
+        self.assertNotIn("**Table 6 Precision (%), Recall (%) and F1-score (%) of RSGP and**", markdown)
+        self.assertNotIn("**Table 7 Precision (%), Recall (%) and F1-score (%) of RSGP and**", markdown)
+        self.assertNotIn("**Table 8 Precision (%), Recall (%) and F1-score (%) of different**", markdown)
+
+    def test_full_markdown_projects_display_and_inline_math_as_latex(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertIn(r"f_r(h,t)=r^T(h\star t) \tag{1}", markdown)
+        self.assertIn(r"h\star t=\operatorname{ReLU}(W[h;t]^T+b) \tag{2}", markdown)
+        self.assertIn(r"\{v(w_i,r_k,w_j)\}_{k=1}^{K}", markdown)
+        self.assertIn(r"W \in R^{d_e \times 2d}", markdown)
+        self.assertIn(r"R \in R^{d_e \times 4k}", markdown)
+        self.assertIn(r"S=\{w_1,w_2,\ldots,w_L\}", markdown)
+        self.assertIn(r"R=\{r_1,r_2,\ldots,r_K\}", markdown)
+        self.assertIn(r"T=\{(h_i,r_i,t_i)\}", markdown)
+        self.assertNotIn("RTReLU drop", markdown)
+
     def test_workbench_projection_keeps_table_compaction_and_equation_blocks(self) -> None:
         pdf_document = self.workbench["pdf_document"]
         self.assertIsNotNone(pdf_document)
@@ -528,6 +698,76 @@ class TwoColumnLiteratureRegressionTests(unittest.TestCase):
         ]
         self.assertTrue(page12_non_reference_units)
         self.assertTrue(all(unit.get("semantic_role") != "reference_entry" for unit in page12_non_reference_units))
+
+    def test_full_markdown_renders_references_as_separate_numbered_entries(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertIn("References", markdown)
+        self.assertRegex(markdown, r"1\. Grishman R\. Information extraction IEEE Intell Syst\. 2015;30:8[–-]15\.")
+        self.assertIn("2. Li D, Zhang Y, Li D, Lin D. Review of entity relation extraction methods.", markdown)
+        self.assertIn("3. Zhou B, Cai X, Zhang Y, Yuan X. MTAAL: multi-task adversarial active", markdown)
+        self.assertNotRegex(markdown, r"2015;30:8[–-]15\. 2\. Li")
+        self.assertNotRegex(markdown, r"2020;57:1424[–-]48\. 3\. Zhou")
+
+    def test_full_markdown_does_not_promote_reference_page_ranges_to_numbered_entries(self) -> None:
+        markdown = self.full_markdown
+        references_section = markdown.split("\nReferences\n", 1)[1].split("\nPublisher", 1)[0]
+        numbered_entries = re.findall(r"(?m)^(\d{1,4})\.\s+\S", references_section)
+
+        self.assertEqual(numbered_entries, [str(number) for number in range(1, 33)])
+        self.assertIn("2020. pp. 1476", references_section)
+        self.assertIn("2019. pp. 4171", references_section)
+        self.assertNotRegex(references_section, r"(?m)^2020\.\s+pp\.\s+1476")
+        self.assertNotRegex(references_section, r"(?m)^2019\.\s+pp\.\s+4171")
+
+    def test_full_markdown_drops_adjacent_duplicate_publication_history_residue(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertEqual(markdown.count("Received: 25 November 2022"), 1)
+        self.assertIn("Received: 25 November 2022 Accepted: 13 June 2024", markdown)
+        self.assertNotIn(
+            "Received: 25 November 2022 Accepted: 13 June 2024 Received: 25 November 2022 Accepted: 13",
+            markdown,
+        )
+
+    def test_document_ast_reference_entries_keep_continuity_metadata(self) -> None:
+        reference_blocks = [
+            block
+            for page in self.result.get("document_ast", {}).get("pages", [])
+            for block in page.get("blocks", [])
+            if block.get("semantic_role") == "reference_entry"
+        ]
+
+        self.assertTrue(reference_blocks)
+        entry2_blocks = [block for block in reference_blocks if str(block.get("reference_number") or "") == "2"]
+        entry3_blocks = [block for block in reference_blocks if str(block.get("reference_number") or "") == "3"]
+
+        self.assertGreaterEqual(len(entry2_blocks), 1)
+        self.assertGreaterEqual(len(entry3_blocks), 1)
+        self.assertTrue(all(int(block.get("reference_entry_index") or 0) == 2 for block in entry2_blocks))
+        self.assertTrue(all(int(block.get("reference_entry_index") or 0) == 3 for block in entry3_blocks))
+        self.assertTrue(entry2_blocks[0].get("reference_entry_start"))
+        self.assertFalse(entry2_blocks[0].get("reference_continuation"))
+
+
+    def test_full_markdown_keeps_reference_continuations_inside_same_numbered_entry(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertRegex(
+            markdown,
+            r"2\. Li D, Zhang Y, Li D, Lin D\. Review of entity relation extraction methods\. J Comput Res Dev\. 2020;57:1424[–-]48\.",
+        )
+        self.assertIn("MTAAL: multi-task adversarial active learning for medical named entity recognition", markdown)
+        self.assertNotIn("methods. J\n\nComput Res Dev.", markdown)
+        self.assertNotIn("active learn-\n\ning for medical", markdown)
+
+    def test_literature_section_headings_render_as_standalone_markdown_blocks(self) -> None:
+        markdown = self.full_markdown
+
+        self.assertIn("\nIntroduction\n\nInformation extraction is a natural language processing", markdown)
+        self.assertIn("\nRelated work\n\nTraditional pipeline methods\n\nIn the traditional pipeline methods", markdown)
+        self.assertNotIn("Introduction Information extraction is a natural language processing", markdown)
+        self.assertNotIn("Related work Traditional pipeline methods In the traditional pipeline methods", markdown)
 
 
 if __name__ == "__main__":

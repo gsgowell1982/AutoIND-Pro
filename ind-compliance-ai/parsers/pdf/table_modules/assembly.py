@@ -412,6 +412,12 @@ def _determine_header(
             opening.header_row_index or 0,
             col_count,
         )
+        header_cells, data_start_row = _merge_dense_header_continuation_row(
+            header_cells,
+            normalized.grid,
+            data_start_row,
+            col_count,
+        )
         header = TableHeader(
             cells=header_cells,
             row_index=opening.header_row_index or 0,
@@ -695,6 +701,97 @@ def _merge_sparse_header_continuation_row(
     return merged_header_cells, data_start_row + 1
 
 
+def _merge_dense_header_continuation_row(
+    header_cells: list[dict[str, Any]],
+    grid: list[list[str | None]],
+    data_start_row: int,
+    col_count: int,
+) -> tuple[list[dict[str, Any]], int]:
+    """Merge compact two-tier headers such as group label + metric/unit row."""
+    if not header_cells or data_start_row >= len(grid) or col_count <= 1:
+        return list(header_cells), data_start_row
+
+    header_row_index = data_start_row - 1
+    header_row = grid[header_row_index] if 0 <= header_row_index < len(grid) else []
+    continuation_row = grid[data_start_row]
+    next_row = grid[data_start_row + 1] if data_start_row + 1 < len(grid) else None
+    if not _is_dense_header_continuation_row_candidate(
+        header_row,
+        continuation_row,
+        next_row,
+        col_count,
+    ):
+        return list(header_cells), data_start_row
+
+    merged_header_cells = [dict(cell) for cell in header_cells]
+    for col_idx in range(min(col_count, len(merged_header_cells))):
+        continuation_text = _clean_text(continuation_row[col_idx] if col_idx < len(continuation_row) else None) or ""
+        if not continuation_text:
+            continue
+        base_text = _clean_text(merged_header_cells[col_idx].get("text", "")) or ""
+        if not base_text:
+            merged_header_cells[col_idx]["text"] = continuation_text
+            continue
+        if base_text == continuation_text:
+            continue
+        merged_header_cells[col_idx]["text"] = _join_header_text(base_text, continuation_text)
+
+    return merged_header_cells, data_start_row + 1
+
+
+def _is_dense_header_continuation_row_candidate(
+    header_row: list[str | None],
+    continuation_row: list[str | None],
+    next_row: list[str | None] | None,
+    col_count: int,
+) -> bool:
+    header_summary = _summarize_row(header_row)
+    continuation_summary = _summarize_row(continuation_row)
+    if not _is_column_header_row_candidate(header_summary, next_row=None, col_count=col_count):
+        return False
+    continuation_non_empty = int(continuation_summary.get("non_empty_count", 0) or 0)
+    if continuation_non_empty < max(2, min(col_count, 3)):
+        return False
+    if continuation_non_empty < int(header_summary.get("non_empty_count", 0) or 0) - 1:
+        return False
+    if int(continuation_summary.get("path_like_count", 0) or 0) > 0:
+        return False
+    if int(continuation_summary.get("numeric_like_count", 0) or 0) > 0:
+        return False
+    if int(continuation_summary.get("textual_count", 0) or 0) < max(1, continuation_non_empty - 1):
+        return False
+    if int(continuation_summary.get("max_len", 0) or 0) > 28:
+        return False
+    if not _looks_like_data_row_after_header(next_row, col_count):
+        return False
+
+    continuation_columns = {col_idx for col_idx, _ in continuation_summary.get("non_empty", [])}
+    if not continuation_columns:
+        return False
+    for col_idx, text in continuation_summary.get("non_empty", []):
+        if not _looks_like_header_metric_or_unit_text(text):
+            return False
+        header_text = _clean_text(header_row[col_idx] if col_idx < len(header_row) else None) or ""
+        if not header_text and col_idx != 0:
+            return False
+    return True
+
+
+def _looks_like_header_metric_or_unit_text(text: str | None) -> bool:
+    cleaned = _clean_text(text) or ""
+    if not cleaned:
+        return False
+    if len(cleaned) > 28:
+        return False
+    if re.search(r"\([^)]{1,12}\)", cleaned):
+        return True
+    if re.search(r"\d", cleaned) and re.search(r"[A-Za-z\u4e00-\u9fff]", cleaned):
+        return True
+    if re.fullmatch(r"[A-Za-z]{1,8}(?:[/\-][A-Za-z]{1,8})?", cleaned):
+        return True
+    return bool(re.fullmatch(r"[\u4e00-\u9fffA-Za-z]{1,12}", cleaned))
+
+
 def _is_sparse_header_continuation_row_candidate(
     header_row: list[str | None],
     continuation_row: list[str | None],
@@ -727,10 +824,23 @@ def _is_sparse_header_continuation_row_candidate(
         header_text = _clean_text(header_row[col_idx] if col_idx < len(header_row) else None) or ""
         if len(header_text) < 8 and " " not in header_text and "-" not in header_text:
             return False
+        if _looks_like_body_identifier_value(text):
+            return False
         if not _looks_like_header_continuation_text(text):
             return False
 
     return _looks_like_data_row_after_header(next_row, col_count)
+
+
+def _looks_like_body_identifier_value(text: str | None) -> bool:
+    cleaned = _clean_text(text) or ""
+    if not cleaned:
+        return False
+    if re.search(r"\d", cleaned) and re.search(r"[A-Za-z]", cleaned):
+        return True
+    if re.fullmatch(r"[A-Z]{2,}(?:[-_/][A-Z0-9]+)+", cleaned):
+        return True
+    return False
 
 
 def _looks_like_header_continuation_text(text: str | None) -> bool:
@@ -776,7 +886,28 @@ def _join_header_text(left: str, right: str) -> str:
         return left_clean
     if left_clean.endswith(right_clean):
         return left_clean
+    left_clean, right_clean = _repair_trailing_leading_word_order(left_clean, right_clean)
     return f"{left_clean} {right_clean}".strip()
+
+
+def _repair_trailing_leading_word_order(left: str, right: str) -> tuple[str, str]:
+    left_parts = left.split()
+    right_parts = right.split()
+    if not left_parts or not right_parts:
+        return left, right
+    right_trailing = right_parts[-1]
+    if (
+        re.fullmatch(r"[A-Z][a-z]{3,}", right_trailing)
+        and re.search(r"[\u4e00-\u9fff]", left)
+        and re.search(r"[.!?。！？]$", left)
+    ):
+        return left, " ".join([right_trailing, *right_parts[:-1]]).strip()
+    trailing = left_parts[-1]
+    if not re.fullmatch(r"[A-Z][a-z]{3,}", trailing):
+        return left, right
+    if any(re.search(r"[\u4e00-\u9fff]", part) for part in left_parts[:-1]) and re.search(r"[.!?。！？]$", right):
+        return " ".join(left_parts[:-1]).strip(), " ".join([trailing, *right_parts]).strip()
+    return left, right
 
 
 def _header_rows_are_compatible(

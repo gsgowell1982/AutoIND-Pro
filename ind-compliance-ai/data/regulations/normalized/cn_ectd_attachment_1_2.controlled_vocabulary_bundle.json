@@ -1,0 +1,709 @@
+{
+  "schema_version": "ectd-controlled-vocabulary-bundle-v1",
+  "bundle_id": "cn_ectd_attachment_1_2",
+  "source_directory": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包",
+  "missing_source_files": [],
+  "controlled_vocabulary_count": 4,
+  "controlled_vocabularies": [
+    {
+      "filename": "cv-application-type.xml",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cv-application-type.xml",
+      "controlled_vocabulary_name": "cv-application-type",
+      "controlled_vocabulary_key": "application-type",
+      "version": "1.0",
+      "valid_from": "2021-9-1",
+      "valid_to": "",
+      "code_count": 3,
+      "values": [
+        "cnapt1",
+        "cnapt2",
+        "cnapt3"
+      ],
+      "entries": [
+        {
+          "code": "cnapt1",
+          "descriptions": {
+            "zh": "临床试验申请",
+            "en": "Investigational New Drug"
+          }
+        },
+        {
+          "code": "cnapt2",
+          "descriptions": {
+            "zh": "新药申请",
+            "en": "New Drug Application"
+          }
+        },
+        {
+          "code": "cnapt3",
+          "descriptions": {
+            "zh": "仿制药申请",
+            "en": "Abbreviated New Drug Application"
+          }
+        }
+      ],
+      "versions": [
+        {
+          "number": "1.0",
+          "valid_from": "2021-9-1",
+          "valid_to": "",
+          "code_count": 3,
+          "entries": [
+            {
+              "code": "cnapt1",
+              "descriptions": {
+                "zh": "临床试验申请",
+                "en": "Investigational New Drug"
+              }
+            },
+            {
+              "code": "cnapt2",
+              "descriptions": {
+                "zh": "新药申请",
+                "en": "New Drug Application"
+              }
+            },
+            {
+              "code": "cnapt3",
+              "descriptions": {
+                "zh": "仿制药申请",
+                "en": "Abbreviated New Drug Application"
+              }
+            }
+          ]
+        }
+      ],
+      "schema_primary_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cn-cv.xsd",
+      "schema_dependency_files": [
+        "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cn-cv.xsd"
+      ],
+      "schema_missing_dependencies": [
+        "xml.xsd"
+      ],
+      "schema_dependency_status": "missing_dependencies"
+    },
+    {
+      "filename": "cv-product-type.xml",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cv-product-type.xml",
+      "controlled_vocabulary_name": "cv-product-type",
+      "controlled_vocabulary_key": "product-type",
+      "version": "1.0",
+      "valid_from": "2021-9-1",
+      "valid_to": "",
+      "code_count": 2,
+      "values": [
+        "cnprt1",
+        "cnprt2"
+      ],
+      "entries": [
+        {
+          "code": "cnprt1",
+          "descriptions": {
+            "zh": "化学药品",
+            "en": "Chemical Product"
+          }
+        },
+        {
+          "code": "cnprt2",
+          "descriptions": {
+            "zh": "生物制品",
+            "en": "Biological Product"
+          }
+        }
+      ],
+      "versions": [
+        {
+          "number": "1.0",
+          "valid_from": "2021-9-1",
+          "valid_to": "",
+          "code_count": 2,
+          "entries": [
+            {
+              "code": "cnprt1",
+              "descriptions": {
+                "zh": "化学药品",
+                "en": "Chemical Product"
+              }
+            },
+            {
+              "code": "cnprt2",
+              "descriptions": {
+                "zh": "生物制品",
+                "en": "Biological Product"
+              }
+            }
+          ]
+        }
+      ],
+      "schema_primary_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cn-cv.xsd",
+      "schema_dependency_files": [
+        "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cn-cv.xsd"
+      ],
+      "schema_missing_dependencies": [
+        "xml.xsd"
+      ],
+      "schema_dependency_status": "missing_dependencies"
+    },
+    {
+      "filename": "cv-regulatory-activity-type.xml",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cv-regulatory-activity-type.xml",
+      "controlled_vocabulary_name": "cv-regulatory-activity-type",
+      "controlled_vocabulary_key": "regulatory-activity-type",
+      "version": "1.0",
+      "valid_from": "2021-9-1",
+      "valid_to": "",
+      "code_count": 9,
+      "values": [
+        "cnrat1",
+        "cnrat2",
+        "cnrat3",
+        "cnrat4",
+        "cnrat5",
+        "cnrat6",
+        "cnrat7",
+        "cnrat8",
+        "cnrat9"
+      ],
+      "entries": [
+        {
+          "code": "cnrat1",
+          "descriptions": {
+            "zh": "首次申请",
+            "en": "Original Application"
+          }
+        },
+        {
+          "code": "cnrat2",
+          "descriptions": {
+            "zh": "补充申请",
+            "en": "Supplement"
+          }
+        },
+        {
+          "code": "cnrat3",
+          "descriptions": {
+            "zh": "备案",
+            "en": "Record"
+          }
+        },
+        {
+          "code": "cnrat4",
+          "descriptions": {
+            "zh": "报告",
+            "en": "Report"
+          }
+        },
+        {
+          "code": "cnrat5",
+          "descriptions": {
+            "zh": "新适应症和联合用药",
+            "en": "New Indication and Drug Combination"
+          }
+        },
+        {
+          "code": "cnrat6",
+          "descriptions": {
+            "zh": "新适应症",
+            "en": "New Indication"
+          }
+        },
+        {
+          "code": "cnrat7",
+          "descriptions": {
+            "zh": "研发期间安全性报告",
+            "en": "Development Safety Report"
+          }
+        },
+        {
+          "code": "cnrat8",
+          "descriptions": {
+            "zh": "再注册",
+            "en": "Renewal"
+          }
+        },
+        {
+          "code": "cnrat9",
+          "descriptions": {
+            "zh": "基线",
+            "en": "Baseline"
+          }
+        }
+      ],
+      "versions": [
+        {
+          "number": "1.0",
+          "valid_from": "2021-9-1",
+          "valid_to": "",
+          "code_count": 9,
+          "entries": [
+            {
+              "code": "cnrat1",
+              "descriptions": {
+                "zh": "首次申请",
+                "en": "Original Application"
+              }
+            },
+            {
+              "code": "cnrat2",
+              "descriptions": {
+                "zh": "补充申请",
+                "en": "Supplement"
+              }
+            },
+            {
+              "code": "cnrat3",
+              "descriptions": {
+                "zh": "备案",
+                "en": "Record"
+              }
+            },
+            {
+              "code": "cnrat4",
+              "descriptions": {
+                "zh": "报告",
+                "en": "Report"
+              }
+            },
+            {
+              "code": "cnrat5",
+              "descriptions": {
+                "zh": "新适应症和联合用药",
+                "en": "New Indication and Drug Combination"
+              }
+            },
+            {
+              "code": "cnrat6",
+              "descriptions": {
+                "zh": "新适应症",
+                "en": "New Indication"
+              }
+            },
+            {
+              "code": "cnrat7",
+              "descriptions": {
+                "zh": "研发期间安全性报告",
+                "en": "Development Safety Report"
+              }
+            },
+            {
+              "code": "cnrat8",
+              "descriptions": {
+                "zh": "再注册",
+                "en": "Renewal"
+              }
+            },
+            {
+              "code": "cnrat9",
+              "descriptions": {
+                "zh": "基线",
+                "en": "Baseline"
+              }
+            }
+          ]
+        }
+      ],
+      "schema_primary_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cn-cv.xsd",
+      "schema_dependency_files": [
+        "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cn-cv.xsd"
+      ],
+      "schema_missing_dependencies": [
+        "xml.xsd"
+      ],
+      "schema_dependency_status": "missing_dependencies"
+    },
+    {
+      "filename": "cv-sequence-type.xml",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cv-sequence-type.xml",
+      "controlled_vocabulary_name": "cv-sequence-type",
+      "controlled_vocabulary_key": "sequence-type",
+      "version": "1.0",
+      "valid_from": "2021-9-1",
+      "valid_to": "",
+      "code_count": 4,
+      "values": [
+        "cnsqt1",
+        "cnsqt2",
+        "cnsqt3",
+        "cnsqt4"
+      ],
+      "entries": [
+        {
+          "code": "cnsqt1",
+          "descriptions": {
+            "zh": "首次提交",
+            "en": "Original"
+          }
+        },
+        {
+          "code": "cnsqt2",
+          "descriptions": {
+            "zh": "回复",
+            "en": "Response"
+          }
+        },
+        {
+          "code": "cnsqt3",
+          "descriptions": {
+            "zh": "撤回",
+            "en": "Withdrawal"
+          }
+        },
+        {
+          "code": "cnsqt4",
+          "descriptions": {
+            "zh": "格式转换",
+            "en": "Reformat"
+          }
+        }
+      ],
+      "versions": [
+        {
+          "number": "1.0",
+          "valid_from": "2021-9-1",
+          "valid_to": "",
+          "code_count": 4,
+          "entries": [
+            {
+              "code": "cnsqt1",
+              "descriptions": {
+                "zh": "首次提交",
+                "en": "Original"
+              }
+            },
+            {
+              "code": "cnsqt2",
+              "descriptions": {
+                "zh": "回复",
+                "en": "Response"
+              }
+            },
+            {
+              "code": "cnsqt3",
+              "descriptions": {
+                "zh": "撤回",
+                "en": "Withdrawal"
+              }
+            },
+            {
+              "code": "cnsqt4",
+              "descriptions": {
+                "zh": "格式转换",
+                "en": "Reformat"
+              }
+            }
+          ]
+        }
+      ],
+      "schema_primary_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cn-cv.xsd",
+      "schema_dependency_files": [
+        "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cn-cv.xsd"
+      ],
+      "schema_missing_dependencies": [
+        "xml.xsd"
+      ],
+      "schema_dependency_status": "missing_dependencies"
+    }
+  ],
+  "dependency_matrix": {
+    "filename": "depend-apt-rat-sqt.xml",
+    "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\depend-apt-rat-sqt.xml",
+    "matrix_name": "depend-apt-rat-sqt",
+    "version": "1.0",
+    "valid_from": "2021-9-1",
+    "valid_to": "",
+    "row_count": 54,
+    "rows": [
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat1",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat1",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat1",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat2",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat2",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat2",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat5",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat5",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat5",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat7",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat7",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt1",
+        "regulatory_activity_type": "cnrat7",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat1",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat1",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat1",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat2",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat2",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat2",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat3",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat3",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat3",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat4",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat4",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat4",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat6",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat6",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat6",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat8",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat8",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat8",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat9",
+        "sequence_type": "cnsqt4"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat9",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt2",
+        "regulatory_activity_type": "cnrat9",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat1",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat1",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat1",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat2",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat2",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat2",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat3",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat3",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat3",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat4",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat4",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat4",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat6",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat6",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat6",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat8",
+        "sequence_type": "cnsqt1"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat8",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat8",
+        "sequence_type": "cnsqt3"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat9",
+        "sequence_type": "cnsqt4"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat9",
+        "sequence_type": "cnsqt2"
+      },
+      {
+        "application_type": "cnapt3",
+        "regulatory_activity_type": "cnrat9",
+        "sequence_type": "cnsqt3"
+      }
+    ],
+    "versions": [
+      {
+        "number": "1.0",
+        "valid_from": "2021-9-1",
+        "valid_to": "",
+        "row_count": 54
+      }
+    ],
+    "schema_primary_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cn-dependency.xsd",
+    "schema_dependency_files": [
+      "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-2：受控词汇文件包\\cn-dependency.xsd"
+    ],
+    "schema_missing_dependencies": [],
+    "schema_dependency_status": "ready"
+  },
+  "schema_status_summary": {
+    "status": "partial_dependency_closure",
+    "missing_dependencies": [
+      "xml.xsd"
+    ],
+    "missing_source_files": []
+  }
+}

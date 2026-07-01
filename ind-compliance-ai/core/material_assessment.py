@@ -12,6 +12,11 @@ from core.material_review_contract import (
     MATERIAL_REVIEW_CONTRACT_VERSION,
     build_material_review_contract,
 )
+from core.outline_markers import (
+    normalize_outline_marker,
+    outline_titles_compatible,
+    parse_outline_heading,
+)
 from core.rule_engine import Rule, RuleEngine, RuleResult
 from llm.llm_client import LLMClient, LLMClientError, LLMConfig
 from parsers.parser_registry import parse_file
@@ -82,14 +87,6 @@ _ECTD_VALIDATION_STANDARD_REGIONAL_SCHEMA_VALIDITY_CITATION = (
     "cn_ectd_validation_standard#sec_4_1_3"
 )
 
-_OUTLINED_BODY_HEADING_RE = re.compile(
-    r"^\s*(?P<outline>APPENDIX\s+[A-Z]+|\d+(?:\.\d+)*|[IVXLCDM]+|[A-Z])(?:[.):])?\s+(?P<title>\S.*)$",
-    re.IGNORECASE,
-)
-_APPENDIX_BODY_HEADING_RE = re.compile(
-    r"^\s*(?P<outline>APPENDIX\s+[A-Z]+)(?:[.):])?\s*(?P<title>.*)$",
-    re.IGNORECASE,
-)
 _ECTD_VALIDATION_STANDARD_REGIONAL_SCHEMA_VERSION_ORDER_REQUIREMENT_ID = (
     "cn_ectd_validation_standard:req_current_sequence_schema_version_not_lower_than_prior_sequence"
 )
@@ -3932,12 +3929,12 @@ def _resolve_toc_confirmed_body_heading(
     text = str(paragraph.get("text") or "").strip()
     if not text:
         return None
-    match = _OUTLINED_BODY_HEADING_RE.match(text) or _APPENDIX_BODY_HEADING_RE.match(text)
-    if not match:
+    marker = parse_outline_heading(text)
+    if marker is None:
         return None
-    outline_index = str(match.group("outline") or "").strip()
-    title = str(match.group("title") or "").strip()
-    normalized_outline_index = _normalize_outline_comparison_key(outline_index)
+    outline_index = marker.raw_marker
+    title = marker.title
+    normalized_outline_index = normalize_outline_marker(outline_index)
     if not normalized_outline_index or (not title and not _is_appendix_outline_index(outline_index)):
         return None
     details = dict(toc_entry_details_lookup.get(normalized_outline_index, {}) or {})
@@ -4033,9 +4030,9 @@ def _resolve_body_heading_title(paragraph: dict[str, Any]) -> str:
     if section_title:
         return section_title
     text = str(paragraph.get("text") or "").strip()
-    match = _OUTLINED_BODY_HEADING_RE.match(text) or _APPENDIX_BODY_HEADING_RE.match(text)
-    if match:
-        return str(match.group("title") or "").strip()
+    marker = parse_outline_heading(text)
+    if marker is not None:
+        return marker.title
     return text
 
 
@@ -4055,21 +4052,7 @@ def _resolve_compatible_heading_page_values(
 
 
 def _heading_titles_are_compatible(body_title: str, toc_title: str) -> bool:
-    normalized_body_title = _normalize_heading_title_for_comparison(body_title)
-    normalized_toc_title = _normalize_heading_title_for_comparison(toc_title)
-    if not normalized_body_title or not normalized_toc_title:
-        return False
-    if normalized_body_title == normalized_toc_title:
-        return True
-    shorter, longer = sorted([normalized_body_title, normalized_toc_title], key=len)
-    if len(shorter) >= 2 and shorter in longer:
-        return True
-    body_tokens = set(_split_heading_title_tokens(body_title))
-    toc_tokens = set(_split_heading_title_tokens(toc_title))
-    if not body_tokens or not toc_tokens:
-        return False
-    overlap_ratio = len(body_tokens & toc_tokens) / max(len(body_tokens), len(toc_tokens))
-    return overlap_ratio >= 0.6
+    return outline_titles_compatible(body_title, toc_title)
 
 
 def _normalize_heading_title_for_comparison(value: str) -> str:
@@ -4176,13 +4159,7 @@ def _normalize_xml_name_for_rules(value: Any) -> str:
 
 
 def _normalize_outline_comparison_key(outline_index: Any) -> str:
-    candidate = str(outline_index or "").strip()
-    if not candidate:
-        return ""
-    segments = [segment for segment in candidate.split(".") if segment]
-    while len(segments) > 1 and segments[-1] == "0":
-        segments.pop()
-    return ".".join(segment.upper() if any(ch.isalpha() for ch in segment) else segment for segment in segments)
+    return normalize_outline_marker(outline_index)
 
 
 def _coerce_int(value: Any) -> int | None:

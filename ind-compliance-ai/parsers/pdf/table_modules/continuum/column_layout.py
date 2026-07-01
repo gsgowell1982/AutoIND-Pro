@@ -108,6 +108,9 @@ def infer_logical_column_count(
     if parent_col_count is not None and parent_col_count > 0:
         return parent_col_count, "inherit"
 
+    if str(getattr(raw_evidence, "source", "") or "") == "text_aligned_borderless_grid":
+        return max(physical_col_count, 1), "text_aligned_physical_columns"
+
     anchor_pattern = _select_dense_content_anchor_pattern(
         row_patterns=row_patterns,
         physical_col_count=physical_col_count,

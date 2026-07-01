@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import unittest
 
-from parsers.pdf.layout import classify_text_block_layout_lane
+from parsers.pdf.layout import (
+    annotate_text_blocks_with_layout,
+    classify_text_block_layout_lane,
+    infer_page_text_layout_profile,
+)
 from parsers.pdf.shared import _Word
 from parsers.pdf.text_blocks import (
     _extract_page_text_and_images,
@@ -385,6 +389,70 @@ class TextBlockVisualReconstructionTests(unittest.TestCase):
             ],
         )
 
+    def test_reading_order_groups_local_three_panel_visual_text_before_rowwise_flattening(self) -> None:
+        intro = _block("Summary", (48.0, 80.0, 760.0, 100.0), font_size=16.0, source_block_index=1)
+        intro["layout_lane"] = "full_width"
+        left_title = _block("Higher Return", (95.0, 270.0, 250.0, 286.0), font_size=14.0, source_block_index=2)
+        left_title["layout_lane"] = "left"
+        middle_title = _block("Reduced Time", (370.0, 270.0, 560.0, 286.0), font_size=14.0, source_block_index=3)
+        middle_title["layout_lane"] = "full_width"
+        right_title = _block("Current Best", (660.0, 270.0, 820.0, 286.0), font_size=14.0, source_block_index=4)
+        right_title["layout_lane"] = "right"
+        left_body_1 = _block("Left explanation line one", (95.0, 315.0, 300.0, 327.0), font_size=10.0, source_block_index=5)
+        left_body_1["layout_lane"] = "left"
+        middle_body_1 = _block("Middle explanation line one", (370.0, 315.0, 580.0, 327.0), font_size=10.0, source_block_index=6)
+        middle_body_1["layout_lane"] = "full_width"
+        right_body_1 = _block("Right explanation line one", (660.0, 315.0, 860.0, 327.0), font_size=10.0, source_block_index=7)
+        right_body_1["layout_lane"] = "right"
+        left_body_2 = _block("Left explanation line two", (95.0, 332.0, 290.0, 344.0), font_size=10.0, source_block_index=8)
+        left_body_2["layout_lane"] = "left"
+        middle_body_2 = _block("Middle explanation line two", (370.0, 332.0, 575.0, 344.0), font_size=10.0, source_block_index=9)
+        middle_body_2["layout_lane"] = "full_width"
+        right_body_2 = _block("Right explanation line two", (660.0, 332.0, 850.0, 344.0), font_size=10.0, source_block_index=10)
+        right_body_2["layout_lane"] = "right"
+        note = _block("1 Footnote for all panels", (48.0, 470.0, 620.0, 486.0), font_size=8.0, source_block_index=11)
+        note["layout_lane"] = "left"
+
+        ordered = order_text_blocks_for_reading(
+            [
+                right_body_1,
+                middle_body_2,
+                intro,
+                left_body_2,
+                right_title,
+                middle_title,
+                left_title,
+                note,
+                right_body_2,
+                middle_body_1,
+                left_body_1,
+            ],
+            {
+                "mode": "mixed",
+                "confidence": 0.9,
+                "page_width": 960.0,
+                "column_mid": 440.0,
+                "lane_tolerance": 38.0,
+            },
+        )
+
+        self.assertEqual(
+            [block["text"] for block in ordered],
+            [
+                "Summary",
+                "Higher Return",
+                "Left explanation line one",
+                "Left explanation line two",
+                "Reduced Time",
+                "Middle explanation line one",
+                "Middle explanation line two",
+                "Current Best",
+                "Right explanation line one",
+                "Right explanation line two",
+                "1 Footnote for all panels",
+            ],
+        )
+
     def test_reading_order_diagnostics_describe_two_column_zones_without_reordering_text(self) -> None:
         heading = _block("Full width heading", (54.0, 88.0, 540.0, 104.0), font_size=12.0, source_block_index=1)
         heading["layout_lane"] = "full_width"
@@ -441,6 +509,90 @@ class TextBlockVisualReconstructionTests(unittest.TestCase):
         self.assertEqual(classify_text_block_layout_lane(left_bottom, profile), "left")
         self.assertEqual(classify_text_block_layout_lane(right_bottom, profile), "right")
         self.assertEqual(classify_text_block_layout_lane(centered_footer, profile), "full_width")
+
+    def test_unbalanced_reference_columns_still_infer_column_lanes(self) -> None:
+        left_blocks = [
+            _block(f"Left reference line {idx}", (70.0, 80.0 + idx * 20.0, 289.0, 90.0 + idx * 20.0), font_size=8.0, source_block_index=idx)
+            for idx in range(10)
+        ]
+        right_blocks = [
+            _block(f"Right reference line {idx}", (316.0, 80.0 + idx * 20.0, 524.0, 90.0 + idx * 20.0), font_size=8.0, source_block_index=20 + idx)
+            for idx in range(4)
+        ]
+        # Deliberately unbalanced word counts reproduce a common references-page
+        # shape: one column continues much farther than the other, but the
+        # geometry still has two stable separated text lanes.
+        words = []
+        for block in left_blocks:
+            bbox = block["bbox"]
+            for token_index in range(5):
+                x0 = bbox[0] + token_index * 34.0
+                words.append(_Word(x0, bbox[1], x0 + 20.0, bbox[3], f"L{token_index}"))
+        for block in right_blocks:
+            bbox = block["bbox"]
+            for token_index in range(3):
+                x0 = bbox[0] + token_index * 42.0
+                words.append(_Word(x0, bbox[1], x0 + 24.0, bbox[3], f"R{token_index}"))
+
+        blocks = [*left_blocks, *right_blocks]
+        profile = infer_page_text_layout_profile(
+            text_blocks=blocks,
+            page_words=words,
+            page_width=595.0,
+            page_height=842.0,
+        )
+        annotate_text_blocks_with_layout(blocks, profile)
+
+        self.assertIn(profile["mode"], {"two_column", "mixed"})
+        self.assertEqual(classify_text_block_layout_lane(left_blocks[0], profile), "left")
+        self.assertEqual(classify_text_block_layout_lane(right_blocks[0], profile), "right")
+
+        reconstructed, reconstruction_count = reconstruct_visual_text_lines(
+            text_blocks=[left_blocks[0], right_blocks[0]],
+            page_words=words,
+            page_number=1,
+            page_width=595.0,
+            layout_profile=profile,
+        )
+
+        self.assertEqual(reconstruction_count, 0)
+        self.assertEqual(len(reconstructed), 2)
+
+    def test_asymmetric_table_matrix_does_not_trigger_text_column_fallback(self) -> None:
+        blocks = [
+            _block("Jurisdiction GATS XVII", (77.0, 72.0, 210.0, 85.0), font_size=8.0, source_block_index=1),
+            _block("Foreign", (219.0, 72.0, 261.0, 85.0), font_size=8.0, source_block_index=2),
+            _block("Reservation Ownership", (148.0, 86.0, 279.0, 99.0), font_size=8.0, source_block_index=3),
+            _block("Restrictions on Foreign", (288.0, 72.0, 408.0, 85.0), font_size=8.0, source_block_index=4),
+            _block("Reporting", (453.0, 99.0, 507.0, 112.0), font_size=8.0, source_block_index=5),
+            _block("Requirements", (453.0, 113.0, 530.0, 126.0), font_size=8.0, source_block_index=13),
+            _block("Finland N", (77.0, 195.0, 161.0, 208.0), font_size=8.0, source_block_index=6),
+            _block("Y", (219.0, 195.0, 230.0, 208.0), font_size=8.0, source_block_index=7),
+            _block("Prior approval for a foreigner purchase", (356.0, 195.0, 512.0, 208.0), font_size=8.0, source_block_index=8),
+            _block("France", (77.0, 346.0, 113.0, 359.0), font_size=8.0, source_block_index=9),
+            _block("N", (148.0, 346.0, 161.0, 359.0), font_size=8.0, source_block_index=10),
+            _block("Y", (219.0, 346.0, 230.0, 359.0), font_size=8.0, source_block_index=11),
+            _block("None.", (356.0, 346.0, 388.0, 359.0), font_size=8.0, source_block_index=12),
+            _block("long table cell continuation line", (356.0, 374.0, 512.0, 387.0), font_size=8.0, source_block_index=14),
+            _block("another wrapped explanation line", (356.0, 388.0, 512.0, 401.0), font_size=8.0, source_block_index=15),
+            _block("more wrapped explanation line", (356.0, 402.0, 512.0, 415.0), font_size=8.0, source_block_index=16),
+        ]
+        words = []
+        for block in blocks:
+            bbox = block["bbox"]
+            token_count = max(1, len(block["text"].split()))
+            for token_index in range(token_count):
+                x0 = bbox[0] + token_index * 28.0
+                words.append(_Word(x0, bbox[1], min(x0 + 20.0, bbox[2]), bbox[3], f"T{token_index}"))
+
+        profile = infer_page_text_layout_profile(
+            text_blocks=blocks,
+            page_words=words,
+            page_width=612.0,
+            page_height=792.0,
+        )
+
+        self.assertEqual(profile["mode"], "single_column")
 
 
 if __name__ == "__main__":

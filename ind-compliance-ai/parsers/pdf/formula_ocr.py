@@ -163,6 +163,10 @@ def enhance_inline_formula_spans_with_formula_ocr(
 
 
 def _apply_formula_latex_enhancement(equation_block: dict[str, Any], enhancement: dict[str, Any]) -> None:
+    if _should_preserve_existing_latex_enhancement(equation_block, enhancement):
+        equation_block["formula_ocr_enhancement"] = _formula_latex_enhancement_snapshot(enhancement)
+        return
+
     equation_block["latex_text"] = enhancement.get("latex_text")
     equation_block["latex_confidence"] = float(enhancement.get("latex_confidence", 0.0) or 0.0)
     equation_block["latex_source"] = enhancement.get("latex_source")
@@ -170,6 +174,35 @@ def _apply_formula_latex_enhancement(equation_block: dict[str, Any], enhancement
         equation_block["latex_candidate_text"] = enhancement.get("latex_candidate_text")
     equation_block["latex_render_policy"] = "image_primary_latex_enhancement"
     equation_block["latex_validation"] = dict(enhancement.get("latex_validation", {}) or {})
+
+
+def _should_preserve_existing_latex_enhancement(
+    equation_block: dict[str, Any],
+    enhancement: dict[str, Any],
+) -> bool:
+    existing_latex = str(equation_block.get("latex_text", "") or "").strip()
+    if not existing_latex:
+        return False
+
+    existing_confidence = float(equation_block.get("latex_confidence", 0.0) or 0.0)
+    existing_validation = dict(equation_block.get("latex_validation", {}) or {})
+    existing_accepted = bool(existing_validation.get("accepted"))
+    if existing_confidence < 0.85 and not existing_accepted:
+        return False
+
+    enhancement_latex = str(enhancement.get("latex_text", "") or "").strip()
+    enhancement_confidence = float(enhancement.get("latex_confidence", 0.0) or 0.0)
+    enhancement_validation = dict(enhancement.get("latex_validation", {}) or {})
+    enhancement_accepted = bool(enhancement_validation.get("accepted"))
+    if not enhancement_latex or not enhancement_accepted:
+        return True
+    return enhancement_confidence < existing_confidence
+
+
+def _formula_latex_enhancement_snapshot(enhancement: dict[str, Any]) -> dict[str, Any]:
+    snapshot = dict(enhancement)
+    snapshot["latex_validation"] = dict(enhancement.get("latex_validation", {}) or {})
+    return snapshot
 
 
 def _apply_inline_formula_latex_enhancement(inline_span: dict[str, Any], enhancement: dict[str, Any]) -> None:

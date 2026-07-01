@@ -1,0 +1,530 @@
+{
+  "schema_version": "regulation-library-v1",
+  "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+  "clause_count": 17,
+  "clauses": [
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_001",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "一",
+      "chapter_no": 1,
+      "chapter_title": "化学药品注册分类",
+      "article_no_raw": "1类",
+      "article_no": 1,
+      "heading": "1类",
+      "original_text": "1类：境内外均未上市的创新药。指含有新的结构明确的、具有药理作用的化合物，且具有临床价值的药品。",
+      "normalized_text": "1类：境内外均未上市的创新药。指含有新的结构明确的、具有药理作用的化合物，且具有临床价值的药品。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 5,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_001"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_002",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "一",
+      "chapter_no": 1,
+      "chapter_title": "化学药品注册分类",
+      "article_no_raw": "2类",
+      "article_no": 2,
+      "heading": "2类",
+      "original_text": "2类：境内外均未上市的改良型新药。指在已知活性成份的基础上，对其结构、剂型、处方工艺、给药途径、适应症等进行优化，且具有明显临床优势的药品。 2.1含有用拆分或者合成等方法制得的已知活性成份的光学异构体，或者对已知活性成份成酯，或者对已知活性成份成盐（包括含有氢键或配位键的盐），或者改变已知盐类活性成份的酸根、碱基或金属元素，或者形成其他非共价键衍生物（如络合物、螯合物或包合物），且具有明显临床优势的药品。 2.2含有已知活性成份的新剂型（包括新的给药系统）、新处方工艺、新给药途径，且具有明显临床优势的药品。 2.3含有已知活性成份的新复方制剂，且具有明显临床优势。 2.4含有已知活性成份的新适应症的药品。",
+      "normalized_text": "2类：境内外均未上市的改良型新药。指在已知活性成份的基础上，对其结构、剂型、处方工艺、给药途径、适应症等进行优化，且具有明显临床优势的药品。 2.1含有用拆分或者合成等方法制得的已知活性成份的光学异构体，或者对已知活性成份成酯，或者对已知活性成份成盐（包括含有氢键或配位键的盐），或者改变已知盐类活性成份的酸根、碱基或金属元素，或者形成其他非共价键衍生物（如络合物、螯合物或包合物），且具有明显临床优势的药品。 2.2含有已知活性成份的新剂型（包括新的给药系统）、新处方工艺、新给药途径，且具有明显临床优势的药品。 2.3含有已知活性成份的新复方制剂，且具有明显临床优势。 2.4含有已知活性成份的新适应症的药品。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 6,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_002"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_003",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "一",
+      "chapter_no": 1,
+      "chapter_title": "化学药品注册分类",
+      "article_no_raw": "3类",
+      "article_no": 3,
+      "heading": "3类",
+      "original_text": "3类：境内申请人仿制境外上市但境内未上市原研药品的药品。该类药品应与参比制剂的质量和疗效一致。",
+      "normalized_text": "3类：境内申请人仿制境外上市但境内未上市原研药品的药品。该类药品应与参比制剂的质量和疗效一致。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 11,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_003"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "reference_sample_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_004",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "一",
+      "chapter_no": 1,
+      "chapter_title": "化学药品注册分类",
+      "article_no_raw": "4类",
+      "article_no": 4,
+      "heading": "4类",
+      "original_text": "4类：境内申请人仿制已在境内上市原研药品的药品。该类药品应与参比制剂的质量和疗效一致。",
+      "normalized_text": "4类：境内申请人仿制已在境内上市原研药品的药品。该类药品应与参比制剂的质量和疗效一致。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 12,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_004"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "reference_sample_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_005",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "一",
+      "chapter_no": 1,
+      "chapter_title": "化学药品注册分类",
+      "article_no_raw": "5类",
+      "article_no": 5,
+      "heading": "5类",
+      "original_text": "5类：境外上市的药品申请在境内上市。 5.1境外上市的原研药品和改良型药品申请在境内上市。改良型药品应具有明显临床优势。 5.2境外上市的仿制药申请在境内上市。",
+      "normalized_text": "5类：境外上市的药品申请在境内上市。 5.1境外上市的原研药品和改良型药品申请在境内上市。改良型药品应具有明显临床优势。 5.2境外上市的仿制药申请在境内上市。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 13,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_005"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_006",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "一",
+      "chapter_no": 1,
+      "chapter_title": "化学药品注册分类",
+      "article_no_raw": "原研药品定义",
+      "article_no": 6,
+      "heading": "原研药品定义",
+      "original_text": "原研药品是指境内外首个获准上市，且具有完整和充分的安全性、有效性数据作为上市依据的药品。",
+      "normalized_text": "原研药品是指境内外首个获准上市，且具有完整和充分的安全性、有效性数据作为上市依据的药品。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 16,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_006"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_007",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "一",
+      "chapter_no": 1,
+      "chapter_title": "化学药品注册分类",
+      "article_no_raw": "参比制剂定义",
+      "article_no": 7,
+      "heading": "参比制剂定义",
+      "original_text": "参比制剂是指经国家药品监管部门评估确认的仿制药研制使用的对照药品。参比制剂的遴选与公布按照国家药品监管部门相关规定执行。",
+      "normalized_text": "参比制剂是指经国家药品监管部门评估确认的仿制药研制使用的对照药品。参比制剂的遴选与公布按照国家药品监管部门相关规定执行。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 17,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_007"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "reference_sample_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_008",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "二",
+      "chapter_no": 2,
+      "chapter_title": "相关注册管理要求",
+      "article_no_raw": "（一）",
+      "article_no": 8,
+      "heading": "（一）",
+      "original_text": "（一）化学药品1类为创新药，应含有新的结构明确的、具有药理作用的化合物，且具有临床价值，不包括改良型新药中2.1类的药品。含有新的结构明确的、具有药理作用的化合物的新复方制剂，应按照化学药品1类申报。",
+      "normalized_text": "（一）化学药品1类为创新药，应含有新的结构明确的、具有药理作用的化合物，且具有临床价值，不包括改良型新药中2.1类的药品。含有新的结构明确的、具有药理作用的化合物的新复方制剂，应按照化学药品1类申报。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 19,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_008"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_009",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "二",
+      "chapter_no": 2,
+      "chapter_title": "相关注册管理要求",
+      "article_no_raw": "（二）",
+      "article_no": 9,
+      "heading": "（二）",
+      "original_text": "（二）化学药品2类为改良型新药，在已知活性成份基础上进行优化，应比改良前具有明显临床优势。已知活性成份指境内或境外已上市药品的活性成份。该类药品同时符合多个情形要求的，须在申报时一并予以说明。",
+      "normalized_text": "（二）化学药品2类为改良型新药，在已知活性成份基础上进行优化，应比改良前具有明显临床优势。已知活性成份指境内或境外已上市药品的活性成份。该类药品同时符合多个情形要求的，须在申报时一并予以说明。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 20,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_009"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_010",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "二",
+      "chapter_no": 2,
+      "chapter_title": "相关注册管理要求",
+      "article_no_raw": "（三）",
+      "article_no": 10,
+      "heading": "（三）",
+      "original_text": "（三）化学药品3类为境内生产的仿制境外已上市境内未上市原研药品的药品，具有与参比制剂相同的活性成份、剂型、规格、适应症、给药途径和用法用量，并证明质量和疗效与参比制剂一致。 有充分研究数据证明合理性的情况下，规格和用法用量可以与参比制剂不一致。",
+      "normalized_text": "（三）化学药品3类为境内生产的仿制境外已上市境内未上市原研药品的药品，具有与参比制剂相同的活性成份、剂型、规格、适应症、给药途径和用法用量，并证明质量和疗效与参比制剂一致。 有充分研究数据证明合理性的情况下，规格和用法用量可以与参比制剂不一致。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 21,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_010"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "reference_sample_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_011",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "二",
+      "chapter_no": 2,
+      "chapter_title": "相关注册管理要求",
+      "article_no_raw": "（四）",
+      "article_no": 11,
+      "heading": "（四）",
+      "original_text": "（四）化学药品4类为境内生产的仿制境内已上市原研药品的药品，具有与参比制剂相同的活性成份、剂型、规格、适应症、给药途径和用法用量，并证明质量和疗效与参比制剂一致。",
+      "normalized_text": "（四）化学药品4类为境内生产的仿制境内已上市原研药品的药品，具有与参比制剂相同的活性成份、剂型、规格、适应症、给药途径和用法用量，并证明质量和疗效与参比制剂一致。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 23,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_011"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "reference_sample_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_012",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "二",
+      "chapter_no": 2,
+      "chapter_title": "相关注册管理要求",
+      "article_no_raw": "（五）",
+      "article_no": 12,
+      "heading": "（五）",
+      "original_text": "（五）化学药品5类为境外上市的药品申请在境内上市，包括境内外生产的药品。其中化学药品5.1类为原研药品和改良型药品，改良型药品在已知活性成份基础上进行优化，应比改良前具有明显临床优势；化学药品5.2类为仿制药，应证明与参比制剂质量和疗效一致，技术要求与化学药品3类、4类相同。境内外同步研发的境外生产仿制药，应按照化学药品5.2类申报，如申报临床试验，不要求提供允许药品上市销售证明文件。",
+      "normalized_text": "（五）化学药品5类为境外上市的药品申请在境内上市，包括境内外生产的药品。其中化学药品5.1类为原研药品和改良型药品，改良型药品在已知活性成份基础上进行优化，应比改良前具有明显临床优势；化学药品5.2类为仿制药，应证明与参比制剂质量和疗效一致，技术要求与化学药品3类、4类相同。境内外同步研发的境外生产仿制药，应按照化学药品5.2类申报，如申报临床试验，不要求提供允许药品上市销售证明文件。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 24,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_012"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials",
+          "reference_sample_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_013",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "二",
+      "chapter_no": 2,
+      "chapter_title": "相关注册管理要求",
+      "article_no_raw": "（六）",
+      "article_no": 13,
+      "heading": "（六）",
+      "original_text": "（六）已上市药品增加境外已批准境内未批准的适应症按照药物临床试验和上市许可申请通道进行申报。",
+      "normalized_text": "（六）已上市药品增加境外已批准境内未批准的适应症按照药物临床试验和上市许可申请通道进行申报。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 25,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_013"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_014",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "二",
+      "chapter_no": 2,
+      "chapter_title": "相关注册管理要求",
+      "article_no_raw": "（七）",
+      "article_no": 14,
+      "heading": "（七）",
+      "original_text": "（七）药品上市申请审评审批期间，药品注册分类和技术要求不因相同活性成份的制剂在境内外获准上市而发生变化。药品注册分类在提出上市申请时确定。",
+      "normalized_text": "（七）药品上市申请审评审批期间，药品注册分类和技术要求不因相同活性成份的制剂在境内外获准上市而发生变化。药品注册分类在提出上市申请时确定。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 26,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_014"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_015",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "三",
+      "chapter_no": 3,
+      "chapter_title": "申报资料要求",
+      "article_no_raw": "（一）",
+      "article_no": 15,
+      "heading": "（一）",
+      "original_text": "（一）申请人提出药物临床试验、药品上市注册及化学原料药申请，应按照国家药品监管部门公布的相关技术指导原则的有关要求开展研究，并按照现行版《M4：人用药物注册申请通用技术文档（CTD）》（以下简称CTD）格式编号及项目顺序整理并提交申报资料。不适用的项目可合理缺项，但应标明不适用并说明理由。",
+      "normalized_text": "（一）申请人提出药物临床试验、药品上市注册及化学原料药申请，应按照国家药品监管部门公布的相关技术指导原则的有关要求开展研究，并按照现行版《M4：人用药物注册申请通用技术文档（CTD）》（以下简称CTD）格式编号及项目顺序整理并提交申报资料。不适用的项目可合理缺项，但应标明不适用并说明理由。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 28,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_015"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials",
+          "api_supporting_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_016",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "三",
+      "chapter_no": 3,
+      "chapter_title": "申报资料要求",
+      "article_no_raw": "（二）",
+      "article_no": 16,
+      "heading": "（二）",
+      "original_text": "（二）申请人在完成临床试验提出药品上市注册申请时，应在CTD基础上提交电子临床试验数据库。数据库格式以及相关文件等具体要求见临床试验数据递交相关指导原则。",
+      "normalized_text": "（二）申请人在完成临床试验提出药品上市注册申请时，应在CTD基础上提交电子临床试验数据库。数据库格式以及相关文件等具体要求见临床试验数据递交相关指导原则。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 29,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_016"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_017",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "regulation_title": "药品注册分类及申报资料要求",
+      "version_label": "unknown",
+      "chapter_no_raw": "三",
+      "chapter_no": 3,
+      "chapter_title": "申报资料要求",
+      "article_no_raw": "（三）",
+      "article_no": 17,
+      "heading": "（三）",
+      "original_text": "（三）国家药监局药审中心将根据药品审评工作需要，结合ICH技术指导原则修订情况，及时更新CTD文件并在中心网站发布。",
+      "normalized_text": "（三）国家药监局药审中心将根据药品审评工作需要，结合ICH技术指导原则修订情况，及时更新CTD文件并在中心网站发布。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc",
+      "source_locator": {
+        "line_index": 30,
+        "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_017"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    }
+  ]
+}

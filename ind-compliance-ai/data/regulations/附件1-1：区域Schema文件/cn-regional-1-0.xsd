@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="cn_ectd" xmlns:xlink="http://www.w3.org/1999/xlink" targetNamespace="cn_ectd" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:import namespace="http://www.w3.org/1999/xlink" schemaLocation="xlink.xsd"/>
+	<xs:import namespace="http://www.w3.org/XML/1998/namespace" schemaLocation="xml.xsd"/>
+	<!--
+	BSfile1 cn-regional-1-0.xsd 
+	模块一Schema文件
+
+	Version 1.0 - 2021年9月1日
+	-->
+	<!-- 
+	################################
+	 CN root definition  
+	################################
+	-->
+	<xs:element name="cn_ectd">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="cn-envelope" type="cn-envelope"/>
+				<xs:element name="cn-content" type="cn-content"/>
+			</xs:sequence>
+			<xs:attribute name="schema-version" use="required">
+				<xs:simpleType>
+					<xs:restriction base="xs:string">
+						<xs:enumeration value="1.0"/>
+					</xs:restriction>
+				</xs:simpleType>
+			</xs:attribute>
+		</xs:complexType>
+	</xs:element>
+	<xs:complexType name="cn-envelope">
+		<xs:sequence>
+			<xs:element name="application-id" type="xs:string"/>
+			<xs:element name="application-type" type="cn-type"/>
+			<xs:element name="product-type" type="cn-type"/>
+			<xs:element name="product-number" type="xs:string"/>
+			<xs:element name="related-sequence" type="xs:string"/>
+			<xs:element name="regulatory-activity-type" type="cn-type"/>
+			<xs:element name="sequence-number" type="xs:string"/>
+			<xs:element name="sequence-type" type="cn-type"/>
+			<xs:element name="sequence-description" type="xs:string"/>
+			<xs:element name="sequence-contact" type="cn-contact"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="cn-contact">
+		<xs:sequence>
+			<xs:element name="name" type="xs:string"/>
+			<xs:element name="phone" type="xs:string"/>
+			<xs:element name="email" type="xs:string"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="cn-type">
+			<xs:attribute name="code" type="xs:string" use="required"/>
+			<xs:attribute name="version" type="xs:string" use="optional"/>
+	</xs:complexType>
+	<xs:complexType name="cn-content">
+	<xs:sequence>
+		<xs:element name="cn-1-0" type="cn-leaf-ext" minOccurs="1" maxOccurs="1"/>
+		<xs:element name="cn-1-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+		<xs:element name="cn-1-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+		<xs:element name="cn-1-3" minOccurs="0" maxOccurs="1">
+			<xs:complexType>
+				<xs:sequence>
+					<xs:element name="cn-1-3-1" minOccurs="0" maxOccurs="1">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:element name="cn-1-3-1-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-1-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+							</xs:sequence>
+						</xs:complexType>
+					</xs:element>
+					<xs:element name="cn-1-3-2" minOccurs="0" maxOccurs="1">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:element name="cn-1-3-2-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-2-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+							</xs:sequence>
+						</xs:complexType>
+					</xs:element>
+					<xs:element name="cn-1-3-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-3-4" minOccurs="0" maxOccurs="1">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:element name="cn-1-3-4-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-4-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-4-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+							</xs:sequence>
+						</xs:complexType>
+					</xs:element>
+					<xs:element name="cn-1-3-5" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-3-6" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-3-7" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-3-8" minOccurs="0" maxOccurs="1">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:element name="cn-1-3-8-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-8-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-8-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-8-4" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-8-5" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-8-6" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-8-7" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-8-8" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-8-9" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-3-8-10" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+							</xs:sequence>
+						</xs:complexType>
+					</xs:element>
+					<xs:element name="cn-1-3-9" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+				</xs:sequence>
+			</xs:complexType>
+		</xs:element>
+		<xs:element name="cn-1-4" minOccurs="0" maxOccurs="1">
+			<xs:complexType>
+				<xs:sequence>
+					<xs:element name="cn-1-4-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-4-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-4-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-4-4" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-4-5" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-4-6" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-4-7" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+				</xs:sequence>
+			</xs:complexType>
+		</xs:element>
+		<xs:element name="cn-1-5" minOccurs="0" maxOccurs="1">
+			<xs:complexType>
+				<xs:sequence>
+					<xs:element name="cn-1-5-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-5-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-5-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+				</xs:sequence>
+			</xs:complexType>
+		</xs:element>
+		<xs:element name="cn-1-6" minOccurs="0" maxOccurs="1">
+			<xs:complexType>
+				<xs:sequence>
+					<xs:element name="cn-1-6-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-6-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-6-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+				</xs:sequence>
+			</xs:complexType>
+		</xs:element>
+		<xs:element name="cn-1-7" minOccurs="0" maxOccurs="1">
+			<xs:complexType>
+				<xs:sequence>
+					<xs:element name="cn-1-7-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-7-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-7-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+				</xs:sequence>
+			</xs:complexType>
+		</xs:element>
+		<xs:element name="cn-1-8" minOccurs="0" maxOccurs="1">
+			<xs:complexType>
+				<xs:sequence>
+					<xs:element name="cn-1-8-1" minOccurs="0" maxOccurs="1">
+						<xs:complexType>
+							<xs:sequence>
+								<xs:element name="cn-1-8-1-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-8-1-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-8-1-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-8-1-4" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-8-1-5" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+								<xs:element name="cn-1-8-1-6" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+							</xs:sequence>
+						</xs:complexType>
+					</xs:element>
+					<xs:element name="cn-1-8-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-8-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+				</xs:sequence>
+			</xs:complexType>
+		</xs:element>
+		<xs:element name="cn-1-9" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+		<xs:element name="cn-1-10" minOccurs="0" maxOccurs="1">
+			<xs:complexType>
+				<xs:sequence>
+					<xs:element name="cn-1-10-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-10-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-10-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+				</xs:sequence>
+			</xs:complexType>
+		</xs:element>
+		<xs:element name="cn-1-11" minOccurs="0" maxOccurs="1">
+			<xs:complexType>
+				<xs:sequence>
+					<xs:element name="cn-1-11-1" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-11-2" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+					<xs:element name="cn-1-11-3" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+				</xs:sequence>
+			</xs:complexType>
+		</xs:element>
+		<xs:element name="cn-1-12" type="cn-leaf-ext" minOccurs="0" maxOccurs="1"/>
+	</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="cn-leaf-ext">
+		<xs:sequence minOccurs="0" maxOccurs="unbounded">
+			<xs:choice>
+				<xs:element name="leaf" type="cn-leaf"/>
+				<xs:element name="node-extension" type="cn-node-extension"/>
+			</xs:choice>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="cn-leaf">
+		<xs:sequence>
+			<xs:element name="title">
+				<xs:complexType>
+					<xs:simpleContent>
+						<xs:extension base="xs:string">
+							<xs:attribute name="ID" type="xs:ID"/>
+						</xs:extension>
+					</xs:simpleContent>
+				</xs:complexType>
+			</xs:element>
+			<xs:element name="link-text" minOccurs="0">
+				<xs:complexType>
+					<xs:sequence>
+						<xs:element name="xref" minOccurs="0">
+							<xs:complexType>
+								<xs:attribute name="ID" type="xs:ID" use="required"/>
+								<xs:attribute ref="xlink:type"/>
+								<xs:attribute ref="xlink:role"/>
+								<xs:attribute ref="xlink:title"/>
+								<xs:attribute ref="xlink:href"/>
+								<xs:attribute ref="xlink:show"/>
+							</xs:complexType>
+						</xs:element>
+					</xs:sequence>
+					<xs:attribute name="ID" type="xs:ID"/>
+				</xs:complexType>
+			</xs:element>
+		</xs:sequence>
+		<xs:attribute name="ID" type="xs:ID" use="required"/>
+		<xs:attribute name="operation" type="ich-leaf-operations" use="required"/>
+		<xs:attribute ref="xlink:href"/>
+		<xs:attribute name="modified-file" type="xs:string"/>
+		<xs:attribute name="checksum-type" type="ich-checksum-type"/>
+		<xs:attribute name="checksum" type="xs:string"/>
+		<xs:attribute name="application-version" type="xs:string"/>
+		<xs:attribute name="version" type="xs:string"/>
+		<xs:attribute name="keywords" type="xs:string"/>
+		<xs:attribute name="font-library" type="xs:string"/>
+		<xs:attribute ref="xlink:type"/>
+		<xs:attribute ref="xlink:role"/>
+		<xs:attribute ref="xlink:show"/>
+		<xs:attribute ref="xlink:actuate"/>
+		<xs:attribute ref="xml:lang"/>
+	</xs:complexType>
+	<xs:complexType name="cn-node-extension">
+		<xs:sequence>
+			<xs:element name="title">
+				<xs:complexType>
+					<xs:simpleContent>
+						<xs:extension base="xs:string">
+							<xs:attribute name="ID" type="xs:ID"/>
+						</xs:extension>
+					</xs:simpleContent>
+				</xs:complexType>
+			</xs:element>
+			<xs:sequence minOccurs="1" maxOccurs="unbounded">
+				<xs:choice>
+					<xs:element name="leaf" type="cn-leaf"/>
+					<xs:element name="node-extension" type="cn-node-extension"/>
+				</xs:choice>
+			</xs:sequence>
+		</xs:sequence>
+		<xs:attribute name="ID" type="xs:ID"/>
+		<xs:attribute ref="xml:lang"/>
+	</xs:complexType>
+	<xs:simpleType name="ich-checksum-type">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="MD5"/>
+			<xs:enumeration value="md5"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="ich-leaf-operations">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="new"/>
+			<xs:enumeration value="append"/>
+			<xs:enumeration value="replace"/>
+			<xs:enumeration value="delete"/>
+		</xs:restriction>
+	</xs:simpleType>
+</xs:schema>

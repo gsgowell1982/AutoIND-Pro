@@ -205,3 +205,69 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# AutoIND-Pro local worktrees
+.worktrees/
+worktrees/
+
+# AutoIND-Pro generated parser outputs and local reports
+output/
+ind-compliance-ai/output/
+ind-compliance-ai/.codex_backups/
+
+# Office/editor temporary lock files
+~$*.doc
+~$*.docx
+~$*.ppt
+~$*.pptx
+~$*.xls
+~$*.xlsx
+~WRL*.tmp
+*.tmp
+
+# AutoIND-Pro local parser diagnostics
+ind-compliance-ai/debug_*.py
+ind-compliance-ai/analyze_*.py
+ind-compliance-ai/verify_fix.py
+ind-compliance-ai/tmp_*.png
+ind-compliance-ai/check_pages.py
+ind-compliance-ai/compare_versions.py
+ind-compliance-ai/test_full_flow.py
+ind-compliance-ai/test_tbl_007.py
+ind-compliance-ai/test_v1_3_0.py
+ind-compliance-ai/arch_lines.txt
+ind-compliance-ai/scope_lines.txt
+
+# AutoIND-Pro root-level local parsed outputs
+r2-*.md
+r2-*.docx
+
+# AutoIND-Pro root-level local regression samples
+/r2.pdf
+/A-tst.pdf
+/2-column-tst.pdf
+/test-ind.pdf
+/5640transmission.pdf
+
+# AutoIND-Pro root-level scratch scripts and diagnostics
+/check_pages.py
+/compare_versions.py
+/test_full_flow.py
+/test_tbl_007.py
+/test_v1_3_0.py
+/arch_lines.txt
+/scope_lines.txt
+
+# Sensitive local files that must never be committed
+/github-recovery-codes.txt
+
+# Root-level local drafts and imported working materials
+/*.doc
+/*.docx
+/*.zip
+
+# AutoIND-Pro local external benchmark/reference caches
+external_benchmarks/
+external_refs/
+ind-compliance-ai/external_benchmarks/
+ind-compliance-ai/external_refs/

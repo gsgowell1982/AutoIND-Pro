@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- 
+    BSfileC07 cn-dependency.xsd 
+	申请类型、注册行为类型、序列类型关系定义文件的 Schema 文件
+
+	Version 1.0 - 2021年9月1日
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="dependency">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="description" type="xs:string" minOccurs="0" maxOccurs="unbounded" />
+        <xs:element name="version" type="T_version" minOccurs="1" maxOccurs="unbounded" />
+      </xs:sequence>
+      <xs:attribute name="keys" type="xs:string" use="required" />
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="T_version">
+    <xs:sequence>
+      <xs:element name="code" type="T_code" minOccurs="0" maxOccurs="unbounded" />
+    </xs:sequence>
+    <xs:attribute name="number" type="xs:string" use="required" />
+    <xs:attribute name="valid-from" type="xs:date" use="required" />
+    <xs:attribute name="valid-to" type="xs:date" use="optional" />
+  </xs:complexType>
+  <xs:complexType name="T_code">
+    <xs:sequence>
+      <xs:element name="code" type="T_code" minOccurs="0" maxOccurs="unbounded" />
+    </xs:sequence>
+    <xs:attribute name="name" type="xs:string" use="required" />
+  </xs:complexType>
+</xs:schema>

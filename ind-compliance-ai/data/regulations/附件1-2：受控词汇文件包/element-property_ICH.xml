@@ -1,0 +1,650 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	BSfileC09 element-property_ICH.xml 
+	模块二至模块五元素名称描述定义文件
+
+	Version 1.0 - 2021年9月1日
+-->
+<element-properties xmlns:xml="http://www.w3.org/XML/1998/namespace" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="cn-elements.xsd">
+  <version number="1.0" valid-from="2021-9-1">
+    <element name="m1-administrative-information-and-prescribing-information" structureno="1">
+      <description xml:lang="zh">模块1：行政文件和药品信息</description>
+      <description xml:lang="en">Module 1:Administrative Information and Prescribing Information</description>
+    </element>
+    <element name="m2-common-technical-document-summaries" structureno="2">
+      <description xml:lang="zh">模块2：通用技术文档总结</description>
+      <description xml:lang="en">Module 2:Common Technical Document Summaries</description>
+    </element>
+    <element name="m2-2-introduction" structureno="2.2">
+      <description xml:lang="zh">CTD引言</description>
+      <description xml:lang="en">CTD Introduction</description>
+    </element>
+    <element name="m2-3-quality-overall-summary" structureno="2.3">
+      <description xml:lang="zh">质量综述</description>
+      <description xml:lang="en">Quality Overall Summary</description>
+    </element>
+    <element name="m2-3-introduction" structureno="2.3.1">
+      <description xml:lang="zh">引言</description>
+      <description xml:lang="en">Introduction</description>
+    </element>
+    <element name="m2-3-s-drug-substance" structureno="2.3.S">
+      <description xml:lang="zh">原料药</description>
+      <description xml:lang="en">Drug Substance</description>
+    </element>
+    <element name="m2-3-p-drug-product" structureno="2.3.P">
+      <description xml:lang="zh">制剂</description>
+      <description xml:lang="en">Drug Product</description>
+    </element>
+    <element name="m2-3-a-appendices" structureno="2.3.A">
+      <description xml:lang="zh">附录</description>
+      <description xml:lang="en">Appendices</description>
+    </element>
+    <element name="m2-3-r-regional-information" structureno="2.3.R">
+      <description xml:lang="zh">区域性信息</description>
+      <description xml:lang="en">Regional Information</description>
+    </element>
+    <element name="m2-4-nonclinical-overview" structureno="2.4">
+      <description xml:lang="zh">非临床综述</description>
+      <description xml:lang="en">Nonclinical Overview</description>
+    </element>
+    <element name="m2-5-clinical-overview" structureno="2.5">
+      <description xml:lang="zh">临床综述</description>
+      <description xml:lang="en">Clinical Overview</description>
+    </element>
+    <element name="m2-6-nonclinical-written-and-tabulated-summaries" structureno="2.6">
+      <description xml:lang="zh">非临床文字总结和列表总结</description>
+      <description xml:lang="en">Nonclinical Written and Tabulated Summaries</description>
+    </element>
+    <element name="m2-6-1-introduction" structureno="2.6.1">
+      <description xml:lang="zh">前言</description>
+      <description xml:lang="en">Introduction</description>
+    </element>
+    <element name="m2-6-2-pharmacology-written-summary" structureno="2.6.2">
+      <description xml:lang="zh">药理学文字总结</description>
+      <description xml:lang="en">Pharmacology Written Summary</description>
+    </element>
+    <element name="m2-6-3-pharmacology-tabulated-summary" structureno="2.6.3">
+      <description xml:lang="zh">药理学列表总结</description>
+      <description xml:lang="en">Pharmacology Tabulated Summary</description>
+    </element>
+    <element name="m2-6-4-pharmacokinetics-written-summary" structureno="2.6.4">
+      <description xml:lang="zh">药代动力学文字总结</description>
+      <description xml:lang="en">Pharmacokinetics Written Summary</description>
+    </element>
+    <element name="m2-6-5-pharmacokinetics-tabulated-summary" structureno="2.6.5">
+      <description xml:lang="zh">药代动力学列表总结</description>
+      <description xml:lang="en">Pharmacokinetics Tabulated Summary</description>
+    </element>
+    <element name="m2-6-6-toxicology-written-summary" structureno="2.6.6">
+      <description xml:lang="zh">毒理学文字总结</description>
+      <description xml:lang="en">Toxicology Written Summary</description>
+    </element>
+    <element name="m2-6-7-toxicology-tabulated-summary" structureno="2.6.7">
+      <description xml:lang="zh">毒理学列表总结</description>
+      <description xml:lang="en">Toxicology Tabulated Summary</description>
+    </element>
+    <element name="m2-7-clinical-summary" structureno="2.7">
+      <description xml:lang="zh">临床总结</description>
+      <description xml:lang="en">Clinical Summary</description>
+    </element>
+    <element name="m2-7-1-summary-of-biopharmaceutic-studies-and-associated-analytical-methods" structureno="2.7.1">
+      <description xml:lang="zh">生物药剂学研究及相关分析方法总结</description>
+      <description xml:lang="en">Summary of Biopharmaceutic Studies and Associated Analytical Methods</description>
+    </element>
+    <element name="m2-7-2-summary-of-clinical-pharmacology-studies" structureno="2.7.2">
+      <description xml:lang="zh">临床药理学研究总结</description>
+      <description xml:lang="en">Summary of Clinical Pharmacology Studies</description>
+    </element>
+    <element name="m2-7-3-summary-of-clinical-efficacy" structureno="2.7.3">
+      <description xml:lang="zh">临床有效性总结</description>
+      <description xml:lang="en">Summary of Clinical Efficacy</description>
+    </element>
+    <element name="m2-7-4-summary-of-clinical-safety" structureno="2.7.4">
+      <description xml:lang="zh">临床安全性总结</description>
+      <description xml:lang="en">Summary of Clinical Safety</description>
+    </element>
+    <element name="m2-7-5-literature-references" structureno="2.7.5">
+      <description xml:lang="zh">参考文献</description>
+      <description xml:lang="en">Literature References</description>
+    </element>
+    <element name="m2-7-6-synopses-of-individual-studies" structureno="2.7.6">
+      <description xml:lang="zh">单项研究摘要</description>
+      <description xml:lang="en">Synopses of Individual Studies</description>
+    </element>
+
+    <element name="m3-quality" structureno="3">
+      <description xml:lang="zh">模块3：质量</description>
+      <description xml:lang="en">Module 3:Quality</description>
+    </element>
+    <element name="m3-2-body-of-data" structureno="3.2">
+      <description xml:lang="zh">主体数据</description>
+      <description xml:lang="en">Body of Data</description>
+    </element>
+    <element name="m3-2-s-drug-substance" structureno="3.2.S">
+      <description xml:lang="zh">原料药</description>
+      <description xml:lang="en">Drug Substance</description>
+    </element>
+    <element name="m3-2-s-1-general-information" structureno="3.2.S.1">
+      <description xml:lang="zh">基本信息</description>
+      <description xml:lang="en">General Information</description>
+    </element>
+    <element name="m3-2-s-1-1-nomenclature" structureno="3.2.S.1.1">
+      <description xml:lang="zh">药品名称</description>
+      <description xml:lang="en">Nomenclature</description>
+    </element>
+    <element name="m3-2-s-1-2-structure" structureno="3.2.S.1.2">
+      <description xml:lang="zh">结构</description>
+      <description xml:lang="en">Structure</description>
+    </element>
+    <element name="m3-2-s-1-3-general-properties" structureno="3.2.S.1.3">
+      <description xml:lang="zh">基本性质</description>
+      <description xml:lang="en">General Properties</description>
+    </element>
+    <element name="m3-2-s-2-manufacture" structureno="3.2.S.2">
+      <description xml:lang="zh">生产</description>
+      <description xml:lang="en">Manufacture</description>
+    </element>
+    <element name="m3-2-s-2-1-manufacturer" structureno="3.2.S.2.1">
+      <description xml:lang="zh">生产商</description>
+      <description xml:lang="en">Manufacturer(s)</description>
+    </element>
+    <element name="m3-2-s-2-2-description-of-manufacturing-process-and-process-controls" structureno="3.2.S.2.2">
+      <description xml:lang="zh">生产工艺和工艺控制</description>
+      <description xml:lang="en">Description of Manufacturing Process and Process Controls</description>
+    </element>
+    <element name="m3-2-s-2-3-control-of-materials" structureno="3.2.S.2.3">
+      <description xml:lang="zh">物料控制</description>
+      <description xml:lang="en">Control of Materials</description>
+    </element>
+    <element name="m3-2-s-2-4-controls-of-critical-steps-and-intermediates" structureno="3.2.S.2.4">
+      <description xml:lang="zh">关键步骤和中间体的控制</description>
+      <description xml:lang="en">Controls of Critical Steps and Intermediates</description>
+    </element>
+    <element name="m3-2-s-2-5-process-validation-and-or-evaluation" structureno="3.2.S.2.5">
+      <description xml:lang="zh">工艺验证和/或评价</description>
+      <description xml:lang="en">Process Validation and/or Evaluation</description>
+    </element>
+    <element name="m3-2-s-2-6-manufacturing-process-development" structureno="3.2.S.2.6">
+      <description xml:lang="zh">生产工艺的开发</description>
+      <description xml:lang="en">Manufacturing Process Development</description>
+    </element>
+    <element name="m3-2-s-3-characterisation" structureno="3.2.S.3">
+      <description xml:lang="zh">特性鉴定</description>
+      <description xml:lang="en">Characterization</description>
+    </element>
+    <element name="m3-2-s-3-1-elucidation-of-structure-and-other-characteristics" structureno="3.2.S.3.1">
+      <description xml:lang="zh">结构和理化性质</description>
+      <description xml:lang="en">Elucidation of Structure and Other Characteristics</description>
+    </element>
+    <element name="m3-2-s-3-2-impurities" structureno="3.2.S.3.2">
+      <description xml:lang="zh">杂质</description>
+      <description xml:lang="en">Impurities</description>
+    </element>
+    <element name="m3-2-s-4-control-of-drug-substance" structureno="3.2.S.4">
+      <description xml:lang="zh">原料药的质量控制</description>
+      <description xml:lang="en">Control of Drug Substance</description>
+    </element>
+    <element name="m3-2-s-4-1-specification" structureno="3.2.S.4.1">
+      <description xml:lang="zh">质量标准</description>
+      <description xml:lang="en">Specification</description>
+    </element>
+    <element name="m3-2-s-4-2-analytical-procedures" structureno="3.2.S.4.2">
+      <description xml:lang="zh">分析方法</description>
+      <description xml:lang="en">Analytical Procedures</description>
+    </element>
+    <element name="m3-2-s-4-3-validation-of-analytical-procedures" structureno="3.2.S.4.3">
+      <description xml:lang="zh">分析方法的验证</description>
+      <description xml:lang="en">Validation of Analytical Procedures</description>
+    </element>
+    <element name="m3-2-s-4-4-batch-analyses" structureno="3.2.S.4.4">
+      <description xml:lang="zh">批分析</description>
+      <description xml:lang="en">Batch Analyses</description>
+    </element>
+    <element name="m3-2-s-4-5-justification-of-specification" structureno="3.2.S.4.5">
+      <description xml:lang="zh">质量标准制定依据</description>
+      <description xml:lang="en">Justification of Specification</description>
+    </element>
+    <element name="m3-2-s-5-reference-standards-or-materials" structureno="3.2.S.5">
+      <description xml:lang="zh">对照品/标准品</description>
+      <description xml:lang="en">Reference Standards or Materials</description>
+    </element>
+    <element name="m3-2-s-6-container-closure-system" structureno="3.2.S.6">
+      <description xml:lang="zh">包装系统</description>
+      <description xml:lang="en">Container Closure System</description>
+    </element>
+    <element name="m3-2-s-7-stability" structureno="3.2.S.7">
+      <description xml:lang="zh">稳定性</description>
+      <description xml:lang="en">Stability</description>
+    </element>
+    <element name="m3-2-s-7-1-stability-summary-and-conclusions" structureno="3.2.S.7.1">
+      <description xml:lang="zh">稳定性总结和结论</description>
+      <description xml:lang="en">Stability Summary and Conclusions</description>
+    </element>
+    <element name="m3-2-s-7-2-post-approval-stability-protocol-and-stability-commitment" structureno="3.2.S.7.2">
+      <description xml:lang="zh">批准后稳定性研究方案和承诺</description>
+      <description xml:lang="en">Post-approval Stability Protocol and Stability Commitment</description>
+    </element>
+    <element name="m3-2-s-7-3-stability-data" structureno="3.2.S.7.3">
+      <description xml:lang="zh">稳定性数据</description>
+      <description xml:lang="en">Stability Data</description>
+    </element>
+    <element name="m3-2-p-drug-product" structureno="3.2.P">
+      <description xml:lang="zh">制剂</description>
+      <description xml:lang="en">Drug Product</description>
+    </element>
+    <element name="m3-2-p-1-description-and-composition-of-the-drug-product" structureno="3.2.P.1">
+      <description xml:lang="zh">剂型及产品组成</description>
+      <description xml:lang="en">Description and Composition of the Drug Product</description>
+    </element>
+    <element name="m3-2-p-2-pharmaceutical-development" structureno="3.2.P.2">
+      <description xml:lang="zh">产品开发</description>
+      <description xml:lang="en">Pharmaceutical Development</description>
+    </element>
+    <element name="m3-2-p-3-manufacture" structureno="3.2.P.3">
+      <description xml:lang="zh">生产</description>
+      <description xml:lang="en">Manufacture</description>
+    </element>
+    <element name="m3-2-p-3-1-manufacturers" structureno="3.2.P.3.1">
+      <description xml:lang="zh">生产商</description>
+      <description xml:lang="en">Manufacturer(s)</description>
+    </element>
+    <element name="m3-2-p-3-2-batch-formula" structureno="3.2.P.3.2">
+      <description xml:lang="zh">批处方</description>
+      <description xml:lang="en">Batch Formula</description>
+    </element>
+    <element name="m3-2-p-3-3-description-of-manufacturing-process-and-process-controls" structureno="3.2.P.3.3">
+      <description xml:lang="zh">生产工艺和工艺控制</description>
+      <description xml:lang="en">Description of Manufacturing Process and Process Controls</description>
+    </element>
+    <element name="m3-2-p-3-4-controls-of-critical-steps-and-intermediates" structureno="3.2.P.3.4">
+      <description xml:lang="zh">关键步骤和中间体的控制</description>
+      <description xml:lang="en">Controls of Critical Steps and Intermediates</description>
+    </element>
+    <element name="m3-2-p-3-5-process-validation-and-or-evaluation" structureno="3.2.P.3.5">
+      <description xml:lang="zh">工艺验证和/或评价</description>
+      <description xml:lang="en">Process Validation and/or Evaluation</description>
+    </element>
+    <element name="m3-2-p-4-control-of-excipients" structureno="3.2.P.4">
+      <description xml:lang="zh">辅料的控制</description>
+      <description xml:lang="en">Control of Excipients</description>
+    </element>
+    <element name="m3-2-p-4-1-specifications" structureno="3.2.P.4.1">
+      <description xml:lang="zh">质量标准</description>
+      <description xml:lang="en">Specifications</description>
+    </element>
+    <element name="m3-2-p-4-2-analytical-procedures" structureno="3.2.P.4.2">
+      <description xml:lang="zh">分析方法</description>
+      <description xml:lang="en">Analytical Procedures</description>
+    </element>
+    <element name="m3-2-p-4-3-validation-of-analytical-procedures" structureno="3.2.P.4.3">
+      <description xml:lang="zh">分析方法的验证</description>
+      <description xml:lang="en">Validation of Analytical Procedures</description>
+    </element>
+    <element name="m3-2-p-4-4-justification-of-specifications" structureno="3.2.P.4.4">
+      <description xml:lang="zh">质量标准制定依据</description>
+      <description xml:lang="en">Justification of Specifications</description>
+    </element>
+    <element name="m3-2-p-4-5-excipients-of-human-or-animal-origin" structureno="3.2.P.4.5">
+      <description xml:lang="zh">人源或动物源辅料</description>
+      <description xml:lang="en">Excipients of Human or Animal Origin</description>
+    </element>
+    <element name="m3-2-p-4-6-novel-excipients" structureno="3.2.P.4.6">
+      <description xml:lang="zh">新型辅料</description>
+      <description xml:lang="en">Novel Excipients</description>
+    </element>
+    <element name="m3-2-p-5-control-of-drug-product" structureno="3.2.P.5">
+      <description xml:lang="zh">制剂的质量控制</description>
+      <description xml:lang="en">Control of Drug Product</description>
+    </element>
+    <element name="m3-2-p-5-1-specifications" structureno="3.2.P.5.1">
+      <description xml:lang="zh">质量标准</description>
+      <description xml:lang="en">Specification(s)</description>
+    </element>
+    <element name="m3-2-p-5-2-analytical-procedures" structureno="3.2.P.5.2">
+      <description xml:lang="zh">分析方法</description>
+      <description xml:lang="en">Analytical Procedures</description>
+    </element>
+    <element name="m3-2-p-5-3-validation-of-analytical-procedures" structureno="3.2.P.5.3">
+      <description xml:lang="zh">分析方法的验证</description>
+      <description xml:lang="en">Validation of Analytical Procedures</description>
+    </element>
+    <element name="m3-2-p-5-4-batch-analyses" structureno="3.2.P.5.4">
+      <description xml:lang="zh">批分析</description>
+      <description xml:lang="en">Batch Analyses</description>
+    </element>
+    <element name="m3-2-p-5-5-characterisation-of-impurities" structureno="3.2.P.5.5">
+      <description xml:lang="zh">杂质分析</description>
+      <description xml:lang="en">Characterisation of Impurities</description>
+    </element>
+    <element name="m3-2-p-5-6-justification-of-specifications" structureno="3.2.P.5.6">
+      <description xml:lang="zh">质量标准制定依据</description>
+      <description xml:lang="en">Justification of Specification(s)</description>
+    </element>
+    <element name="m3-2-p-6-reference-standards-or-materials" structureno="3.2.P.6">
+      <description xml:lang="zh">对照品/标准品</description>
+      <description xml:lang="en">Reference Standards or Materials</description>
+    </element>
+    <element name="m3-2-p-7-container-closure-system" structureno="3.2.P.7">
+      <description xml:lang="zh">包装系统</description>
+      <description xml:lang="en">Container Closure System</description>
+    </element>
+    <element name="m3-2-p-8-stability" structureno="3.2.P.8">
+      <description xml:lang="zh">稳定性</description>
+      <description xml:lang="en">Stability</description>
+    </element>
+    <element name="m3-2-p-8-1-stability-summary-and-conclusion" structureno="3.2.P.8.1">
+      <description xml:lang="zh">稳定性总结和结论</description>
+      <description xml:lang="en">Stability Summary and Conclusion</description>
+    </element>
+    <element name="m3-2-p-8-2-post-approval-stability-protocol-and-stability-commitment" structureno="3.2.P.8.2">
+      <description xml:lang="zh">批准后稳定性研究方案和承诺</description>
+      <description xml:lang="en">Post-approval Stability Protocol and Stability Commitment</description>
+    </element>
+    <element name="m3-2-p-8-3-stability-data" structureno="3.2.P.8.3">
+      <description xml:lang="zh">稳定性数据</description>
+      <description xml:lang="en">Stability Data</description>
+    </element>
+    <element name="m3-2-a-appendices" structureno="3.2.A">
+      <description xml:lang="zh">附录</description>
+      <description xml:lang="en"> Appendices</description>
+    </element>
+    <element name="m3-2-a-1-facilities-and-equipment" structureno="3.2.A.1">
+      <description xml:lang="zh">设施和设备</description>
+      <description xml:lang="en">Facilities and Equipment</description>
+    </element>
+    <element name="m3-2-a-2-adventitious-agents-safety-evaluation" structureno="3.2.A.2">
+      <description xml:lang="zh">外源因子的安全性评价</description>
+      <description xml:lang="en">Adventitious Agents Safety Evaluation</description>
+    </element>
+    <element name="m3-2-a-3-excipients" structureno="3.2.A.3">
+      <description xml:lang="zh">辅料</description>
+      <description xml:lang="en">Excipients</description>
+    </element>
+    <element name="m3-2-r-regional-information" structureno="3.2.R">
+      <description xml:lang="zh">区域性信息</description>
+      <description xml:lang="en">Regional Information</description>
+    </element>
+    <element name="m3-3-literature-references" structureno="3.3">
+      <description xml:lang="zh">参考文献</description>
+      <description xml:lang="en">Literature References</description>
+    </element>
+
+    <element name="m4-nonclinical-study-reports" structureno="4">
+      <description xml:lang="zh">模块4：非临床试验报告</description>
+      <description xml:lang="en">Module 4: Nonclinical Study Reports</description>
+    </element>
+    <element name="m4-2-study-reports" structureno="4.2">
+      <description xml:lang="zh">试验报告</description>
+      <description xml:lang="en">Study Reports</description>
+    </element>
+    <element name="m4-2-1-pharmacology" structureno="4.2.1">
+      <description xml:lang="zh">药理学</description>
+      <description xml:lang="en">Pharmacology</description>
+    </element>
+    <element name="m4-2-1-1-primary-pharmacodynamics" structureno="4.2.1.1">
+      <description xml:lang="zh">主要药效学</description>
+      <description xml:lang="en">Primary Pharmacodynamics</description>
+    </element>
+    <element name="m4-2-1-2-secondary-pharmacodynamics" structureno="4.2.1.2">
+      <description xml:lang="zh">次要药效学</description>
+      <description xml:lang="en">Secondary Pharmacodynamics</description>
+    </element>
+    <element name="m4-2-1-3-safety-pharmacology" structureno="4.2.1.3">
+      <description xml:lang="zh">安全药理学</description>
+      <description xml:lang="en">Safety Pharmacology</description>
+    </element>
+    <element name="m4-2-1-4-pharmacodynamic-drug-interactions" structureno="4.2.1.4">
+      <description xml:lang="zh">药效学药物相互作用</description>
+      <description xml:lang="en">Pharmacodynamic Drug Interactions</description>
+    </element>
+    <element name="m4-2-2-pharmacokinetics" structureno="4.2.2">
+      <description xml:lang="zh">药代动力学</description>
+      <description xml:lang="en">Pharmacokinetics</description>
+    </element>
+    <element name="m4-2-2-1-analytical-methods-and-validation-reports" structureno="4.2.2.1">
+      <description xml:lang="zh">分析方法和验证报告（如果有单独的报告）</description>
+      <description xml:lang="en">Analytical Methods and Validation Reports (if separate reports are available)</description>
+    </element>
+    <element name="m4-2-2-2-absorption" structureno="4.2.2.2">
+      <description xml:lang="zh">吸收</description>
+      <description xml:lang="en">Absorption</description>
+    </element>
+    <element name="m4-2-2-3-distribution" structureno="4.2.2.3">
+      <description xml:lang="zh">分布</description>
+      <description xml:lang="en">Distribution</description>
+    </element>
+    <element name="m4-2-2-4-metabolism" structureno="4.2.2.4">
+      <description xml:lang="zh">代谢</description>
+      <description xml:lang="en">Metabolism</description>
+    </element>
+    <element name="m4-2-2-5-excretion" structureno="4.2.2.5">
+      <description xml:lang="zh">排泄</description>
+      <description xml:lang="en">Excretion</description>
+    </element>
+    <element name="m4-2-2-6-pharmacokinetic-drug-interactions" structureno="4.2.2.6">
+      <description xml:lang="zh">药代动力学药物相互作用（非临床）</description>
+      <description xml:lang="en">Pharmacokinetic Drug Interactions (nonclinical)</description>
+    </element>
+    <element name="m4-2-2-7-other-pharmacokinetic-studies" structureno="4.2.2.7">
+      <description xml:lang="zh">其他药代动力学试验</description>
+      <description xml:lang="en">Other Pharmacokinetic Studies</description>
+    </element>
+    <element name="m4-2-3-toxicology" structureno="4.2.3">
+      <description xml:lang="zh">毒理学</description>
+      <description xml:lang="en">Toxicology</description>
+    </element>
+    <element name="m4-2-3-1-single-dose-toxicity" structureno="4.2.3.1">
+      <description xml:lang="zh">单次给药毒性（按照动物种属、给药途径的顺序）</description>
+      <description xml:lang="en">Single-Dose Toxicity (in order by species, by route)</description>
+    </element>
+    <element name="m4-2-3-2-repeat-dose-toxicity" structureno="4.2.3.2">
+      <description xml:lang="zh">重复给药毒性（按照动物种属、给药途径、给药持续时间的顺序；包括伴随毒代动力学试验） </description>
+      <description xml:lang="en">Repeat-Dose Toxicity (in order by species, by route, by duration; including supportive toxicokinetics evaluations)</description>
+    </element>
+    <element name="m4-2-3-3-genotoxicity" structureno="4.2.3.3">
+      <description xml:lang="zh">遗传毒性</description>
+      <description xml:lang="en">Genotoxicity</description>
+    </element>
+    <element name="m4-2-3-3-1-in-vitro" structureno="4.2.3.3.1">
+      <description xml:lang="zh">体外</description>
+      <description xml:lang="en">In Vitro</description>
+    </element>
+    <element name="m4-2-3-3-2-in-vivo" structureno="4.2.3.3.2">
+      <description xml:lang="zh">体内（包括伴随毒代动力学试验）</description>
+      <description xml:lang="en">In Vivo (including supportive toxicokinetics evaluations)</description>
+    </element>
+    <element name="m4-2-3-4-carcinogenicity" structureno="4.2.3.4">
+      <description xml:lang="zh">致癌性（包括伴随毒代动力学试验）</description>
+      <description xml:lang="en">Carcinogenicity (including supportive toxicokinetics evaluations)</description>
+    </element>
+    <element name="m4-2-3-4-1-long-term-studies" structureno="4.2.3.4.1">
+      <description xml:lang="zh">长期试验（按照动物种属的顺序，包括不适合放在重复给药毒性试验或药代动力学试验中的剂量探索试验）</description>
+      <description xml:lang="en">Long-term Studies (in order by species; including range-finding studies that cannot appropriately be included under repeat-dose toxicity or pharmacokinetics)</description>
+    </element>
+    <element name="m4-2-3-4-2-short-or-medium-term-studies" structureno="4.2.3.4.2">
+      <description xml:lang="zh">短期或中期试验（包括不适合放在重复给药毒性试验或药代动力学试验中的剂量探索试验）</description>
+      <description xml:lang="en">Short- or Medium-term Studies (including range-finding studies that cannot appropriately be included under repeat-dose toxicity or pharmacokinetics)</description>
+    </element>
+    <element name="m4-2-3-4-3-other-studies" structureno="4.2.3.4.3">
+      <description xml:lang="zh">其他试验</description>
+      <description xml:lang="en">Other Studies</description>
+    </element>
+    <element name="m4-2-3-5-reproductive-and-developmental-toxicity" structureno="4.2.3.5">
+      <description xml:lang="zh">生殖毒性（包括剂量探索研究和伴随毒代动力学试验）（如果采用了改良的试验设计，则下列副标题应作相应修改。）</description>
+      <description xml:lang="en">Reproductive and Developmental Toxicity (including range-finding studies and supportive toxicokinetics evaluations) (If modified study designs are used, the following sub-headings should be modified accordingly.)</description>
+    </element>
+    <element name="m4-2-3-5-1-fertility-and-early-embryonic-development" structureno="4.2.3.5.1">
+      <description xml:lang="zh">生育力与早期胚胎发育毒性</description>
+      <description xml:lang="en">Fertility and Early Embryonic Development</description>
+    </element>
+    <element name="m4-2-3-5-2-embryo-fetal-development" structureno="4.2.3.5.2">
+      <description xml:lang="zh">胚胎-胎仔发育毒性</description>
+      <description xml:lang="en">Embryo-fetal Development</description>
+    </element>
+    <element name="m4-2-3-5-3-prenatal-and-postnatal-development-including-maternal-function" structureno="4.2.3.5.3">
+      <description xml:lang="zh">围产期毒性，包括母体功能</description>
+      <description xml:lang="en">Prenatal and Postnatal Development, including Maternal Function</description>
+    </element>
+    <element name="m4-2-3-5-4-studies-in-which-the-offspring-juvenile-animals-are-dosed-and-or-further-evaluated" structureno="4.2.3.5.4">
+      <description xml:lang="zh">对子代（幼龄动物）给药和/或进一步评价的试验</description>
+      <description xml:lang="en">Studies in Which the Offspring (Juvenile Animals) are Dosed and/or Further Evaluated.</description>
+    </element>
+    <element name="m4-2-3-6-local-tolerance" structureno="4.2.3.6">
+      <description xml:lang="zh">局部耐受性</description>
+      <description xml:lang="en">Local Tolerance</description>
+    </element>
+    <element name="m4-2-3-7-other-toxicity-studies" structureno="4.2.3.7">
+      <description xml:lang="zh">其他毒性研究（如有）</description>
+      <description xml:lang="en">Other Toxicity Studies (if available)</description>
+    </element>
+    <element name="m4-2-3-7-1-antigenicity" structureno="4.2.3.7.1">
+      <description xml:lang="zh">抗原性</description>
+      <description xml:lang="en">Antigenicity</description>
+    </element>
+    <element name="m4-2-3-7-2-immunotoxicity" structureno="4.2.3.7.2">
+      <description xml:lang="zh">免疫毒性</description>
+      <description xml:lang="en">Immunotoxicity</description>
+    </element>
+    <element name="m4-2-3-7-3-mechanistic-studies" structureno="4.2.3.7.3">
+      <description xml:lang="zh">作用机理研究（如其他章节未报告）</description>
+      <description xml:lang="en">Mechanistic Studies (if not included elsewhere)</description>
+    </element>
+    <element name="m4-2-3-7-4-dependence" structureno="4.2.3.7.4">
+      <description xml:lang="zh">依赖性</description>
+      <description xml:lang="en">Dependence</description>
+    </element>
+    <element name="m4-2-3-7-5-metabolites" structureno="4.2.3.7.5">
+      <description xml:lang="zh">代谢产物研究</description>
+      <description xml:lang="en">Metabolites</description>
+    </element>
+    <element name="m4-2-3-7-6-impurities" structureno="4.2.3.7.6">
+      <description xml:lang="zh">杂质研究</description>
+      <description xml:lang="en">Impurities</description>
+    </element>
+    <element name="m4-2-3-7-7-other" structureno="4.2.3.7.7">
+      <description xml:lang="zh">其他试验</description>
+      <description xml:lang="en">Other</description>
+    </element>
+    <element name="m4-3-literature-references" structureno="4.3">
+      <description xml:lang="zh">参考文献</description>
+      <description xml:lang="en">Literature References</description>
+    </element>
+
+    <element name="m5-clinical-study-reports" structureno="5">
+      <description xml:lang="zh">模块5：临床研究报告</description>
+      <description xml:lang="en">Module 5:Clinical Study Reports</description>
+    </element>
+    <element name="m5-2-tabular-listing-of-all-clinical-studies" structureno="5.2">
+      <description xml:lang="zh">所有临床研究列表</description>
+      <description xml:lang="en">Tabular Listing of All Clinical Studies</description>
+    </element>
+    <element name="m5-3-clinical-study-reports" structureno="5.3">
+      <description xml:lang="zh">临床研究报告</description>
+      <description xml:lang="en">Clinical Study Reports</description>
+    </element>
+    <element name="m5-3-1-reports-of-biopharmaceutic-studies" structureno="5.3.1">
+      <description xml:lang="zh">生物药剂学研究报告</description>
+      <description xml:lang="en">Reports of Biopharmaceutic Studies</description>
+    </element>
+    <element name="m5-3-1-1-bioavailability-study-reports" structureno="5.3.1.1">
+      <description xml:lang="zh">生物利用度（BA）研究报告</description>
+      <description xml:lang="en">Bioavailability (BA) Study Reports</description>
+    </element>
+    <element name="m5-3-1-2-comparative-ba-and-bioequivalence-study-reports" structureno="5.3.1.2">
+      <description xml:lang="zh">相对BA和生物等效性（BE）研究报告</description>
+      <description xml:lang="en">Comparative BA and Bioequivalence (BE) Study Reports</description>
+    </element>
+    <element name="m5-3-1-3-in-vitro-in-vivo-correlation-study-reports" structureno="5.3.1.3">
+      <description xml:lang="zh">体外-体内相关性研究报告</description>
+      <description xml:lang="en">In vitro-In vivo Correlation Study Reports</description>
+    </element>
+    <element name="m5-3-1-4-reports-of-bioanalytical-and-analytical-methods-for-human-studies" structureno="5.3.1.4">
+      <description xml:lang="zh">人体研究的生物分析和分析方法的报告</description>
+      <description xml:lang="en">Reports of Bioanalytical and Analytical Methods for Human Studies</description>
+    </element>
+    <element name="m5-3-2-reports-of-studies-pertinent-to-pharmacokinetics-using-human-biomaterials" structureno="5.3.2">
+      <description xml:lang="zh">使用人体生物材料进行的药代动力学研究报告</description>
+      <description xml:lang="en">Reports of Studies Pertinent to Pharmacokinetics Using Human Biomaterials</description>
+    </element>
+    <element name="m5-3-2-1-plasma-protein-binding-study-reports" structureno="5.3.2.1">
+      <description xml:lang="zh">血浆蛋白结合研究报告</description>
+      <description xml:lang="en">Plasma Protein Binding Study Reports</description>
+    </element>
+    <element name="m5-3-2-2-reports-of-hepatic-metabolism-and-drug-interaction-studies" structureno="5.3.2.2">
+      <description xml:lang="zh">肝脏代谢和药物相互作用研究报告</description>
+      <description xml:lang="en">Reports of Hepatic Metabolism and Drug Interaction Studies</description>
+    </element>
+    <element name="m5-3-2-3-reports-of-studies-using-other-human-biomaterials" structureno="5.3.2.3">
+      <description xml:lang="zh">使用其他人体生物材料的研究报告</description>
+      <description xml:lang="en">Reports of Studies Using Other Human Biomaterials</description>
+    </element>
+    <element name="m5-3-3-reports-of-human-pharmacokinetics-pk-studies" structureno="5.3.3">
+      <description xml:lang="zh">人体药代动力学（PK）研究报告</description>
+      <description xml:lang="en">Reports of Human Pharmacokinetic (PK) Studies</description>
+    </element>
+    <element name="m5-3-3-1-healthy-subject-pk-and-initial-tolerability-study-reports" structureno="5.3.3.1">
+      <description xml:lang="zh">健康受试者PK和初始耐受性研究报告</description>
+      <description xml:lang="en">Healthy Subject PK and Initial Tolerability Study Reports</description>
+    </element>
+    <element name="m5-3-3-2-patient-pk-and-initial-tolerability-study-reports" structureno="5.3.3.2">
+      <description xml:lang="zh">患者PK和初始耐受性研究报告</description>
+      <description xml:lang="en">Patient PK and Initial Tolerability Study Reports</description>
+    </element>
+    <element name="m5-3-3-3-intrinsic-factor-pk-study-reports" structureno="5.3.3.3">
+      <description xml:lang="zh">内在因素PK研究报告</description>
+      <description xml:lang="en">Intrinsic Factor PK Study Reports</description>
+    </element>
+    <element name="m5-3-3-4-extrinsic-factor-pk-study-reports" structureno="5.3.3.4">
+      <description xml:lang="zh">外在因素PK研究报告</description>
+      <description xml:lang="en">Extrinsic Factor PK Study Reports</description>
+    </element>
+    <element name="m5-3-3-5-population-pk-study-reports" structureno="5.3.3.5">
+      <description xml:lang="zh">群体PK研究报告</description>
+      <description xml:lang="en">Population PK Study Reports</description>
+    </element>
+    <element name="m5-3-4-reports-of-human-pharmacodynamics-pd-studies" structureno="5.3.4">
+      <description xml:lang="zh">人体药效动力学研究报告</description>
+      <description xml:lang="en">Reports of Human Pharmacodynamic (PD) Studies</description>
+    </element>
+    <element name="m5-3-4-1-healthy-subject-pd-and-pk-pd-study-reports" structureno="5.3.4.1">
+      <description xml:lang="zh">健康受试者PD和PK/PD研究报告</description>
+      <description xml:lang="en">Healthy Subject PD and PK/PD Study Reports</description>
+    </element>
+    <element name="m5-3-4-2-patient-pd-and-pk-pd-study-reports" structureno="5.3.4.2">
+      <description xml:lang="zh">患者PD和PK/PD研究报告</description>
+      <description xml:lang="en">Patient PD and PK/PD Study Reports</description>
+    </element>
+    <element name="m5-3-5-reports-of-efficacy-and-safety-studies" structureno="5.3.5">
+      <description xml:lang="zh">有效性和安全性研究报告</description>
+      <description xml:lang="en">Reports of Efficacy and Safety Studies</description>
+    </element>
+    <element name="m5-3-5-1-study-reports-of-controlled-clinical-studies-pertinent-to-the-claimed-indication" structureno="5.3.5.1">
+      <description xml:lang="zh">与申报适应症相关的对照临床研究报告</description>
+      <description xml:lang="en">Study Reports of Controlled Clinical Studies Pertinent to the Claimed Indication</description>
+    </element>
+    <element name="m5-3-5-2-study-reports-of-uncontrolled-clinical-studies" structureno="5.3.5.2">
+      <description xml:lang="zh">非对照临床研究报告</description>
+      <description xml:lang="en">Study Reports of Uncontrolled Clinical Studies</description>
+    </element>
+    <element name="m5-3-5-3-reports-of-analyses-of-data-from-more-than-one-study" structureno="5.3.5.3">
+      <description xml:lang="zh">多项研究数据的分析报告</description>
+      <description xml:lang="en">Reports of Analyses of Data from More Than One Study</description>
+    </element>
+    <element name="m5-3-5-4-other-study-reports" structureno="5.3.5.4">
+      <description xml:lang="zh">其他研究报告</description>
+      <description xml:lang="en">Other Study Reports</description>
+    </element>
+    <element name="m5-3-6-reports-of-postmarketing-experience" structureno="5.3.6">
+      <description xml:lang="zh">上市后报告</description>
+      <description xml:lang="en">Reports of Post-Marketing Experience</description>
+    </element>
+    <element name="m5-3-7-case-report-forms-and-individual-patient-listings" structureno="5.3.7">
+      <description xml:lang="zh">病例报告表和个体患者列表</description>
+      <description xml:lang="en">Case Report Forms and Individual Patient Listings</description>
+    </element>
+    <element name="m5-4-literature-references" structureno="5.4">
+      <description xml:lang="zh">参考文献</description>
+      <description xml:lang="en">Literature References</description>
+    </element>
+  </version>
+</element-properties>

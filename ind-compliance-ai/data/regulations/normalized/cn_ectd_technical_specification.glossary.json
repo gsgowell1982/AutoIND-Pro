@@ -1,0 +1,221 @@
+{
+  "schema_version": "regulation-library-v1",
+  "glossary_schema_version": "regulation-glossary-v1",
+  "regulation_id": "cn_ectd_technical_specification",
+  "regulation_title": "eCTD技术规范",
+  "source_clause_id": "cn_ectd_technical_specification:ch_06",
+  "source_heading": "6. 术语表",
+  "term_count": 19,
+  "terms": [
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_01",
+      "term_no": 1,
+      "term": "电子通用技术文档（eCTD）",
+      "definition": "电子通用技术文档是用于药品注册申报和审评的电子注册文档。通过可扩展标记语言（XML）将符合 CTD 规范的药品申报资料以电子化形式进行组织、传输和呈现。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_01",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_02",
+      "term_no": 2,
+      "term": "申请",
+      "definition": "申请是指为了一个特殊的监管目的（如临床试验申请）来整理和提交的申报资料的集合。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_02",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_03",
+      "term_no": 3,
+      "term": "注册行为",
+      "definition": "注册行为是针对某一特定注册目的从首次提交到获得批准的所有序列的申报资料集合，可以包含一个序列或多个序列。同一个注册行为中的多个序列可以是连续的序列，也可以是不连续的序列。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_03",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_04",
+      "term_no": 4,
+      "term": "序列",
+      "definition": "序列是在某一注册行为中单次提交的申报资料的集合。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_04",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_05",
+      "term_no": 5,
+      "term": "申请编号",
+      "definition": "申请编号是一个申请在其全生命周期内的唯一识别编号，由监管机构分配给申请人。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_05",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_06",
+      "term_no": 6,
+      "term": "原始编号",
+      "definition": "原始编号是对一个进入注册审批程序的药品所给予的基本的和永久的资料代号，是用于标识申请人、活性成分和剂型的唯一识别码，由监管机构分配。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_06",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_07",
+      "term_no": 7,
+      "term": "相关序列",
+      "definition": "一个注册行为中首次提交的序列被称为该注册行为中提交的所有序列的相关序列。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_07",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_08",
+      "term_no": 8,
+      "term": "序列号",
+      "definition": "序列号是申请中唯一的 4 位数字的字符串，是用于区分同一申请中不同提交序列的唯一标识。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_08",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_09",
+      "term_no": 9,
+      "term": "叶元素（leaf element）",
+      "definition": "叶元素是 eCTD 骨架文件的一部分，是在序列中提交的单个文件的引用地址、显示名称、校验和及生命周期操作等信息的集合。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_09",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_10",
+      "term_no": 10,
+      "term": "信封信息",
+      "definition": "信封信息是 eCTD 区域骨架文件的一部分，给电子资料管理系统提供处理和组织申报资料时使用的元数据。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_10",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_11",
+      "term_no": 11,
+      "term": "受控词汇",
+      "definition": "受控词汇是对特定概念规定术语的限定列表。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_11",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_12",
+      "term_no": 12,
+      "term": "基线",
+      "definition": "基线指申请人将已以纸质递交获批上市许可的药品从纸质递交格式转换为 eCTD 提交的注册行为。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_12",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_13",
+      "term_no": 13,
+      "term": "扩展节点（node extension）",
+      "definition": "扩展节点为申请人提供了自定义目录元素的途径，用以扩展技术规范中既定的 eCTD 目录元素结构，实现将多个叶元素在自定义目录元素下组合显示功能。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_13",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_14",
+      "term_no": 14,
+      "term": "研究标签文件（Study Tagging Files, STF）",
+      "definition": "研究标签文件用以提供在 eCTD 骨架文件中没有包含的关于研究主题和研究报告的信息，例如研究全称，研究 ID，研究使用的种属，给药途径，研究时长，对照类型等。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_14",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_15",
+      "term_no": 15,
+      "term": "MD5",
+      "definition": "MD5 消息摘要算法（MD5 Message Digest Algorithm），一种被广泛使用的密码散列函数，用于产生一个文件对应的数字指纹，即校验和。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_15",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_16",
+      "term_no": 16,
+      "term": "校验和（checksum）",
+      "definition": "使用 MD5 消息摘要算法产生的文件校验和，用以确保信息传输的完整性和一致性。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_16",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_17",
+      "term_no": 17,
+      "term": "DTD",
+      "definition": "文档类型定义（Document Type Definition）是一套为了进行程序间的数据交换而建立的关于标记符的语法规则，用于保证 eCTD 骨架文件的合法性，如元素和属性使用是否正确等。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_17",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_18",
+      "term_no": 18,
+      "term": "验证",
+      "definition": "验证指申请人和监管机构根据公开和统一的验证标准，对 eCTD 申报资料进行检查校验的过程。",
+      "source_clause_id": "cn_ectd_technical_specification:ch_06",
+      "source_heading": "6. 术语表",
+      "citation_anchor": "cn_ectd_technical_specification#ch_06_term_18",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf"
+    },
+    {
+      "term_id": "cn_ectd_technical_specification:glossary_19",
+      "term_no": 19,
+      "term": "OCR",
+      "definition": "光学字符识别（Optical Character Recognition）指对扫描的PDF文件进行光学识别，使扫描文件中的文本可以被检索查找。",
+      "source_clause_id": "cn_ectd_implementation_guide:sec_11",
+      "source_heading": "11. 术语表",
+      "citation_anchor": "cn_ectd_implementation_guide#sec_11_term_ocr",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_note": "Supplemental glossary term from eCTD实施指南.pdf pages 38-39; the term row spans a page boundary."
+    }
+  ]
+}

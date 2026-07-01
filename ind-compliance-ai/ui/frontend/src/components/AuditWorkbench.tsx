@@ -2787,15 +2787,30 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
               showIcon
               message="当前视图展示标准化摘要、解析目录结构与文本预览。完整解析内容请下载 Markdown 文件。"
             />
-            {workbench?.full_markdown_download_url ? (
-              <Button
-                icon={<DownloadOutlined />}
-                href={buildAssetUrl(workbench.full_markdown_download_url)}
-                target="_blank"
-              >
-                下载完整解析 Markdown
-              </Button>
-            ) : null}
+            <Space wrap>
+              {workbench?.ind_review_markdown_download_url || workbench?.full_markdown_download_url ? (
+                <Button
+                  icon={<DownloadOutlined />}
+                  href={buildAssetUrl(
+                    workbench.ind_review_markdown_download_url ?? workbench.full_markdown_download_url ?? '',
+                  )}
+                  target="_blank"
+                  title="干净审阅版：正文、目录、表格、图片及说明，隐藏底层 OCR/XML 证据文本。"
+                >
+                  下载审阅 Markdown（干净版）
+                </Button>
+              ) : null}
+              {workbench?.full_markdown_download_url ? (
+                <Button
+                  icon={<DownloadOutlined />}
+                  href={buildAssetUrl(workbench.full_markdown_download_url)}
+                  target="_blank"
+                  title="完整证据快照：包含证据清单、AST 对象索引、表格/图片/公式证据与底层解析内容。"
+                >
+                  下载完整证据快照（含证据清单）
+                </Button>
+              ) : null}
+            </Space>
           </Space>
           {workbench?.markdown ? (
             <div className="markdown-panel">

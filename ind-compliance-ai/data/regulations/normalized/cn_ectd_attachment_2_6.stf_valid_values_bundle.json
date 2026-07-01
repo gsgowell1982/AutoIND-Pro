@@ -1,0 +1,491 @@
+{
+  "schema_version": "ectd-stf-valid-values-bundle-v1",
+  "bundle_id": "cn_ectd_attachment_2_6",
+  "source_directory": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件2-6：STF标签值文件",
+  "valid_values_file": {
+    "filename": "valid-values.xml",
+    "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件2-6：STF标签值文件\\valid-values.xml",
+    "root_tag": "study-values",
+    "namespace": "http://www.ich.org/ectd",
+    "dtd_version": "2.2",
+    "xml_root_tag": "",
+    "xml_namespace_map": {}
+  },
+  "group_count": 6,
+  "total_value_count": 100,
+  "groups": [
+    {
+      "element": "category",
+      "name": "species",
+      "value_count": 9,
+      "realms": [
+        "ich"
+      ],
+      "values": [
+        {
+          "realm": "ich",
+          "value": "mouse"
+        },
+        {
+          "realm": "ich",
+          "value": "rat"
+        },
+        {
+          "realm": "ich",
+          "value": "hamster"
+        },
+        {
+          "realm": "ich",
+          "value": "other-rodent"
+        },
+        {
+          "realm": "ich",
+          "value": "rabbit"
+        },
+        {
+          "realm": "ich",
+          "value": "dog"
+        },
+        {
+          "realm": "ich",
+          "value": "non-human-primate"
+        },
+        {
+          "realm": "ich",
+          "value": "other-non-rodent-mammal"
+        },
+        {
+          "realm": "ich",
+          "value": "non-mammals"
+        }
+      ]
+    },
+    {
+      "element": "category",
+      "name": "route-of-admin",
+      "value_count": 8,
+      "realms": [
+        "ich"
+      ],
+      "values": [
+        {
+          "realm": "ich",
+          "value": "oral"
+        },
+        {
+          "realm": "ich",
+          "value": "intravenous"
+        },
+        {
+          "realm": "ich",
+          "value": "intramuscular"
+        },
+        {
+          "realm": "ich",
+          "value": "intraperitoneal"
+        },
+        {
+          "realm": "ich",
+          "value": "subcutaneous"
+        },
+        {
+          "realm": "ich",
+          "value": "inhalation"
+        },
+        {
+          "realm": "ich",
+          "value": "topical"
+        },
+        {
+          "realm": "ich",
+          "value": "other"
+        }
+      ]
+    },
+    {
+      "element": "category",
+      "name": "duration",
+      "value_count": 3,
+      "realms": [
+        "us"
+      ],
+      "values": [
+        {
+          "realm": "us",
+          "value": "short"
+        },
+        {
+          "realm": "us",
+          "value": "medium"
+        },
+        {
+          "realm": "us",
+          "value": "long"
+        }
+      ]
+    },
+    {
+      "element": "category",
+      "name": "type-of-control",
+      "value_count": 5,
+      "realms": [
+        "ich"
+      ],
+      "values": [
+        {
+          "realm": "ich",
+          "value": "placebo"
+        },
+        {
+          "realm": "ich",
+          "value": "no-treatment"
+        },
+        {
+          "realm": "ich",
+          "value": "dose-response-without-placebo"
+        },
+        {
+          "realm": "ich",
+          "value": "active-control-without-placebo"
+        },
+        {
+          "realm": "ich",
+          "value": "external"
+        }
+      ]
+    },
+    {
+      "element": "property",
+      "name": "",
+      "value_count": 1,
+      "realms": [
+        "us"
+      ],
+      "values": [
+        {
+          "realm": "us",
+          "value": "site-identifier"
+        }
+      ]
+    },
+    {
+      "element": "file-tag",
+      "name": "",
+      "value_count": 74,
+      "realms": [
+        "ich",
+        "jp",
+        "us"
+      ],
+      "values": [
+        {
+          "realm": "ich",
+          "value": "pre-clinical-study-report"
+        },
+        {
+          "realm": "ich",
+          "value": "legacy-clinical-study-report"
+        },
+        {
+          "realm": "ich",
+          "value": "synopsis"
+        },
+        {
+          "realm": "ich",
+          "value": "study-report-body"
+        },
+        {
+          "realm": "ich",
+          "value": "protocol-or-amendment"
+        },
+        {
+          "realm": "ich",
+          "value": "sample-case-report-form"
+        },
+        {
+          "realm": "ich",
+          "value": "iec-irb-consent-form-list"
+        },
+        {
+          "realm": "ich",
+          "value": "list-description-investigator-site"
+        },
+        {
+          "realm": "ich",
+          "value": "signatures-investigators"
+        },
+        {
+          "realm": "ich",
+          "value": "list-patients-with-batches"
+        },
+        {
+          "realm": "ich",
+          "value": "randomisation-scheme"
+        },
+        {
+          "realm": "ich",
+          "value": "audit-certificates-report"
+        },
+        {
+          "realm": "ich",
+          "value": "statistical-methods-interim-analysis-plan"
+        },
+        {
+          "realm": "ich",
+          "value": "inter-laboratory-standardisation-methods-quality-assurance"
+        },
+        {
+          "realm": "ich",
+          "value": "publications-based-on-study"
+        },
+        {
+          "realm": "ich",
+          "value": "publications-referenced-in-report"
+        },
+        {
+          "realm": "ich",
+          "value": "discontinued-patients"
+        },
+        {
+          "realm": "ich",
+          "value": "protocol-deviations"
+        },
+        {
+          "realm": "ich",
+          "value": "patients-excluded-from-efficacy-analysis"
+        },
+        {
+          "realm": "ich",
+          "value": "demographic-data"
+        },
+        {
+          "realm": "ich",
+          "value": "compliance-and-drug-concentration-data"
+        },
+        {
+          "realm": "ich",
+          "value": "individual-efficacy-response-data"
+        },
+        {
+          "realm": "ich",
+          "value": "adverse-event-listings"
+        },
+        {
+          "realm": "ich",
+          "value": "listing-individual-laboratory-measurements-by-patient"
+        },
+        {
+          "realm": "ich",
+          "value": "case-report-forms"
+        },
+        {
+          "realm": "ich",
+          "value": "available-on-request"
+        },
+        {
+          "realm": "ich",
+          "value": "assay-validation"
+        },
+        {
+          "realm": "ich",
+          "value": "biomarkers"
+        },
+        {
+          "realm": "ich",
+          "value": "data-monitoring-review-committees"
+        },
+        {
+          "realm": "ich",
+          "value": "device-information"
+        },
+        {
+          "realm": "ich",
+          "value": "diagnostic-tests"
+        },
+        {
+          "realm": "ich",
+          "value": "gene-therapy"
+        },
+        {
+          "realm": "ich",
+          "value": "patient-reported-outcomes"
+        },
+        {
+          "realm": "ich",
+          "value": "pharmacodynamics"
+        },
+        {
+          "realm": "ich",
+          "value": "pharmacogenomics"
+        },
+        {
+          "realm": "ich",
+          "value": "pharmacokinetics"
+        },
+        {
+          "realm": "ich",
+          "value": "quality-of-life"
+        },
+        {
+          "realm": "ich",
+          "value": "stem-cells"
+        },
+        {
+          "realm": "ich",
+          "value": "abuse-liability"
+        },
+        {
+          "realm": "ich",
+          "value": "antibody"
+        },
+        {
+          "realm": "ich",
+          "value": "healthcare-utilization"
+        },
+        {
+          "realm": "ich",
+          "value": "other-data-not-specified"
+        },
+        {
+          "realm": "ich",
+          "value": "PK-PD-relationship"
+        },
+        {
+          "realm": "ich",
+          "value": "specialty-report"
+        },
+        {
+          "realm": "ich",
+          "value": "bimo"
+        },
+        {
+          "realm": "us",
+          "value": "foreign-clinical-studies-not-under-ind"
+        },
+        {
+          "realm": "jp",
+          "value": "complete-patient-list"
+        },
+        {
+          "realm": "jp",
+          "value": "serious-adverse-event-patient-list"
+        },
+        {
+          "realm": "jp",
+          "value": "adverse-event-patient-list"
+        },
+        {
+          "realm": "jp",
+          "value": "abnormal-lab-values-patient-list"
+        },
+        {
+          "realm": "us",
+          "value": "data-tabulation-dataset-legacy"
+        },
+        {
+          "realm": "us",
+          "value": "data-tabulation-dataset-sdtm"
+        },
+        {
+          "realm": "us",
+          "value": "data-tabulation-dataset-send"
+        },
+        {
+          "realm": "us",
+          "value": "data-tabulation-data-definition"
+        },
+        {
+          "realm": "us",
+          "value": "data-listing-dataset"
+        },
+        {
+          "realm": "us",
+          "value": "data-listing-data-definition"
+        },
+        {
+          "realm": "us",
+          "value": "analysis-dataset-adam"
+        },
+        {
+          "realm": "us",
+          "value": "analysis-dataset-legacy"
+        },
+        {
+          "realm": "us",
+          "value": "analysis-program"
+        },
+        {
+          "realm": "us",
+          "value": "analysis-data-definition"
+        },
+        {
+          "realm": "us",
+          "value": "annotated-crf"
+        },
+        {
+          "realm": "us",
+          "value": "ecg"
+        },
+        {
+          "realm": "us",
+          "value": "image"
+        },
+        {
+          "realm": "us",
+          "value": "subject-profiles"
+        },
+        {
+          "realm": "us",
+          "value": "safety-report"
+        },
+        {
+          "realm": "us",
+          "value": "antibacterial"
+        },
+        {
+          "realm": "us",
+          "value": "special-pathogen"
+        },
+        {
+          "realm": "us",
+          "value": "antiviral"
+        },
+        {
+          "realm": "us",
+          "value": "iss"
+        },
+        {
+          "realm": "us",
+          "value": "ise"
+        },
+        {
+          "realm": "us",
+          "value": "pm-description"
+        },
+        {
+          "realm": "us",
+          "value": "HF-validation-protocol"
+        },
+        {
+          "realm": "us",
+          "value": "HF-validation-report"
+        },
+        {
+          "realm": "us",
+          "value": "HF-validation-other"
+        }
+      ]
+    }
+  ],
+  "valid_values_status_summary": {
+    "status": "ready",
+    "group_elements": [
+      "category",
+      "category",
+      "category",
+      "category",
+      "property",
+      "file-tag"
+    ]
+  }
+}

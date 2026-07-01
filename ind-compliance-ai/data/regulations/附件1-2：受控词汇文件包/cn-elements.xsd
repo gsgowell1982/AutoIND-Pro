@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 
+    BSfileC11 cn-elements.xsd 
+	元素名称描述定义文件的 Schema 文件
+
+	Version 1.0 - 2021年9月1日
+ -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:import namespace="http://www.w3.org/XML/1998/namespace" schemaLocation="xml.xsd" />
+  <xs:element name="element-properties">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="version" type="T_version" minOccurs="1" maxOccurs="unbounded" />
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="T_version">
+    <xs:sequence>
+      <xs:element name="element" type="T_element" minOccurs="1" maxOccurs="unbounded" />
+    </xs:sequence>
+    <xs:attribute name="number" type="xs:string" use="required" />
+    <xs:attribute name="valid-from" type="xs:date" use="required" />
+    <xs:attribute name="valid-to" type="xs:date" use="optional" />
+  </xs:complexType>
+  <xs:complexType name="T_element">
+    <xs:sequence>
+      <xs:element name="description" type="T_description" minOccurs="1" maxOccurs="unbounded" />
+    </xs:sequence>
+    <xs:attribute name="name" type="xs:string" use="required" />
+    <xs:attribute name="structureno" type="xs:string" use="required" />
+  </xs:complexType>
+  <xs:complexType name="T_description">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute ref="xml:lang" use="required" />
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+</xs:schema>

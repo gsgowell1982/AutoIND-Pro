@@ -1,0 +1,242 @@
+{
+  "schema_version": "regulation-library-v1",
+  "matrix_schema_version": "regulation-requirement-matrix-v1",
+  "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+  "regulation_title": "药品注册分类及申报资料要求",
+  "requirement_count": 9,
+  "requirements": [
+    {
+      "requirement_id": "cn_drug_registration_classification_and_dossier_requirements:req_class_1_innovation",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "source_clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_008",
+      "source_article_no": 8,
+      "section_no": 2,
+      "section_title": "相关注册管理要求",
+      "source_heading": "（一）",
+      "registration_classes": [
+        "1类"
+      ],
+      "applicable_stage": "registration_classification",
+      "requirement_type": "classification_eligibility",
+      "requirement_level": "required",
+      "requirement_text": "（一）化学药品1类为创新药，应含有新的结构明确的、具有药理作用的化合物，且具有临床价值，不包括改良型新药中2.1类的药品。含有新的结构明确的、具有药理作用的化合物的新复方制剂，应按照化学药品1类申报。",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "review_focus": "确认申报材料能证明新结构明确、具有药理作用且具有临床价值。",
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_008",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc"
+    },
+    {
+      "requirement_id": "cn_drug_registration_classification_and_dossier_requirements:req_class_2_clinical_advantage",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "source_clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_009",
+      "source_article_no": 9,
+      "section_no": 2,
+      "section_title": "相关注册管理要求",
+      "source_heading": "（二）",
+      "registration_classes": [
+        "2类"
+      ],
+      "applicable_stage": "registration_classification",
+      "requirement_type": "classification_eligibility",
+      "requirement_level": "required",
+      "requirement_text": "（二）化学药品2类为改良型新药，在已知活性成份基础上进行优化，应比改良前具有明显临床优势。已知活性成份指境内或境外已上市药品的活性成份。该类药品同时符合多个情形要求的，须在申报时一并予以说明。",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "review_focus": "确认优化依据充分，并能证明相对改良前具有明显临床优势。",
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_009",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc"
+    },
+    {
+      "requirement_id": "cn_drug_registration_classification_and_dossier_requirements:req_class_3_reference_consistency",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "source_clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_010",
+      "source_article_no": 10,
+      "section_no": 2,
+      "section_title": "相关注册管理要求",
+      "source_heading": "（三）",
+      "registration_classes": [
+        "3类"
+      ],
+      "applicable_stage": "marketing_registration",
+      "requirement_type": "reference_consistency",
+      "requirement_level": "required",
+      "requirement_text": "（三）化学药品3类为境内生产的仿制境外已上市境内未上市原研药品的药品，具有与参比制剂相同的活性成份、剂型、规格、适应症、给药途径和用法用量，并证明质量和疗效与参比制剂一致。 有充分研究数据证明合理性的情况下，规格和用法用量可以与参比制剂不一致。",
+      "expected_material_evidence": [
+        "reference_sample_materials"
+      ],
+      "review_focus": "确认活性成份、剂型、规格、适应症、给药途径和用法用量与参比制剂一致，或已给出充分合理性研究说明。",
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_010",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc"
+    },
+    {
+      "requirement_id": "cn_drug_registration_classification_and_dossier_requirements:req_class_4_reference_consistency",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "source_clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_011",
+      "source_article_no": 11,
+      "section_no": 2,
+      "section_title": "相关注册管理要求",
+      "source_heading": "（四）",
+      "registration_classes": [
+        "4类"
+      ],
+      "applicable_stage": "marketing_registration",
+      "requirement_type": "reference_consistency",
+      "requirement_level": "required",
+      "requirement_text": "（四）化学药品4类为境内生产的仿制境内已上市原研药品的药品，具有与参比制剂相同的活性成份、剂型、规格、适应症、给药途径和用法用量，并证明质量和疗效与参比制剂一致。",
+      "expected_material_evidence": [
+        "reference_sample_materials"
+      ],
+      "review_focus": "确认申报材料能证明与境内已上市原研药参比制剂质量和疗效一致。",
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_011",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc"
+    },
+    {
+      "requirement_id": "cn_drug_registration_classification_and_dossier_requirements:req_class_5_1_clinical_advantage",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "source_clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_012",
+      "source_article_no": 12,
+      "section_no": 2,
+      "section_title": "相关注册管理要求",
+      "source_heading": "（五）",
+      "registration_classes": [
+        "5.1类"
+      ],
+      "applicable_stage": "marketing_registration",
+      "requirement_type": "classification_eligibility",
+      "requirement_level": "required",
+      "requirement_text": "化学药品5.1类为原研药品和改良型药品，改良型药品在已知活性成份基础上进行优化，应比改良前具有明显临床优势。",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials",
+        "reference_sample_materials"
+      ],
+      "review_focus": "确认 5.1 类境外上市药品在境内申报时，改良型药品具备明显临床优势证明。",
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_012",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc"
+    },
+    {
+      "requirement_id": "cn_drug_registration_classification_and_dossier_requirements:req_class_5_2_reference_consistency",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "source_clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_012",
+      "source_article_no": 12,
+      "section_no": 2,
+      "section_title": "相关注册管理要求",
+      "source_heading": "（五）",
+      "registration_classes": [
+        "5.2类"
+      ],
+      "applicable_stage": "marketing_registration",
+      "requirement_type": "reference_consistency",
+      "requirement_level": "required",
+      "requirement_text": "化学药品5.2类为仿制药，应证明与参比制剂质量和疗效一致，技术要求与化学药品3类、4类相同。",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials",
+        "reference_sample_materials"
+      ],
+      "review_focus": "确认 5.2 类境外上市仿制药在境内申报时满足与参比制剂一致性的技术要求。",
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_012",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc"
+    },
+    {
+      "requirement_id": "cn_drug_registration_classification_and_dossier_requirements:req_ctd_base_submission",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "source_clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_015",
+      "source_article_no": 15,
+      "section_no": 3,
+      "section_title": "申报资料要求",
+      "source_heading": "（一）",
+      "registration_classes": [
+        "1类",
+        "2类",
+        "3类",
+        "4类",
+        "5.1类",
+        "5.2类",
+        "化学原料药"
+      ],
+      "applicable_stage": "clinical_and_marketing",
+      "requirement_type": "submission_structure",
+      "requirement_level": "required",
+      "requirement_text": "（一）申请人提出药物临床试验、药品上市注册及化学原料药申请，应按照国家药品监管部门公布的相关技术指导原则的有关要求开展研究，并按照现行版《M4：人用药物注册申请通用技术文档（CTD）》（以下简称CTD）格式编号及项目顺序整理并提交申报资料。不适用的项目可合理缺项，但应标明不适用并说明理由。",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials",
+        "api_supporting_materials"
+      ],
+      "review_focus": "确认药物临床试验、上市注册和化学原料药申请均按 CTD 格式编号和项目顺序提交。",
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_015",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc"
+    },
+    {
+      "requirement_id": "cn_drug_registration_classification_and_dossier_requirements:req_research_follows_technical_guidance",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "source_clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_015",
+      "source_article_no": 15,
+      "section_no": 3,
+      "section_title": "申报资料要求",
+      "source_heading": "（一）",
+      "registration_classes": [
+        "1类",
+        "2类",
+        "3类",
+        "4类",
+        "5.1类",
+        "5.2类",
+        "化学原料药"
+      ],
+      "applicable_stage": "clinical_and_marketing",
+      "requirement_type": "research_governance",
+      "requirement_level": "required",
+      "requirement_text": "（一）申请人提出药物临床试验、药品上市注册及化学原料药申请，应按照国家药品监管部门公布的相关技术指导原则的有关要求开展研究，并按照现行版《M4：人用药物注册申请通用技术文档（CTD）》（以下简称CTD）格式编号及项目顺序整理并提交申报资料。不适用的项目可合理缺项，但应标明不适用并说明理由。",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials",
+        "api_supporting_materials"
+      ],
+      "review_focus": "确认研究工作依据国家药品监管部门公布的相关技术指导原则开展。",
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_015",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc"
+    },
+    {
+      "requirement_id": "cn_drug_registration_classification_and_dossier_requirements:req_electronic_clinical_trial_database",
+      "regulation_id": "cn_drug_registration_classification_and_dossier_requirements",
+      "source_clause_id": "cn_drug_registration_classification_and_dossier_requirements:art_016",
+      "source_article_no": 16,
+      "section_no": 3,
+      "section_title": "申报资料要求",
+      "source_heading": "（二）",
+      "registration_classes": [
+        "1类",
+        "2类",
+        "3类",
+        "4类",
+        "5.1类",
+        "5.2类"
+      ],
+      "applicable_stage": "marketing_registration",
+      "requirement_type": "clinical_data_submission",
+      "requirement_level": "required",
+      "requirement_text": "（二）申请人在完成临床试验提出药品上市注册申请时，应在CTD基础上提交电子临床试验数据库。数据库格式以及相关文件等具体要求见临床试验数据递交相关指导原则。",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "review_focus": "确认完成临床试验后的上市注册申请在 CTD 基础上补充电子临床试验数据库。",
+      "citation_anchor": "cn_drug_registration_classification_and_dossier_requirements#art_016",
+      "source_path": "data\\regulations\\药品注册分类及申报资料要求.doc",
+      "source_filename": "药品注册分类及申报资料要求.doc"
+    }
+  ]
+}

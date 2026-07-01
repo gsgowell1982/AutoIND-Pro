@@ -57,7 +57,7 @@ from .cell_text_projection import (
 )
 
 _CONTINUATION_HINT_KEYWORDS = ["continued", "continued from", "续表", "续页"]
-_CONTINUATION_HINT_KEYWORDS = ["continued", "continued from", "\u7eed\u8868", "\u7eed\u9875"]
+_CONTINUATION_HINT_KEYWORDS = ["continued", "continued from", "\u7eed\u8868", "\u7eed\u9875", "\uff08\u7eed", "(\u7eed", "\u7eed\uff09"]
 _LOCAL_BARRIER_SIGNALS = {"new_table_title", "narrative_barrier", "section_heading"}
 _DATE_PREFIX_RE = re.compile(
     r"^(?P<date>\d{1,2}[/-][A-Za-z]{3,9}[/-]\d{2,4})\s+(?P<rest>.+)$", re.IGNORECASE
@@ -152,6 +152,40 @@ def header_similarity(header_a: list[dict[str, Any]], header_b: list[dict[str, A
     return overlap / max(len(set(texts_a)), len(set(texts_b)))
 
 
+def _headers_show_new_table_boundary(previous: dict[str, Any], current: dict[str, Any]) -> bool:
+    """Detect strong local header contradiction before cross-page stitching."""
+    if _get_local_context_signal(current) == "continuation_title":
+        return False
+    prev_header = [
+        str(cell.get("text", "") or "").strip()
+        for cell in previous.get("header", []) or []
+        if str(cell.get("text", "") or "").strip()
+    ]
+    curr_header = [
+        str(cell.get("text", "") or "").strip()
+        for cell in current.get("header", []) or []
+        if str(cell.get("text", "") or "").strip()
+    ]
+    if len(prev_header) < 2 or len(curr_header) < 2:
+        return False
+    if current.get("header_inherited"):
+        return False
+    generic_current = sum(1 for text in curr_header if _GENERIC_COLUMN_HEADER_RE.match(text))
+    if generic_current >= max(2, len(curr_header) // 2):
+        return False
+
+    previous_col_count = int(previous.get("col_count", 0) or len(prev_header))
+    current_col_count = int(current.get("col_count", 0) or len(curr_header))
+    if abs(previous_col_count - current_col_count) < 2:
+        return False
+    similarity = header_similarity(previous.get("header", []) or [], current.get("header", []) or [])
+    if similarity >= 0.25:
+        return False
+    prev_tokens = {_compact_text(text) for text in prev_header if _compact_text(text)}
+    curr_tokens = {_compact_text(text) for text in curr_header if _compact_text(text)}
+    return not bool(prev_tokens & curr_tokens)
+
+
 # ============================================================================
 # Cross-Page Table Stitching
 # ============================================================================
@@ -229,6 +263,9 @@ def stitch_cross_page_tables(
             if _has_preceding_text_block_for_continuation(current):
                 _reset_continuation_flags(current)
                 continue
+            if not hint_matches_previous and _headers_show_new_table_boundary(previous, current):
+                _reset_continuation_flags(current)
+                continue
             _materialize_continuation_link(
                 previous,
                 current,
@@ -292,6 +329,10 @@ def stitch_cross_page_tables(
                     continue
 
         if _has_preceding_text_block_for_continuation(current):
+            _reset_continuation_flags(current)
+            continue
+
+        if not hint_matches_previous and _headers_show_new_table_boundary(previous, current):
             _reset_continuation_flags(current)
             continue
 
@@ -398,6 +439,9 @@ def can_merge_table_fragments_on_same_page(primary: dict[str, Any], secondary: d
     if int(primary.get("page", 0)) != int(secondary.get("page", 0)):
         return False
 
+    if _can_merge_dense_overlapping_grid_fragments(primary, secondary):
+        return True
+
     cfg = get_pdf_parser_settings().same_page_merge_policy
     if _has_title_conflict(primary, secondary):
         return False
@@ -438,6 +482,185 @@ def can_merge_table_fragments_on_same_page(primary: dict[str, Any], secondary: d
     return True
 
 
+def can_merge_horizontal_table_fragments_on_same_page(primary: dict[str, Any], secondary: dict[str, Any]) -> bool:
+    """Return True when two same-page fragments are left/right pieces of one table."""
+    if int(primary.get("page", 0)) != int(secondary.get("page", 0)):
+        return False
+    if _has_title_conflict(primary, secondary):
+        return False
+
+    left, right = _order_horizontal_fragments(primary, secondary)
+    left_bbox = tuple(left.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    right_bbox = tuple(right.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    if len(left_bbox) != 4 or len(right_bbox) != 4:
+        return False
+    horizontal_gap = float(right_bbox[0]) - float(left_bbox[2])
+    if horizontal_gap < -10.0 or horizontal_gap > 90.0:
+        return False
+    if _vertical_overlap_ratio(left_bbox, right_bbox) < 0.62:
+        return False
+
+    left_grid = _get_authoritative_raw_grid(left)
+    right_grid = _get_authoritative_raw_grid(right)
+    if len(left_grid) < 3 or len(right_grid) < 3:
+        return False
+    if abs(len(left_grid) - len(right_grid)) > 1:
+        return False
+
+    left_title = _compact_text(str(left.get("title", "")))
+    right_title = _compact_text(str(right.get("title", "")))
+    has_title_support = bool(left_title or right_title) and (not left_title or not right_title or left_title == right_title)
+    row_profile_support = _horizontal_fragment_row_profiles_match(left_grid, right_grid)
+    header_support = _horizontal_fragment_headers_are_complementary(left, right)
+    numeric_support = _horizontal_fragment_numeric_density(right_grid) >= 0.55
+    return (has_title_support and row_profile_support and (header_support or numeric_support)) or (
+        row_profile_support and header_support and numeric_support
+    )
+
+
+def merge_horizontal_table_fragments(primary: dict[str, Any], secondary: dict[str, Any]) -> dict[str, Any]:
+    """Merge left/right pieces of the same physical table by row alignment."""
+    left, right = _order_horizontal_fragments(primary, secondary)
+    left_grid = _get_authoritative_raw_grid(left)
+    right_grid = _get_authoritative_raw_grid(right)
+    merged_grid = _merge_horizontal_raw_grids(left_grid, right_grid)
+
+    merged = dict(left)
+    left_bbox = tuple(left.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    right_bbox = tuple(right.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    merged["bbox"] = [
+        min(left_bbox[0], right_bbox[0]),
+        min(left_bbox[1], right_bbox[1]),
+        max(left_bbox[2], right_bbox[2]),
+        max(left_bbox[3], right_bbox[3]),
+    ]
+    if not merged.get("title") and right.get("title"):
+        merged["title"] = right.get("title")
+    merged["col_count"] = max((len(row) for row in merged_grid), default=0)
+    merged["logical_col_count"] = merged["col_count"]
+    merged["physical_col_count"] = merged["col_count"]
+    merged["raw_grid"] = merged_grid
+    display_grid = project_table_grid_display_text(_clone_grid_rows(merged_grid))
+    merged["display_grid"] = display_grid
+    merged["grid"] = _clone_grid_rows(display_grid)
+    merged["data_grid"] = _clone_grid_rows(display_grid)
+    merged["raw_row_texts"] = _render_row_texts(merged_grid)
+    merged["display_row_texts"] = _render_row_texts(display_grid)
+    merged["row_texts"] = _render_row_texts(display_grid)
+    merged["data_row_texts"] = list(merged["row_texts"])
+    merged["raw_row_count"] = len(merged_grid)
+    merged["display_row_count"] = len(display_grid)
+    merged["row_count"] = len(display_grid)
+    merged["data_row_count"] = len(display_grid)
+    merged["logical_row_count"] = len(display_grid)
+    merged["data_start_row"] = 1
+    merged["column_signature"] = _build_column_signature(merged["col_count"])
+    merged["column_hash"] = _compute_column_hash(merged["column_signature"])
+    merged["header"] = _merge_horizontal_headers(left, right, merged_grid)
+    merged["cells"] = _build_cells_from_grid(merged["grid"])
+    merged.setdefault("merged_from", [])
+    secondary_id = str(right.get("table_id") or secondary.get("table_id") or "")
+    if secondary_id:
+        merged["merged_from"].append(secondary_id)
+    merged["horizontal_fragment_merge"] = True
+    return merged
+
+
+def _order_horizontal_fragments(primary: dict[str, Any], secondary: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    primary_bbox = tuple(primary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    secondary_bbox = tuple(secondary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    if float(primary_bbox[0]) <= float(secondary_bbox[0]):
+        return primary, secondary
+    return secondary, primary
+
+
+def _vertical_overlap_ratio(bbox_a: tuple, bbox_b: tuple) -> float:
+    overlap = max(0.0, min(float(bbox_a[3]), float(bbox_b[3])) - max(float(bbox_a[1]), float(bbox_b[1])))
+    height_a = max(1.0, float(bbox_a[3]) - float(bbox_a[1]))
+    height_b = max(1.0, float(bbox_b[3]) - float(bbox_b[1]))
+    return overlap / min(height_a, height_b)
+
+
+def _horizontal_fragment_row_profiles_match(left_grid: list[list[str | None]], right_grid: list[list[str | None]]) -> bool:
+    compare_count = min(len(left_grid), len(right_grid))
+    if compare_count < 3:
+        return False
+    compatible = 0
+    for left_row, right_row in zip(left_grid[:compare_count], right_grid[:compare_count]):
+        left_non_empty = len(_semantic_non_empty_columns(left_row))
+        right_non_empty = len(_semantic_non_empty_columns(right_row))
+        if left_non_empty <= 0 or right_non_empty <= 0:
+            continue
+        if left_non_empty <= 2 and right_non_empty >= 2:
+            compatible += 1
+            continue
+        if right_non_empty <= 2 and left_non_empty >= 2:
+            compatible += 1
+            continue
+        if abs(left_non_empty - right_non_empty) <= max(1, min(left_non_empty, right_non_empty) // 2):
+            compatible += 1
+    return compatible >= max(3, int(compare_count * 0.72))
+
+
+def _horizontal_fragment_headers_are_complementary(primary: dict[str, Any], secondary: dict[str, Any]) -> bool:
+    left_header = [
+        str(cell.get("text", "") or "").strip()
+        for cell in primary.get("header", []) or []
+        if str(cell.get("text", "") or "").strip()
+    ]
+    right_header = [
+        str(cell.get("text", "") or "").strip()
+        for cell in secondary.get("header", []) or []
+        if str(cell.get("text", "") or "").strip()
+    ]
+    if len(left_header) < 2 or len(right_header) < 2:
+        return False
+    overlap = set(_compact_text(item) for item in left_header) & set(_compact_text(item) for item in right_header)
+    if len(overlap) >= max(2, min(len(left_header), len(right_header)) // 2):
+        return False
+    return True
+
+
+def _horizontal_fragment_numeric_density(grid: list[list[str | None]]) -> float:
+    values = [_semantic_cell_text(cell) for row in grid for cell in row if _semantic_cell_text(cell)]
+    if not values:
+        return 0.0
+    numeric_like = sum(1 for value in values if _cell_value_profile_kind(value) in {"numeric", "statistical"})
+    return numeric_like / len(values)
+
+
+def _merge_horizontal_raw_grids(left_grid: list[list[str | None]], right_grid: list[list[str | None]]) -> list[list[str | None]]:
+    row_count = max(len(left_grid), len(right_grid))
+    left_width = max((len(row) for row in left_grid), default=0)
+    right_width = max((len(row) for row in right_grid), default=0)
+    merged: list[list[str | None]] = []
+    for row_idx in range(row_count):
+        left_row = list(left_grid[row_idx]) if row_idx < len(left_grid) else []
+        right_row = list(right_grid[row_idx]) if row_idx < len(right_grid) else []
+        left_row.extend([None] * max(0, left_width - len(left_row)))
+        right_row.extend([None] * max(0, right_width - len(right_row)))
+        merged.append(left_row + right_row)
+    return merged
+
+
+def _merge_horizontal_headers(primary: dict[str, Any], secondary: dict[str, Any], merged_grid: list[list[str | None]]) -> list[dict[str, Any]]:
+    header_texts = [
+        str(cell.get("text", "") or "").strip()
+        for cell in primary.get("header", []) or []
+        if str(cell.get("text", "") or "").strip()
+    ] + [
+        str(cell.get("text", "") or "").strip()
+        for cell in secondary.get("header", []) or []
+        if str(cell.get("text", "") or "").strip()
+    ]
+    col_count = max((len(row) for row in merged_grid), default=len(header_texts))
+    if len(header_texts) != col_count and merged_grid:
+        header_texts = [str(cell or "").strip() or f"Column {idx + 1}" for idx, cell in enumerate(merged_grid[0])]
+    while len(header_texts) < col_count:
+        header_texts.append(f"Column {len(header_texts) + 1}")
+    return [{"col": idx + 1, "text": text or f"Column {idx + 1}"} for idx, text in enumerate(header_texts[:col_count])]
+
+
 def _horizontal_overlap_ratio(bbox_a: tuple, bbox_b: tuple) -> float:
     """计算两个 bbox 的水平重叠比例"""
     x_overlap = max(0, min(bbox_a[2], bbox_b[2]) - max(bbox_a[0], bbox_b[0]))
@@ -453,7 +676,7 @@ def _has_preceding_text_block_for_continuation(table: dict[str, Any]) -> bool:
     signal = _get_local_context_signal(table)
     if signal in _LOCAL_BARRIER_SIGNALS:
         return True
-    if signal in {"continuation_title", "running_header", "none"}:
+    if signal in {"continuation_title", "running_header", "none", "study_metadata_context"}:
         return False
 
     block = table.get("preceding_text_block")
@@ -473,7 +696,7 @@ def _has_preceding_text_barrier(primary: dict[str, Any], secondary: dict[str, An
     signal = _get_local_context_signal(secondary)
     if signal in _LOCAL_BARRIER_SIGNALS:
         return True
-    if signal in {"continuation_title", "running_header", "none"}:
+    if signal in {"continuation_title", "running_header", "none", "study_metadata_context"}:
         return False
 
     block = secondary.get("preceding_text_block")
@@ -577,7 +800,7 @@ def _build_header_from_grid(grid: list[list[str | None]] | None) -> list[dict[st
     header_cells: list[dict[str, Any]] = []
     if not grid:
         return header_cells
-    first_row = grid[0]
+    first_row = project_table_grid_display_text([list(grid[0])])[0]
     for idx, value in enumerate(first_row):
         text = _translate_grid_value(value)
         if not text:
@@ -625,11 +848,38 @@ def _effective_data_start_row_for_row_views(
     *,
     data_start_row: int,
 ) -> int:
+    if len(raw_grid) >= 3 and data_start_row == 2 and _single_schema_header_followed_by_clear_data(raw_grid[0], raw_grid[2]):
+        return data_start_row
     if data_start_row != 1 or len(raw_grid) < 2:
         return data_start_row
+    if _single_schema_header_followed_by_clear_data(raw_grid[0], raw_grid[1]):
+        return 0
     if _rows_share_data_value_profile(raw_grid[0], raw_grid[1]):
         return 0
     return data_start_row
+
+
+def _single_schema_header_followed_by_clear_data(
+    header_row: list[str | None],
+    data_row: list[str | None],
+) -> bool:
+    header_texts = [_semantic_cell_text(cell) for cell in header_row]
+    data_texts = [_semantic_cell_text(cell) for cell in data_row]
+    if len(header_texts) < 3 or len(header_texts) != len(data_texts):
+        return False
+    header_non_empty = [text for text in header_texts if text]
+    data_non_empty = [text for text in data_texts if text]
+    if len(header_non_empty) < 3 or len(data_non_empty) < 3:
+        return False
+    header_like = sum(1 for text in header_texts if _cell_value_profile_kind(text) == "header_label")
+    data_value_like = sum(
+        1
+        for text in data_texts
+        if _cell_value_profile_kind(text) in {"numeric", "statistical", "pathish", "code"}
+    )
+    if header_like < max(3, len(header_non_empty) - 1):
+        return False
+    return data_value_like >= max(2, len(data_non_empty) // 2)
 
 
 def _rows_share_data_value_profile(
@@ -714,10 +964,11 @@ def _build_row_views_from_raw_grid(
         data_start_row=data_start_row,
     )
     projected_grid = _project_section_group_rows(projected_grid)
-    projected_grid = _project_sparse_body_wrapped_cell_rows(
-        projected_grid,
-        data_start_row=projected_data_start_row,
-    )
+    if not _looks_like_wide_text_aligned_grid(projected_grid):
+        projected_grid = _project_sparse_body_wrapped_cell_rows(
+            projected_grid,
+            data_start_row=projected_data_start_row,
+        )
     display_grid: list[list[str | None]] = []
     data_grid: list[list[str | None]] = []
     structural_empty_rows: list[int] = []
@@ -736,6 +987,34 @@ def _build_row_views_from_raw_grid(
     display_row_texts = _render_row_texts(display_grid)
     data_row_texts = _render_row_texts(data_grid)
     return display_grid, data_grid, raw_row_texts, display_row_texts, data_row_texts, structural_empty_rows
+
+
+def _looks_like_wide_text_aligned_grid(grid: list[list[str | None]]) -> bool:
+    if len(grid) < 3:
+        return False
+    col_count = max((len(row) for row in grid if isinstance(row, list)), default=0)
+    if col_count < 5:
+        return False
+    non_empty_counts = [len(_semantic_non_empty_columns(row)) for row in grid if isinstance(row, list)]
+    if not non_empty_counts or max(non_empty_counts) < max(4, min(col_count, 7)):
+        return False
+    dense_rows = sum(1 for count in non_empty_counts if count >= max(3, min(col_count - 1, 6)))
+    if dense_rows < 2:
+        return False
+    first_row = grid[0]
+    header_cells = [
+        _semantic_cell_text(cell)
+        for cell in first_row
+        if _semantic_cell_text(cell)
+    ]
+    schema_cells = [
+        text
+        for text in header_cells
+        if len(text) <= 80
+        and len(text.split()) <= 8
+        and bool(re.search(r"[A-Za-z\u4e00-\u9fff]", text))
+    ]
+    return len(schema_cells) >= 3
 
 
 def _project_section_group_rows(raw_grid: list[list[str | None]]) -> list[list[str | None]]:
@@ -925,7 +1204,75 @@ def _is_sparse_header_continuation_projection(
         header_text = _semantic_cell_text(header_row[col_idx] if col_idx < len(header_row) else None)
         if not header_text or not _looks_like_header_continuation_text(continuation_text):
             return False
+        if _looks_like_body_identifier_value(continuation_text):
+            return False
     return True
+
+
+def _can_merge_dense_overlapping_grid_fragments(primary: dict[str, Any], secondary: dict[str, Any]) -> bool:
+    """Merge fragments of one dense borderless grid split by competing owners.
+
+    Dense text-layer tables can be discovered as a header/first-row fragment
+    plus one or more partially overlapping body fragments. The invariant is not
+    the detector source; it is a shared wide column lattice with adjacent or
+    overlapping vertical coverage and repeated boundary rows.
+    """
+    if _has_title_conflict(primary, secondary):
+        return False
+    primary_grid = _get_authoritative_raw_grid(primary)
+    secondary_grid = _get_authoritative_raw_grid(secondary)
+    if not primary_grid or not secondary_grid:
+        return False
+    primary_cols = max((len(row) for row in primary_grid if isinstance(row, list)), default=0)
+    secondary_cols = max((len(row) for row in secondary_grid if isinstance(row, list)), default=0)
+    if primary_cols < 6 or secondary_cols < 6 or abs(primary_cols - secondary_cols) > 1:
+        return False
+
+    source_pair = {
+        str(primary.get("detection_source") or primary.get("detection_method") or ""),
+        str(secondary.get("detection_source") or secondary.get("detection_method") or ""),
+    }
+    if not source_pair & {"text_aligned_borderless_grid", "pymupdf_builtin", "word_clustering"}:
+        return False
+
+    primary_bbox = tuple(primary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    secondary_bbox = tuple(secondary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
+    if len(primary_bbox) != 4 or len(secondary_bbox) != 4:
+        return False
+    horizontal_overlap = _horizontal_overlap_ratio(primary_bbox, secondary_bbox)
+    if horizontal_overlap < 0.86:
+        return False
+
+    row_height = _estimate_row_height(primary) or _estimate_row_height(secondary) or 1.0
+    vertical_gap = float(secondary_bbox[1]) - float(primary_bbox[3])
+    vertical_overlap = max(0.0, min(float(primary_bbox[3]), float(secondary_bbox[3])) - max(float(primary_bbox[1]), float(secondary_bbox[1])))
+    vertically_connected = vertical_overlap > 0.0 or vertical_gap <= max(12.0, row_height * 1.8)
+    if not vertically_connected:
+        return False
+
+    similarity = column_similarity(
+        list(primary.get("column_signature", [])),
+        list(secondary.get("column_signature", [])),
+    )
+    if similarity < 0.82:
+        return False
+
+    first_signatures = {_row_signature(row) for row in primary_grid if _row_signature(row)}
+    second_signatures = {_row_signature(row) for row in secondary_grid if _row_signature(row)}
+    duplicate_support = bool(first_signatures & second_signatures)
+    dense_support = _grid_has_dense_numeric_profile(primary_grid) and _grid_has_dense_numeric_profile(secondary_grid)
+    return duplicate_support or dense_support
+
+
+def _looks_like_body_identifier_value(text: str | None) -> bool:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned:
+        return False
+    if re.search(r"\d", cleaned) and re.search(r"[A-Za-z]", cleaned):
+        return True
+    if re.fullmatch(r"[A-Z]{2,}(?:[-_/][A-Z0-9]+)+", cleaned):
+        return True
+    return False
 
 
 def _row_has_path_like_text(row: list[str | None]) -> bool:
@@ -1192,10 +1539,34 @@ def _apply_header_from_candidates(table: dict[str, Any]) -> bool:
     candidates = table.get("header_candidates") or []
     if not candidates:
         return False
-    table["header"] = [{"col": idx + 1, "text": text} for idx, text in enumerate(candidates)]
-    table["col_count"] = len(candidates)
+    authoritative_col_count = _authoritative_grid_col_count(table)
+    if authoritative_col_count > 0 and len(candidates) != authoritative_col_count:
+        return False
+    projected = project_table_grid_display_text([[str(text).strip() for text in candidates]])[0]
+    table["header"] = [{"col": idx + 1, "text": text} for idx, text in enumerate(projected)]
+    table["col_count"] = len(projected)
     table["header_rebuilt_by_guard"] = True
     return True
+
+
+def _authoritative_grid_col_count(table: dict[str, Any]) -> int:
+    """Return the strongest local column count preserved in table grids.
+
+    Header candidates are reconstructed from surrounding text blocks and can be
+    under-segmented when adjacent header cells have narrow visual gaps. Raw and
+    display grids are stronger evidence because they were projected from the
+    accepted table candidate itself. Guard-time header rebuilding must not let a
+    weaker candidate collapse those columns.
+    """
+    counts: list[int] = []
+    for key in ("raw_grid", "display_grid", "grid"):
+        grid = table.get(key)
+        if not isinstance(grid, list):
+            continue
+        for row in grid:
+            if isinstance(row, list):
+                counts.append(len(row))
+    return max(counts, default=0)
 
 
 def _align_header_row(table: dict[str, Any]) -> None:
@@ -1244,6 +1615,1356 @@ def _align_header_row(table: dict[str, Any]) -> None:
             table["grid"] = _clone_grid_rows(grid)
 
 
+def extract_trailing_table_note_rows(table: dict[str, Any]) -> bool:
+    """Move trailing table-owned note rows into note metadata.
+
+    Borderless word-cluster extraction can pull a below-table footnote into the
+    rectangular grid because it is horizontally aligned with the first column.
+    Keep the raw note text as table-owned evidence, but remove it from the data
+    grid so marked cells can be linked to it.
+    """
+    raw_grid = _get_authoritative_raw_grid(table)
+    if len(raw_grid) < 3:
+        return False
+    detection_source = str(table.get("detection_source") or table.get("detection_method") or "").strip()
+    allow_explanatory_note_rows = detection_source in {
+        "caption_anchored_horizontal_rules",
+        "text_aligned_borderless_grid",
+        "structured_text_region",
+        "word_clustering",
+    }
+
+    extracted: list[tuple[int, str]] = []
+    explanatory_note_row_count = 0
+    while raw_grid:
+        row = raw_grid[-1]
+        non_empty = [
+            (idx, _semantic_cell_text(cell))
+            for idx, cell in enumerate(row)
+            if _semantic_cell_text(cell)
+        ]
+        if len(non_empty) != 1:
+            if (
+                explanatory_note_row_count >= 1
+                or not allow_explanatory_note_rows
+                or not _looks_like_trailing_explanatory_table_note_row(row, raw_grid[:-1])
+            ):
+                break
+            note_text = _semantic_cell_text(" ".join(text for _, text in non_empty))
+            extracted.append((len(raw_grid) - 1, note_text))
+            explanatory_note_row_count += 1
+            raw_grid = raw_grid[:-1]
+            continue
+        col_idx, note_text = non_empty[0]
+        marker = _table_note_row_marker(note_text)
+        if marker:
+            if col_idx > 1:
+                break
+            previous_grid = raw_grid[:-1]
+            if not _grid_has_marked_cell(previous_grid, marker):
+                break
+            extracted.append((len(raw_grid) - 1, note_text))
+            raw_grid = previous_grid
+            continue
+        if (
+            explanatory_note_row_count >= 1
+            or col_idx > 1
+            or not allow_explanatory_note_rows
+            or not _looks_like_trailing_explanatory_table_note_row(row, raw_grid[:-1])
+        ):
+            break
+        extracted.append((len(raw_grid) - 1, note_text))
+        explanatory_note_row_count += 1
+        raw_grid = raw_grid[:-1]
+
+    if not extracted:
+        return False
+
+    extracted.reverse()
+    table["raw_grid"] = raw_grid
+    table["grid"] = _clone_grid_rows(raw_grid)
+    table["trailing_note_rows_extracted"] = True
+    table_id = str(table.get("table_id") or "table").strip() or "table"
+    existing_notes = [dict(item) for item in table.get("note_blocks", []) or [] if isinstance(item, dict)]
+    seen_texts = {_semantic_cell_text(note.get("text")) for note in existing_notes}
+    for row_idx, note_text in extracted:
+        if _semantic_cell_text(note_text) in seen_texts:
+            continue
+        existing_notes.append(
+            {
+                "text": note_text,
+                "role": "note",
+                "relation": "below",
+                "source": "trailing_table_note_row",
+                "source_block_id": f"{table_id}:trailing_note_row_{row_idx}",
+            }
+        )
+        seen_texts.add(_semantic_cell_text(note_text))
+    table["note_blocks"] = existing_notes
+    return True
+
+
+def _looks_like_trailing_explanatory_table_note_row(
+    row: list[str | None],
+    previous_grid: list[list[str | None]],
+) -> bool:
+    if len(previous_grid) < 3:
+        return False
+    text = _semantic_cell_text(" ".join(_semantic_cell_text(cell) for cell in row if _semantic_cell_text(cell)))
+    if not text:
+        return False
+    if len(text) < 16:
+        return False
+    if _looks_like_unmarked_section_heading_note_false_positive(text):
+        return False
+    if re.match(r"^\s*(?:table|tab\.?|表)\s*\d*", text, re.IGNORECASE) or re.match(
+        r"^\s*(?:fig(?:ure)?\.?|图)\s*\d+",
+        text,
+        re.IGNORECASE,
+    ):
+        return False
+    non_empty_cols = _semantic_non_empty_columns(row)
+    if len(non_empty_cols) > max(3, len(row) // 2):
+        return False
+    if sum(1 for cell in row if _cell_value_profile_kind(_semantic_cell_text(cell)) in {"numeric", "statistical", "code"}) > 0:
+        return False
+    prior_value_rows = 0
+    for prior in previous_grid[-8:]:
+        values = [_semantic_cell_text(cell) for cell in prior if _semantic_cell_text(cell)]
+        if len(values) < 2:
+            continue
+        value_like = sum(
+            1
+            for value in values
+            if _cell_value_profile_kind(value) in {"numeric", "statistical", "pathish", "code"}
+            or bool(re.search(r"\d", value))
+        )
+        if value_like >= 1:
+            prior_value_rows += 1
+    if prior_value_rows < 2:
+        return False
+    prose_like_rows = 0
+    body_rows = previous_grid[2:] if len(previous_grid) > 3 else previous_grid
+    for prior in body_rows:
+        prior_text = _semantic_cell_text(" ".join(_semantic_cell_text(cell) for cell in prior if _semantic_cell_text(cell)))
+        if _looks_like_multi_cell_body_prose_row(prior_text):
+            prose_like_rows += 1
+    if prose_like_rows >= max(3, len(body_rows) // 2):
+        return False
+    return True
+
+
+def _looks_like_unmarked_section_heading_note_false_positive(text: str) -> bool:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned or len(cleaned) > 90:
+        return False
+    if re.search(r"[.;!?銆傦紱锛沨]$", cleaned):
+        return False
+    if re.match(r"^\s*\d+(?:\.\d+)*\s+\S+", cleaned):
+        return True
+    words = re.findall(r"[A-Za-z][A-Za-z-]*", cleaned)
+    if 1 <= len(words) <= 7 and len(words) == len(cleaned.split()):
+        lower_words = {word.lower() for word in words}
+        if any(word in {"note", "notes", "mean", "means", "average", "calculated", "determined", "measured"} for word in lower_words):
+            return False
+        stop_words = {"the", "and", "or", "of", "to", "in", "for", "with", "by", "on", "a", "an"}
+        return any(word not in stop_words for word in lower_words)
+    cjk_count = len(re.findall(r"[\u4e00-\u9fff]", cleaned))
+    return 2 <= cjk_count <= 18 and not re.search(r"[，,。；;：:]", cleaned)
+
+
+def _looks_like_multi_cell_body_prose_row(text: str) -> bool:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned:
+        return False
+    word_count = len(re.findall(r"[A-Za-z\u4e00-\u9fff]{2,}", cleaned))
+    if word_count >= 8:
+        return True
+    if word_count >= 5 and re.search(r"\b(?:the|and|of|to|in|on|with|from|for|is|are|when|that|this)\b", cleaned, re.IGNORECASE):
+        return True
+    cjk_count = len(re.findall(r"[\u4e00-\u9fff]", cleaned))
+    return cjk_count >= 16 and bool(re.search(r"[，。；：]", cleaned))
+
+
+def _table_note_row_marker(text: str) -> str | None:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned:
+        return None
+    match = re.match(r"^\s*(?P<marker>[#\$]|\*+|[+\u2020\u2021])(?=\s*[-:：)\]】\u4e00-\u9fffA-Za-z])", cleaned)
+    if not match:
+        return None
+    return str(match.group("marker") or "").strip() or None
+
+
+def _grid_has_marked_cell(grid: list[list[str | None]], marker: str) -> bool:
+    if not marker:
+        return False
+    for row in grid:
+        for cell in row:
+            text = _semantic_cell_text(cell)
+            if text and _cell_text_has_note_marker(text, marker):
+                return True
+    return False
+
+
+def _cell_text_has_note_marker(text: str, marker: str) -> bool:
+    cleaned = _semantic_cell_text(text)
+    marker = str(marker or "").strip()
+    if not cleaned or not marker:
+        return False
+    escaped = re.escape(marker)
+    return bool(re.search(rf"{escaped}(?:\s*$|(?=[,，;；:：)\]】]))", cleaned))
+
+
+def _project_simple_multiline_header_from_raw_grid(
+    table: dict[str, Any],
+    raw_grid: list[list[str | None]],
+    col_count: int,
+) -> bool:
+    if table.get("external_header_projection"):
+        return False
+    header_cells = table.get("header") or []
+    if len(header_cells) != col_count:
+        return False
+    data_start = _get_data_start_row(table)
+    if data_start < 2 or data_start >= len(raw_grid):
+        return False
+    top_idx = data_start - 2
+    continuation_idx = data_start - 1
+    if top_idx < 0:
+        return False
+    top_row = raw_grid[top_idx]
+    continuation_row = raw_grid[continuation_idx]
+    if _semantic_non_empty_columns(top_row) == _semantic_non_empty_columns(continuation_row):
+        return False
+    continuation_cols = _semantic_non_empty_columns(continuation_row)
+    if not continuation_cols or len(continuation_cols) > max(1, col_count // 2):
+        return False
+    body_row = raw_grid[data_start] if data_start < len(raw_grid) else []
+    if not body_row or sum(1 for value in body_row if _cell_value_profile_kind(_semantic_cell_text(value)) in {"numeric", "statistical"}) <= 0:
+        return False
+
+    changed = False
+    projected_header = [dict(cell) for cell in header_cells]
+    for col_idx in continuation_cols:
+        if col_idx >= len(projected_header):
+            continue
+        continuation_text = _semantic_cell_text(continuation_row[col_idx] if col_idx < len(continuation_row) else None)
+        if not continuation_text or _cell_value_profile_kind(continuation_text) in {"numeric", "statistical"}:
+            continue
+        base_text = _semantic_cell_text(projected_header[col_idx].get("text"))
+        if not base_text:
+            continue
+        merged = f"{base_text} {continuation_text}".strip()
+        if merged != base_text:
+            projected_header[col_idx]["text"] = merged
+            changed = True
+
+    if not changed:
+        return False
+    table["header"] = projected_header
+    table.setdefault("header_row_groups", [])
+    table["header_row_groups"].append(
+        {
+            "start_row": top_idx,
+            "end_row": continuation_idx,
+            "source": "simple_multiline_header_projection",
+        }
+    )
+    return True
+
+
+def project_table_header_grammar(table: dict[str, Any]) -> bool:
+    """Project generic multi-row table header grammar into AST metadata.
+
+    This layer works after leaf columns already exist. It does not infer new
+    columns; it classifies header rows into leaf headers and group/spanning
+    headers using local evidence: non-placeholder header text, continuation
+    header rows, body values under the affected columns, and path/slash guards.
+    """
+    if table.get("external_header_projection"):
+        return False
+    raw_grid = _get_authoritative_raw_grid(table)
+    if len(raw_grid) < 3:
+        return False
+    col_count = int(table.get("col_count", 0) or 0)
+    if col_count < 3:
+        return False
+    if any(len(row) < col_count for row in raw_grid[:3]):
+        return False
+    if _project_simple_multiline_header_from_raw_grid(table, raw_grid, col_count):
+        return True
+
+    header_row_index = table.get("header_row_index")
+    if isinstance(header_row_index, int) and header_row_index >= 0:
+        top_idx = header_row_index
+    else:
+        data_start = _get_data_start_row(table)
+        top_idx = max(0, data_start - 1)
+    continuation_idx = top_idx + 1
+    body_idx = continuation_idx + 1
+    if body_idx >= len(raw_grid):
+        return False
+
+    top_row = list(raw_grid[top_idx])
+    continuation_row = list(raw_grid[continuation_idx])
+    body_rows = raw_grid[body_idx:]
+    _repair_shifted_rowspan_stub_header(top_row, continuation_row, body_rows, col_count)
+    _split_trailing_leaf_header_from_fragmented_group(top_row, continuation_row, col_count)
+    if _project_upper_group_with_lower_stub_header(
+        table,
+        raw_grid=raw_grid,
+        top_row=top_row,
+        continuation_row=continuation_row,
+        body_rows=body_rows,
+        top_idx=top_idx,
+        continuation_idx=continuation_idx,
+        col_count=col_count,
+    ):
+        return True
+    if not _looks_like_table_header_grammar_rows(top_row, continuation_row, body_rows, col_count):
+        return False
+
+    projected_top = list(top_row)
+    projected_continuation = list(continuation_row)
+    header_texts = ["" for _ in range(col_count)]
+    header_groups: list[dict[str, Any]] = []
+    header_row_groups: list[dict[str, Any]] = []
+    occupied_leaf_cols: set[int] = set()
+    changed = False
+
+    for col_idx in range(col_count):
+        top_text = _semantic_header_cell_text(projected_top[col_idx], col_idx)
+        continuation_text = _semantic_header_cell_text(projected_continuation[col_idx], col_idx)
+        if (
+            top_text
+            and not continuation_text
+            and not (
+                _count_slashes_outside_grouping(top_text) > 0
+                and col_idx + 1 < col_count
+                and not _semantic_header_cell_text(projected_top[col_idx + 1], col_idx + 1)
+                and _semantic_header_cell_text(projected_continuation[col_idx + 1], col_idx + 1)
+            )
+            and _column_has_stub_body_values(body_rows, col_idx, col_count)
+            and _looks_like_rowspan_stub_header(top_text, body_rows, col_idx)
+        ):
+            header_texts[col_idx] = top_text
+            header_row_groups.append(
+                {
+                    "col": col_idx,
+                    "start_row": top_idx,
+                    "end_row": continuation_idx,
+                    "rowspan": continuation_idx - top_idx + 1,
+                    "text": top_text,
+                    "source": "table_header_grammar",
+                }
+            )
+            occupied_leaf_cols.add(col_idx)
+            changed = True
+
+    for col_idx in range(col_count):
+        if col_idx in occupied_leaf_cols:
+            continue
+        top_text = _semantic_header_cell_text(projected_top[col_idx], col_idx)
+        continuation_text = _semantic_header_cell_text(projected_continuation[col_idx], col_idx)
+        if (
+            top_text
+            and col_idx + 1 < col_count
+            and _trailing_slash_outside_grouping(top_text)
+            and not _semantic_header_cell_text(projected_top[col_idx + 1], col_idx + 1)
+            and continuation_text
+            and not _semantic_header_cell_text(projected_continuation[col_idx + 1], col_idx + 1)
+            and _column_has_body_values(body_rows, col_idx, col_count)
+            and _column_has_body_values(body_rows, col_idx + 1, col_count)
+        ):
+            left_text = _strip_trailing_slash_header_text(top_text)
+            if left_text:
+                header_texts[col_idx] = left_text
+                header_texts[col_idx + 1] = continuation_text
+                projected_top[col_idx] = left_text
+                projected_top[col_idx + 1] = continuation_text
+                projected_continuation[col_idx] = None
+                projected_continuation[col_idx + 1] = None
+                header_row_groups.extend(
+                    _build_leaf_rowspan_groups(
+                        top_idx=top_idx,
+                        continuation_idx=continuation_idx,
+                        cells=[(col_idx, left_text), (col_idx + 1, continuation_text)],
+                    )
+                )
+                occupied_leaf_cols.update({col_idx, col_idx + 1})
+                changed = True
+                continue
+
+        if (
+            "/" in top_text
+            and col_idx + 1 < col_count
+            and not _semantic_header_cell_text(projected_top[col_idx + 1], col_idx + 1)
+            and _semantic_header_cell_text(projected_continuation[col_idx + 1], col_idx + 1)
+            and _column_has_body_values(body_rows, col_idx, col_count)
+            and _column_has_body_values(body_rows, col_idx + 1, col_count)
+        ):
+            next_continuation_text = _semantic_header_cell_text(projected_continuation[col_idx + 1], col_idx + 1)
+            left_text, right_seed = _split_slash_adjacent_header_text(top_text)
+            if left_text and _header_suffix_matches_continuation(right_seed, next_continuation_text):
+                header_texts[col_idx] = left_text
+                header_texts[col_idx + 1] = _join_header_projection_text(right_seed, next_continuation_text)
+                projected_top[col_idx] = left_text
+                projected_top[col_idx + 1] = header_texts[col_idx + 1]
+                projected_continuation[col_idx] = None
+                projected_continuation[col_idx + 1] = None
+                header_row_groups.extend(
+                    _build_leaf_rowspan_groups(
+                        top_idx=top_idx,
+                        continuation_idx=continuation_idx,
+                        cells=[(col_idx, left_text), (col_idx + 1, header_texts[col_idx + 1])],
+                    )
+                )
+                occupied_leaf_cols.update({col_idx, col_idx + 1})
+                changed = True
+                continue
+
+        if (
+            top_text
+            and "/" not in top_text
+            and col_idx + 1 < col_count
+            and not _is_inside_fragmented_group_label(projected_top, col_idx)
+        ):
+            preceding_occupied_leaf_cols = [leaf_col for leaf_col in occupied_leaf_cols if leaf_col < col_idx]
+            min_start_col = (max(preceding_occupied_leaf_cols) + 1) if preceding_occupied_leaf_cols else None
+            span = _infer_continuation_header_group_span(
+                top_row,
+                continuation_row,
+                body_rows,
+                label_col=col_idx,
+                min_start_col=min_start_col,
+                col_count=col_count,
+            )
+            if span is not None:
+                group_start_col, span_end = span
+                group_text = _compose_fragmented_group_header_text(
+                    top_row,
+                    continuation_row,
+                    group_start_col,
+                    span_end,
+                )
+                if not group_text:
+                    continue
+                header_groups.append(
+                    {
+                        "row": top_idx,
+                        "start_col": group_start_col,
+                        "end_col": span_end,
+                        "colspan": span_end - group_start_col + 1,
+                        "text": group_text,
+                        "source": "table_header_grammar",
+                    }
+                )
+                projected_top[group_start_col] = group_text
+                if group_start_col != col_idx:
+                    projected_top[col_idx] = None
+                for covered_col in range(group_start_col + 1, span_end + 1):
+                    projected_top[covered_col] = None
+                for covered_col in range(group_start_col, span_end + 1):
+                    leaf_text = _semantic_header_cell_text(continuation_row[covered_col], covered_col)
+                    if leaf_text:
+                        header_texts[covered_col] = leaf_text
+                occupied_leaf_cols.update(range(group_start_col, span_end + 1))
+                changed = True
+
+    for col_idx in range(col_count):
+        if header_texts[col_idx]:
+            continue
+        continuation_text = _semantic_header_cell_text(continuation_row[col_idx], col_idx)
+        top_text = _semantic_header_cell_text(top_row[col_idx], col_idx)
+        if continuation_text and _column_has_body_values(body_rows, col_idx, col_count):
+            header_texts[col_idx] = continuation_text
+        elif top_text and _column_has_body_values(body_rows, col_idx, col_count):
+            header_texts[col_idx] = top_text
+
+    if not changed:
+        return False
+    if sum(1 for text in header_texts if text) < max(2, col_count - 1):
+        return False
+
+    projected_raw_grid = _clone_grid_rows(raw_grid)
+    projected_raw_grid[top_idx] = projected_top
+    projected_raw_grid[continuation_idx] = projected_continuation
+    table["raw_grid"] = projected_raw_grid
+    table["header"] = [
+        {"col": idx + 1, "text": text or f"Column {idx + 1}"}
+        for idx, text in enumerate(header_texts[:col_count])
+    ]
+    current_data_start = _get_data_start_row(table)
+    table["data_start_row"] = max(current_data_start, continuation_idx + 1)
+    if not isinstance(table.get("header_row_index"), int):
+        table["header_row_index"] = top_idx
+    if header_groups:
+        existing = [dict(item) for item in table.get("header_column_groups", []) or [] if isinstance(item, dict)]
+        seen = {
+            (
+                int(item.get("row", -1) or -1),
+                int(item.get("start_col", -1) or -1),
+                int(item.get("end_col", -1) or -1),
+                str(item.get("text", "") or ""),
+            )
+            for item in existing
+        }
+        for group in header_groups:
+            key = (
+                int(group.get("row", -1) or -1),
+                int(group.get("start_col", -1) or -1),
+                int(group.get("end_col", -1) or -1),
+                str(group.get("text", "") or ""),
+            )
+            if key not in seen:
+                existing.append(group)
+                seen.add(key)
+        table["header_column_groups"] = existing
+    if header_row_groups:
+        existing_rows = [dict(item) for item in table.get("header_row_groups", []) or [] if isinstance(item, dict)]
+        seen_rows = {
+            (
+                int(item.get("col", -1) or -1),
+                int(item.get("start_row", -1) or -1),
+                int(item.get("end_row", -1) or -1),
+                str(item.get("text", "") or ""),
+            )
+            for item in existing_rows
+        }
+        for group in header_row_groups:
+            key = (
+                int(group.get("col", -1) or -1),
+                int(group.get("start_row", -1) or -1),
+                int(group.get("end_row", -1) or -1),
+                str(group.get("text", "") or ""),
+            )
+            if key not in seen_rows:
+                existing_rows.append(group)
+                seen_rows.add(key)
+        table["header_row_groups"] = existing_rows
+    table["table_header_grammar_projected"] = True
+    _refresh_row_texts_from_grid(table)
+    _restore_header_grammar_display_rows(
+        table,
+        projected_top=projected_top,
+        projected_continuation=projected_continuation,
+        top_idx=top_idx,
+        continuation_idx=continuation_idx,
+        col_count=col_count,
+    )
+    table["cells"] = _build_cells_from_grid(table.get("grid", []))
+    return True
+
+
+def project_compound_spanning_table_headers(table: dict[str, Any]) -> bool:
+    """Backward-compatible wrapper for the unified table header grammar layer."""
+    changed = project_table_header_grammar(table)
+    if changed:
+        table["compound_header_projected"] = True
+    return changed
+
+
+def _project_upper_group_with_lower_stub_header(
+    table: dict[str, Any],
+    *,
+    raw_grid: list[list[str | None]],
+    top_row: list[str | None],
+    continuation_row: list[str | None],
+    body_rows: list[list[str | None]],
+    top_idx: int,
+    continuation_idx: int,
+    col_count: int,
+) -> bool:
+    """Handle a one-line group header above a lower-row stub plus leaf headers."""
+    top_non_empty = [
+        col_idx
+        for col_idx in range(col_count)
+        if _semantic_header_cell_text(top_row[col_idx], col_idx)
+    ]
+    if len(top_non_empty) != 1:
+        return False
+    group_label_col = top_non_empty[0]
+    group_text = _semantic_header_cell_text(top_row[group_label_col], group_label_col)
+    if not group_text or "/" in group_text or _row_has_document_path_like_header_text([group_text]):
+        return False
+    stub_text = _semantic_header_cell_text(continuation_row[0], 0)
+    if not stub_text:
+        return False
+    leaf_texts = [
+        _semantic_header_cell_text(continuation_row[col_idx], col_idx)
+        for col_idx in range(1, col_count)
+    ]
+    if sum(1 for text in leaf_texts if text) < max(2, col_count - 2):
+        return False
+    if not _column_has_stub_body_values(body_rows, 0, col_count):
+        return False
+    if sum(1 for col_idx in range(1, col_count) if _column_has_body_values(body_rows, col_idx, col_count)) < max(2, col_count - 1):
+        return False
+    if not (1 <= group_label_col <= col_count - 1):
+        return False
+
+    header_texts = [stub_text] + [text or f"Column {idx + 2}" for idx, text in enumerate(leaf_texts)]
+    projected_top: list[str | None] = [None] * col_count
+    projected_continuation: list[str | None] = [None] * col_count
+    projected_top[0] = stub_text
+    projected_top[1] = group_text
+    for col_idx in range(1, col_count):
+        projected_continuation[col_idx] = header_texts[col_idx]
+
+    projected_raw_grid = _clone_grid_rows(raw_grid)
+    projected_raw_grid[top_idx] = projected_top
+    projected_raw_grid[continuation_idx] = projected_continuation
+    table["raw_grid"] = projected_raw_grid
+    table["header"] = [
+        {"col": idx + 1, "text": text}
+        for idx, text in enumerate(header_texts)
+    ]
+    table["header_row_index"] = top_idx
+    table["data_start_row"] = max(_get_data_start_row(table), continuation_idx + 1)
+    table["header_column_groups"] = _append_unique_header_column_groups(
+        table.get("header_column_groups"),
+        [
+            {
+                "row": top_idx,
+                "start_col": 1,
+                "end_col": col_count - 1,
+                "colspan": col_count - 1,
+                "text": group_text,
+                "source": "table_header_grammar",
+            }
+        ],
+    )
+    table["header_row_groups"] = _append_unique_header_row_groups(
+        table.get("header_row_groups"),
+        [
+            {
+                "col": 0,
+                "start_row": top_idx,
+                "end_row": continuation_idx,
+                "rowspan": continuation_idx - top_idx + 1,
+                "text": stub_text,
+                "source": "table_header_grammar",
+            }
+        ],
+    )
+    table["table_header_grammar_projected"] = True
+    _refresh_row_texts_from_grid(table)
+    _restore_header_grammar_display_rows(
+        table,
+        projected_top=projected_top,
+        projected_continuation=projected_continuation,
+        top_idx=top_idx,
+        continuation_idx=continuation_idx,
+        col_count=col_count,
+    )
+    table["cells"] = _build_cells_from_grid(table.get("grid", []))
+    return True
+
+
+def _append_unique_header_column_groups(
+    existing_value: Any,
+    additions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    existing = [dict(item) for item in existing_value or [] if isinstance(item, dict)]
+    seen = {
+        (
+            int(item.get("row", -1) or -1),
+            int(item.get("start_col", -1) or -1),
+            int(item.get("end_col", -1) or -1),
+            str(item.get("text", "") or ""),
+        )
+        for item in existing
+    }
+    for group in additions:
+        key = (
+            int(group.get("row", -1) or -1),
+            int(group.get("start_col", -1) or -1),
+            int(group.get("end_col", -1) or -1),
+            str(group.get("text", "") or ""),
+        )
+        if key not in seen:
+            existing.append(group)
+            seen.add(key)
+    return existing
+
+
+def _append_unique_header_row_groups(
+    existing_value: Any,
+    additions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    existing = [dict(item) for item in existing_value or [] if isinstance(item, dict)]
+    seen = {
+        (
+            int(item.get("col", -1) or -1),
+            int(item.get("start_row", -1) or -1),
+            int(item.get("end_row", -1) or -1),
+            str(item.get("text", "") or ""),
+        )
+        for item in existing
+    }
+    for group in additions:
+        key = (
+            int(group.get("col", -1) or -1),
+            int(group.get("start_row", -1) or -1),
+            int(group.get("end_row", -1) or -1),
+            str(group.get("text", "") or ""),
+        )
+        if key not in seen:
+            existing.append(group)
+            seen.add(key)
+    return existing
+
+
+def _restore_header_grammar_display_rows(
+    table: dict[str, Any],
+    *,
+    projected_top: list[str | None],
+    projected_continuation: list[str | None],
+    top_idx: int,
+    continuation_idx: int,
+    col_count: int,
+) -> None:
+    """Keep proven header span empty cells from being compacted in display rows."""
+    display_grid = _get_display_grid(table)
+    if not display_grid:
+        return
+    raw_grid = _get_authoritative_raw_grid(table)
+    visible_raw_indices = [
+        row_idx
+        for row_idx, row in enumerate(raw_grid)
+        if _row_has_semantic_content(row)
+    ]
+    raw_to_display = {raw_idx: display_idx for display_idx, raw_idx in enumerate(visible_raw_indices)}
+    replacement_rows = {
+        top_idx: projected_top[:col_count],
+        continuation_idx: projected_continuation[:col_count],
+    }
+    changed = False
+    for raw_idx, replacement in replacement_rows.items():
+        display_idx = raw_to_display.get(raw_idx)
+        if display_idx is None or display_idx >= len(display_grid):
+            continue
+        display_grid[display_idx] = project_table_grid_display_text([list(replacement)])[0]
+        changed = True
+    if not changed:
+        return
+    table["display_grid"] = _trim_trailing_empty_columns(display_grid)
+    table["display_row_texts"] = _render_row_texts(table["display_grid"])
+    table["display_row_count"] = len(table["display_grid"])
+
+
+def _looks_like_table_header_grammar_rows(
+    top_row: list[str | None],
+    continuation_row: list[str | None],
+    body_rows: list[list[str | None]],
+    col_count: int,
+) -> bool:
+    top_cols = _semantic_non_empty_columns(top_row[:col_count])
+    top_cols = [
+        col_idx
+        for col_idx in top_cols
+        if _semantic_header_cell_text(top_row[col_idx], col_idx)
+    ]
+    continuation_cols = [
+        col_idx
+        for col_idx in _semantic_non_empty_columns(continuation_row[:col_count])
+        if _semantic_header_cell_text(continuation_row[col_idx], col_idx)
+    ]
+    if len(top_cols) < 2 or len(continuation_cols) < 1:
+        return False
+    has_slash_adjacent_candidate = any("/" in _semantic_cell_text(top_row[col_idx]) for col_idx in top_cols)
+    has_group_span_candidate = any(
+        _infer_continuation_header_group_span(
+            top_row,
+            continuation_row,
+            body_rows,
+            label_col=col_idx,
+            min_start_col=None,
+            col_count=col_count,
+        )
+        is not None
+        for col_idx in top_cols
+        if "/" not in _semantic_header_cell_text(top_row[col_idx], col_idx)
+    )
+    if not has_slash_adjacent_candidate and not has_group_span_candidate:
+        return False
+    if sum(1 for col_idx in range(col_count) if _column_has_body_values(body_rows, col_idx, col_count)) < max(2, col_count - 1):
+        return False
+    if _row_has_document_path_like_header_text(top_row) or _row_has_document_path_like_header_text(continuation_row):
+        return False
+    return True
+
+
+def _repair_shifted_rowspan_stub_header(
+    top_row: list[str | None],
+    continuation_row: list[str | None],
+    body_rows: list[list[str | None]],
+    col_count: int,
+) -> bool:
+    """Move a first-column rowspan stub header back into column 0 when shifted."""
+    if col_count < 3:
+        return False
+    if _semantic_header_cell_text(top_row[0], 0) or _semantic_header_cell_text(continuation_row[0], 0):
+        return False
+    first_text_col = next(
+        (
+            col_idx
+            for col_idx in range(1, col_count)
+            if _semantic_header_cell_text(top_row[col_idx], col_idx)
+        ),
+        None,
+    )
+    if first_text_col is None or first_text_col > 1:
+        return False
+    stub_text = _semantic_header_cell_text(top_row[first_text_col], first_text_col)
+    if not _looks_like_rowspan_stub_header(stub_text, body_rows, 0):
+        return False
+    if not _column_has_stub_body_values(body_rows, 0, col_count):
+        return False
+    top_row[0] = stub_text
+    top_row[first_text_col] = None
+    return True
+
+
+def _looks_like_rowspan_stub_header(
+    text: str,
+    body_rows: list[list[str | None]],
+    col_idx: int,
+) -> bool:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned or len(cleaned) > 32:
+        return False
+    unit_digits_only = bool(re.search(r"\d", cleaned)) and bool(re.search(r"[\(\uff08/]", cleaned))
+    if re.search(r"\d", cleaned) and not unit_digits_only:
+        return False
+    values = [
+        _semantic_cell_text(row[col_idx])
+        for row in body_rows[:8]
+        if col_idx < len(row) and _semantic_cell_text(row[col_idx])
+    ]
+    if len(values) < 2:
+        return False
+    numeric_like = sum(1 for value in values if _cell_looks_like_data_value(value) and re.search(r"\d", value))
+    text_like = sum(1 for value in values if re.search(r"[A-Za-z\u4e00-\u9fff]", value) and not re.search(r"\d", value))
+    if numeric_like >= 2 and _looks_like_unit_or_schema_header_text(cleaned):
+        return True
+    return text_like >= max(2, numeric_like + 1)
+
+
+def _looks_like_unit_or_schema_header_text(text: str) -> bool:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned:
+        return False
+    has_grouped_unit = bool(re.search(r"[\(\uff08][^)\uff09]*[/][^)\uff09]*[\)\uff09]", cleaned))
+    if _looks_like_pathish_text(cleaned) and not has_grouped_unit:
+        return False
+    if not re.search(r"[A-Za-z\u4e00-\u9fff]", cleaned):
+        return False
+    if re.search(r"\d", cleaned):
+        return False
+    return len(cleaned) <= 32 and (
+        bool(re.search(r"[\(\uff08\[/]", cleaned))
+        or bool(re.search(r"(?:dose|amount|level|concentration|reference|route|species|form)\b", cleaned, re.IGNORECASE))
+        or bool(re.search(r"(?:剂量|给药|种系|剂型|参考|浓度|暴露量|途径)", cleaned))
+    )
+
+
+def _split_trailing_leaf_header_from_fragmented_group(
+    top_row: list[str | None],
+    continuation_row: list[str | None],
+    col_count: int,
+) -> bool:
+    """Move a leaf header accidentally attached to a fragmented group unit."""
+    changed = False
+    for col_idx in range(1, col_count):
+        top_text = _semantic_header_cell_text(top_row[col_idx], col_idx)
+        if not top_text:
+            continue
+        if _semantic_header_cell_text(continuation_row[col_idx], col_idx):
+            continue
+        split = _split_unit_fragment_and_leaf_header(top_text)
+        if split is None:
+            continue
+        unit_fragment, leaf_header = split
+        top_row[col_idx] = unit_fragment
+        continuation_row[col_idx] = leaf_header
+        changed = True
+    return changed
+
+
+def _split_unit_fragment_and_leaf_header(text: str) -> tuple[str, str] | None:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned:
+        return None
+    match = re.fullmatch(r"(?P<unit>.*(?:\)|\]|\uff09|\u3011))\s+(?P<leaf>\d+(?:\.\d+)?\s*[A-Za-zμµ%]+)", cleaned)
+    if not match:
+        return None
+    unit = str(match.group("unit") or "").strip()
+    leaf = str(match.group("leaf") or "").strip()
+    if not unit or not leaf:
+        return None
+    if len(leaf) > 12:
+        return None
+    return unit, leaf
+
+
+def _compose_fragmented_group_header_text(
+    top_row: list[str | None],
+    continuation_row: list[str | None],
+    start_col: int,
+    end_col: int,
+) -> str:
+    _ = continuation_row
+    parts = [
+        _semantic_header_cell_text(top_row[col_idx], col_idx)
+        for col_idx in range(max(0, start_col), min(len(top_row), end_col + 1))
+        if _semantic_header_cell_text(top_row[col_idx], col_idx)
+    ]
+    if not parts:
+        return ""
+    text = " ".join(parts)
+    return _repair_fragmented_group_header_text(text)
+
+
+def _repair_fragmented_group_header_text(text: str) -> str:
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"\*\s+g(?=\))", "*/g", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bper\s+g(?=\))", "per g", cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+
+def _semantic_header_cell_text(cell: Any, col_idx: int | None = None) -> str:
+    text = _semantic_cell_text(cell)
+    if not text:
+        return ""
+    match = re.fullmatch(r"Column\s+(\d+)", text, re.IGNORECASE)
+    if match and (col_idx is None or int(match.group(1)) == col_idx + 1):
+        return ""
+    return text
+
+
+def _row_has_document_path_like_header_text(row: list[str | None]) -> bool:
+    for col_idx, cell in enumerate(row):
+        text = _semantic_header_cell_text(cell, col_idx)
+        if not text:
+            continue
+        slash_outside_groups = _count_slashes_outside_grouping(text)
+        slash_path_like = "/" in text and (
+            slash_outside_groups > 1
+            or bool(re.search(r"\.[A-Za-z0-9]{2,5}\b", text))
+            or "\\" in text
+            or "_" in text
+        )
+        if slash_path_like or "\\" in text:
+            return True
+    return False
+
+
+def _column_has_body_values(
+    body_rows: list[list[str | None]],
+    col_idx: int,
+    col_count: int,
+) -> bool:
+    evidence = 0
+    for row in body_rows:
+        if col_idx >= min(len(row), col_count):
+            continue
+        text = _semantic_cell_text(row[col_idx])
+        if not text:
+            continue
+        if _cell_looks_like_data_value(text) or _cell_looks_like_placeholder_data_value(text):
+            evidence += 1
+        elif re.fullmatch(r"[A-Za-z.]{1,8}", text):
+            evidence += 1
+    return evidence >= 1
+
+
+def _cell_looks_like_placeholder_data_value(value: str | None) -> bool:
+    text = _semantic_cell_text(value)
+    return bool(re.fullmatch(r"[-–—]+|N/?A|n/?a|ND|N\.D\.|BLQ|BQL", text))
+
+
+def _column_has_stub_body_values(
+    body_rows: list[list[str | None]],
+    col_idx: int,
+    col_count: int,
+) -> bool:
+    values = [
+        _semantic_cell_text(row[col_idx])
+        for row in body_rows[:10]
+        if col_idx < min(len(row), col_count) and _semantic_cell_text(row[col_idx])
+    ]
+    if len(values) < 2:
+        return False
+    distinct_values = {value for value in values}
+    if len(distinct_values) < 2:
+        return False
+    text_like = sum(1 for value in values if re.search(r"[A-Za-z\u4e00-\u9fff]", value))
+    data_like = sum(1 for value in values if _cell_looks_like_data_value(value))
+    return text_like >= 2 or data_like >= 2
+
+
+def _split_slash_adjacent_header_text(text: str) -> tuple[str, str]:
+    cleaned = _semantic_cell_text(text)
+    split_idx = _last_slash_outside_grouping(cleaned)
+    if split_idx <= 0 or split_idx >= len(cleaned) - 1:
+        return "", ""
+    return cleaned[:split_idx].strip(), cleaned[split_idx + 1 :].strip()
+
+
+def _trailing_slash_outside_grouping(text: str) -> bool:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned.endswith("/"):
+        return False
+    return _is_outside_grouping(cleaned, len(cleaned) - 1)
+
+
+def _strip_trailing_slash_header_text(text: str) -> str:
+    cleaned = _semantic_cell_text(text)
+    if not _trailing_slash_outside_grouping(cleaned):
+        return ""
+    return cleaned[:-1].strip()
+
+
+def _build_leaf_rowspan_groups(
+    *,
+    top_idx: int,
+    continuation_idx: int,
+    cells: list[tuple[int, str]],
+) -> list[dict[str, Any]]:
+    groups: list[dict[str, Any]] = []
+    for col_idx, text in cells:
+        cleaned = _semantic_cell_text(text)
+        if not cleaned:
+            continue
+        groups.append(
+            {
+                "col": col_idx,
+                "start_row": top_idx,
+                "end_row": continuation_idx,
+                "rowspan": continuation_idx - top_idx + 1,
+                "text": cleaned,
+                "source": "table_header_grammar",
+            }
+        )
+    return groups
+
+
+def project_rowspan_body_groups(table: dict[str, Any]) -> bool:
+    """Record sparse body row groups that visually behave like rowspans.
+
+    The rectangular grid remains unchanged for auditability. This only adds
+    semantic metadata when a categorical cell is followed by blank cells in the
+    same leading column and those continuation rows carry data in later columns.
+    """
+    data_grid = _clone_grid_rows(table.get("data_grid") or table.get("grid") or [])
+    col_count = int(table.get("col_count", 0) or 0)
+    if len(data_grid) < 3 or col_count < 2:
+        return False
+
+    header_texts = [
+        _semantic_cell_text(cell.get("text") if isinstance(cell, dict) else cell)
+        for cell in table.get("header", []) or []
+    ]
+    candidate_cols = [
+        col_idx
+        for col_idx in range(min(col_count, 3))
+        if col_idx < len(header_texts)
+        and header_texts[col_idx]
+        and not _is_generic_column_header(header_texts[col_idx])
+    ]
+    if not candidate_cols:
+        candidate_cols = [0]
+
+    groups: list[dict[str, Any]] = []
+    for col_idx in candidate_cols:
+        row_idx = 0
+        while row_idx < len(data_grid):
+            row = data_grid[row_idx]
+            anchor_text = _semantic_cell_text(row[col_idx] if col_idx < len(row) else None)
+            if not anchor_text or not _looks_like_body_rowspan_anchor_text(anchor_text):
+                row_idx += 1
+                continue
+
+            end_idx = row_idx
+            probe_idx = row_idx + 1
+            while probe_idx < len(data_grid):
+                probe_row = data_grid[probe_idx]
+                probe_text = _semantic_cell_text(probe_row[col_idx] if col_idx < len(probe_row) else None)
+                if probe_text:
+                    break
+                if not any(
+                    _semantic_cell_text(probe_row[next_col] if next_col < len(probe_row) else None)
+                    for next_col in range(col_idx + 1, col_count)
+                ):
+                    break
+                end_idx = probe_idx
+                probe_idx += 1
+
+            if end_idx > row_idx:
+                groups.append(
+                    {
+                        "col": col_idx,
+                        "col_1based": col_idx + 1,
+                        "start_data_row": row_idx + 1,
+                        "end_data_row": end_idx + 1,
+                        "rowspan": end_idx - row_idx + 1,
+                        "text": anchor_text,
+                        "source": "sparse_body_rowspan_projection",
+                    }
+                )
+                row_idx = end_idx + 1
+                continue
+            row_idx += 1
+
+    if not groups:
+        return False
+
+    existing = [dict(item) for item in table.get("row_groups", []) or [] if isinstance(item, dict)]
+    seen = {
+        (
+            int(item.get("col", -1) or -1),
+            int(item.get("start_data_row", -1) or -1),
+            int(item.get("end_data_row", -1) or -1),
+            str(item.get("text", "") or ""),
+        )
+        for item in existing
+    }
+    changed = False
+    for group in groups:
+        key = (
+            int(group.get("col", -1) or -1),
+            int(group.get("start_data_row", -1) or -1),
+            int(group.get("end_data_row", -1) or -1),
+            str(group.get("text", "") or ""),
+        )
+        if key in seen:
+            continue
+        existing.append(group)
+        seen.add(key)
+        changed = True
+    if changed:
+        table["row_groups"] = existing
+        table["body_rowspan_groups_projected"] = True
+    return changed
+
+
+def _looks_like_body_rowspan_anchor_text(text: str) -> bool:
+    cleaned = _semantic_cell_text(text)
+    if not cleaned:
+        return False
+    if _cell_looks_like_placeholder_data_value(cleaned):
+        return False
+    if _looks_like_pathish_text(cleaned):
+        return False
+    if re.fullmatch(r"[-+]?\d+(?:\.\d+)?(?:\([^)]+\))?", cleaned):
+        return False
+    return bool(re.search(r"[A-Za-z\u4e00-\u9fff]", cleaned))
+
+
+def _count_slashes_outside_grouping(text: str) -> int:
+    return sum(1 for idx, char in enumerate(text) if char == "/" and _is_outside_grouping(text, idx))
+
+
+def _last_slash_outside_grouping(text: str) -> int:
+    result = -1
+    for idx, char in enumerate(text):
+        if char == "/" and _is_outside_grouping(text, idx):
+            result = idx
+    return result
+
+
+def _is_outside_grouping(text: str, index: int) -> bool:
+    depth = 0
+    pairs = {"(": ")", "（": "）", "[": "]", "【": "】"}
+    closers = set(pairs.values())
+    for pos, char in enumerate(text):
+        if pos >= index:
+            break
+        if char in pairs:
+            depth += 1
+        elif char in closers and depth > 0:
+            depth -= 1
+    return depth == 0
+
+
+def _header_suffix_matches_continuation(prefix: str, continuation: str) -> bool:
+    left = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", prefix.lower())
+    right = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", continuation.lower())
+    if not left or not right:
+        return False
+    return len(left) <= 16 and len(right) <= 16
+
+
+def _find_following_header_group_span(
+    top_row: list[str | None],
+    continuation_row: list[str | None],
+    body_rows: list[list[str | None]],
+    *,
+    start_col: int,
+    min_start_col: int | None = None,
+    col_count: int,
+) -> int | None:
+    if start_col >= col_count:
+        return None
+    group_label_col = start_col
+    top_label = _semantic_header_cell_text(top_row[group_label_col], group_label_col)
+    if not top_label:
+        return None
+
+    previous_top_cols = [
+        col_idx
+        for col_idx in range(0, group_label_col)
+        if _semantic_header_cell_text(top_row[col_idx], col_idx)
+    ]
+    span_start = (previous_top_cols[-1] + 1) if previous_top_cols else 0
+    if min_start_col is not None:
+        span_start = max(span_start, int(min_start_col))
+    span_cols: list[int] = []
+    for col_idx in range(span_start, col_count):
+        if col_idx != group_label_col and _semantic_header_cell_text(top_row[col_idx], col_idx):
+            break
+        continuation_text = _semantic_header_cell_text(continuation_row[col_idx], col_idx)
+        if not continuation_text:
+            if col_idx == group_label_col:
+                continue
+            break
+        if not _column_has_body_values(body_rows, col_idx, col_count):
+            break
+        span_cols.append(col_idx)
+    if len(span_cols) < 2:
+        return None
+    if span_cols[0] != span_start:
+        return None
+    return span_cols[-1]
+
+
+def _infer_continuation_header_group_span(
+    top_row: list[str | None],
+    continuation_row: list[str | None],
+    body_rows: list[list[str | None]],
+    *,
+    label_col: int,
+    min_start_col: int | None = None,
+    col_count: int,
+) -> tuple[int, int] | None:
+    """Infer a header group span over leaf headers in the continuation row."""
+    if label_col < 0 or label_col >= col_count:
+        return None
+    top_label = _semantic_header_cell_text(top_row[label_col], label_col)
+    if not top_label:
+        return None
+    if _row_has_document_path_like_header_text([top_row[label_col]]):
+        return None
+
+    top_label_cols = [
+        col_idx
+        for col_idx in range(col_count)
+        if _semantic_header_cell_text(top_row[col_idx], col_idx)
+    ]
+    try:
+        label_pos = top_label_cols.index(label_col)
+    except ValueError:
+        return None
+    lower_bound = max(0, int(min_start_col or 0))
+    if label_pos > 0:
+        lower_bound = max(lower_bound, top_label_cols[label_pos - 1] + 1)
+    upper_bound = col_count - 1
+    fragment_end = _fragmented_group_label_end_col(top_row, label_col, col_count)
+    if fragment_end is not None:
+        next_label_cols = [col_idx for col_idx in top_label_cols if col_idx > fragment_end]
+        if next_label_cols:
+            upper_bound = min(upper_bound, next_label_cols[0] - 1)
+    elif label_pos + 1 < len(top_label_cols):
+        upper_bound = min(upper_bound, top_label_cols[label_pos + 1] - 1)
+    if upper_bound < lower_bound:
+        return None
+
+    leaf_cols = [
+        col_idx
+        for col_idx in range(lower_bound, upper_bound + 1)
+        if _semantic_header_cell_text(continuation_row[col_idx], col_idx)
+        and _column_has_body_values(body_rows, col_idx, col_count)
+    ]
+    if len(leaf_cols) < 2:
+        return None
+    if leaf_cols != list(range(leaf_cols[0], leaf_cols[-1] + 1)):
+        return None
+    if not (leaf_cols[0] <= label_col <= leaf_cols[-1]):
+        if label_col != lower_bound and label_col != upper_bound:
+            return None
+    return leaf_cols[0], leaf_cols[-1]
+
+
+def _fragmented_group_label_end_col(
+    top_row: list[str | None],
+    label_col: int,
+    col_count: int,
+) -> int | None:
+    """Return the end col when one group label is split across top-row cells."""
+    first = _semantic_header_cell_text(top_row[label_col], label_col)
+    if not first:
+        return None
+    depth = _grouping_balance_delta(first)
+    if depth <= 0:
+        return None
+    end_col = label_col
+    for col_idx in range(label_col + 1, col_count):
+        text = _semantic_header_cell_text(top_row[col_idx], col_idx)
+        if not text:
+            continue
+        depth += _grouping_balance_delta(text)
+        end_col = col_idx
+        if depth <= 0:
+            return end_col
+    return None
+
+
+def _is_inside_fragmented_group_label(
+    top_row: list[str | None],
+    col_idx: int,
+) -> bool:
+    if col_idx <= 0:
+        return False
+    for start_col in range(0, col_idx):
+        end_col = _fragmented_group_label_end_col(top_row, start_col, len(top_row))
+        if end_col is not None and start_col < col_idx <= end_col:
+            return True
+    return False
+
+
+def _grouping_balance_delta(text: str) -> int:
+    pairs = {"(": ")", "\uff08": "\uff09", "[": "]", "\u3010": "\u3011"}
+    closers = set(pairs.values())
+    delta = 0
+    for char in str(text or ""):
+        if char in pairs:
+            delta += 1
+        elif char in closers:
+            delta -= 1
+    return delta
+
+
+def _infer_header_group_start_col(
+    continuation_row: list[str | None],
+    *,
+    span_end: int,
+    min_start_col: int | None = None,
+) -> int:
+    lower_bound = max(0, int(min_start_col or 0))
+    span_leaf_cols = [
+        candidate_col
+        for candidate_col in range(lower_bound, span_end + 1)
+        if _semantic_header_cell_text(continuation_row[candidate_col], candidate_col)
+    ]
+    if not span_leaf_cols:
+        return span_end
+    return span_leaf_cols[0]
+
+
 def _has_local_header_evidence(
     first_row: list[Any],
     header_texts: list[str],
@@ -1281,11 +3002,31 @@ def _refresh_row_texts_from_grid(table: dict[str, Any]) -> None:
     raw_grid = _get_authoritative_raw_grid(table)
     semantic_source_grid = _project_semantic_grid_from_cells(raw_grid, table.get("cells") or [], table)
     data_start_row = _get_data_start_row(table)
+    external_projection = table.get("external_header_projection")
+    external_data_first = isinstance(external_projection, dict) and _raw_grid_is_external_projection_data_first(table, raw_grid)
+    if external_data_first:
+        data_start_row = 1
     display_grid, data_grid, raw_row_texts, display_row_texts, data_row_texts, structural_empty_rows = _build_row_views_from_raw_grid(
         semantic_source_grid,
         data_start_row=data_start_row,
         raw_audit_grid=raw_grid,
     )
+    audit_row_texts = None
+    if _should_include_external_title_in_audit_rows(table):
+        audit_row_texts = _raw_row_texts_with_external_title(table, raw_grid)
+    if audit_row_texts:
+        raw_row_texts = audit_row_texts
+    if isinstance(external_projection, dict):
+        external_audit_rows = _raw_row_texts_with_external_header_projection(table, raw_grid)
+        if external_audit_rows:
+            raw_row_texts = external_audit_rows
+
+    if external_data_first:
+        data_grid = project_table_grid_display_text(_clone_grid_rows(raw_grid[1:]))
+        display_grid = project_table_grid_display_text(_clone_grid_rows(raw_grid))
+        display_row_texts = _render_row_texts(display_grid)
+        data_row_texts = _render_row_texts(data_grid)
+        structural_empty_rows = []
 
     table["raw_grid"] = raw_grid
     table["display_grid"] = display_grid
@@ -1309,6 +3050,237 @@ def _refresh_row_texts_from_grid(table: dict[str, Any]) -> None:
         table["structural_empty_rows"] = structural_empty_rows
     else:
         table.pop("structural_empty_rows", None)
+
+
+def _raw_grid_is_external_projection_data_first(
+    table: dict[str, Any],
+    raw_grid: list[list[str | None]],
+) -> bool:
+    if len(raw_grid) < 2:
+        return False
+    header = [
+        _semantic_cell_text(cell.get("text") if isinstance(cell, dict) else cell)
+        for cell in table.get("header", []) or []
+    ]
+    if len(header) != len(raw_grid[0]):
+        return False
+    first_row = [_semantic_cell_text(cell) for cell in raw_grid[0]]
+    if not first_row:
+        return False
+    compatible_header_cells = 0
+    observed_header_cells = 0
+    for idx, first_text in enumerate(first_row):
+        first_compact = _compact_text(first_text)
+        if not first_compact:
+            continue
+        observed_header_cells += 1
+        header_compact = _compact_text(header[idx] if idx < len(header) else "")
+        if header_compact == first_compact or header_compact.startswith(first_compact) or first_compact in header_compact:
+            compatible_header_cells += 1
+    if observed_header_cells < 2 or compatible_header_cells < observed_header_cells:
+        return False
+    second_row = [_semantic_cell_text(cell) for cell in raw_grid[1]]
+    value_like = sum(
+        1
+        for text in second_row
+        if _cell_value_profile_kind(text) in {"numeric", "statistical", "code"} or _looks_like_plain_numeric_value(text)
+    )
+    return value_like >= max(2, len([text for text in second_row if text]) // 2)
+
+
+def _looks_like_plain_numeric_value(text: str) -> bool:
+    cleaned = _semantic_cell_text(text)
+    return bool(re.fullmatch(r"[-+]?\d+(?:\.\d+)?(?:%|[eE][-+]?\d+)?", cleaned))
+
+
+def _raw_row_texts_with_external_header_projection(
+    table: dict[str, Any],
+    raw_grid: list[list[str | None]],
+) -> list[str] | None:
+    header = [
+        _semantic_cell_text(cell.get("text") if isinstance(cell, dict) else cell)
+        for cell in table.get("header", []) or []
+    ]
+    if not header or not raw_grid:
+        return None
+    title_rows = _external_title_rows_for_audit(table, max(len(header), len(raw_grid[0])))
+    base_header = _external_projection_base_header(table, raw_grid, len(header))
+    continuation_row = _external_projection_continuation_row(base_header, header)
+    if not any(_semantic_cell_text(cell) for cell in continuation_row):
+        return None
+    data_start = _get_data_start_row(table)
+    if data_start > 0 and data_start < len(raw_grid):
+        data_rows = _clone_grid_rows(raw_grid[data_start:])
+    elif len(raw_grid) >= 2 and _compact_text(" ".join(_semantic_cell_text(cell) for cell in raw_grid[0])) == _compact_text(" ".join(base_header)):
+        data_rows = _clone_grid_rows(raw_grid[1:])
+    else:
+        data_rows = _clone_grid_rows(raw_grid)
+    audit_rows = title_rows + [base_header, continuation_row] + data_rows
+    return _render_row_texts(audit_rows)
+
+
+def _external_title_rows_for_audit(table: dict[str, Any], col_count: int) -> list[list[str | None]]:
+    title = _semantic_cell_text(table.get("title"))
+    if not title:
+        return []
+    title_bbox = table.get("title_bbox") or (table.get("title_block") or {}).get("bbox") or []
+    if isinstance(title_bbox, (list, tuple)) and len(title_bbox) == 4:
+        title_height = float(title_bbox[3]) - float(title_bbox[1])
+        if title_height > 17.0 and len(title.split()) >= 8:
+            first, second = _split_external_title_for_audit(title)
+            first_row = [None] * max(1, col_count)
+            second_row = [None] * max(1, col_count)
+            first_row[0] = first
+            second_row[0] = second
+            return [first_row, second_row]
+    row = [None] * max(1, col_count)
+    row[0] = title
+    return [row]
+
+
+def _split_external_title_for_audit(title: str) -> tuple[str, str]:
+    words = str(title or "").split()
+    if len(words) < 2:
+        return title, ""
+    midpoint = len(title) / 2.0
+    running = 0
+    best_idx = 1
+    best_distance = float("inf")
+    for idx, word in enumerate(words[:-1], start=1):
+        running += len(word) + (1 if idx > 1 else 0)
+        distance = abs(running - midpoint)
+        if distance < best_distance:
+            best_idx = idx
+            best_distance = distance
+    return " ".join(words[:best_idx]).strip(), " ".join(words[best_idx:]).strip()
+
+
+def _external_projection_base_header(
+    table: dict[str, Any],
+    raw_grid: list[list[str | None]],
+    col_count: int,
+) -> list[str | None]:
+    if raw_grid and len(raw_grid[0]) == col_count:
+        first_row = [_semantic_cell_text(cell) for cell in raw_grid[0]]
+        header = [
+            _semantic_cell_text(cell.get("text") if isinstance(cell, dict) else cell)
+            for cell in table.get("header", []) or []
+        ]
+        compatible = True
+        for idx, first_text in enumerate(first_row):
+            first_compact = _compact_text(first_text)
+            header_compact = _compact_text(header[idx] if idx < len(header) else "")
+            if first_compact and not (
+                header_compact == first_compact
+                or header_compact.startswith(first_compact)
+                or first_compact in header_compact
+            ):
+                compatible = False
+                break
+        if compatible:
+            return list(raw_grid[0])
+    return [
+        _semantic_cell_text(cell.get("text") if isinstance(cell, dict) else cell)
+        for cell in table.get("header", []) or []
+    ]
+
+
+def _external_projection_continuation_row(
+    base_header: list[str | None],
+    projected_header: list[str],
+) -> list[str | None]:
+    continuation: list[str | None] = [None] * max(len(base_header), len(projected_header))
+    for idx, projected in enumerate(projected_header):
+        if idx >= len(base_header):
+            continue
+        base = _semantic_cell_text(base_header[idx])
+        expanded = _semantic_cell_text(projected)
+        if not base or expanded == base:
+            continue
+        if not expanded.lower().startswith(base.lower()):
+            continue
+        tail = expanded[len(base) :].strip()
+        if tail:
+            continuation[idx] = tail
+    return continuation
+
+
+def project_simple_schema_header_data_views(table: dict[str, Any]) -> None:
+    """Keep simple one-line schema tables' public row views data-first."""
+    raw_grid = _get_authoritative_raw_grid(table)
+    if len(raw_grid) < 2:
+        return
+    if _get_data_start_row(table) != 1:
+        return
+    if not _single_schema_header_followed_by_clear_data(raw_grid[0], raw_grid[1]):
+        return
+    if _looks_like_projected_multiline_header_continuation(table, raw_grid):
+        return
+    data_rows = _clone_grid_rows(raw_grid[1:])
+    display_rows = project_table_grid_display_text(data_rows)
+    audit_raw_row_texts = _raw_row_texts_with_external_title(table, raw_grid) or _render_row_texts(data_rows)
+    table["raw_grid"] = data_rows
+    table["display_grid"] = display_rows
+    table["grid"] = _clone_grid_rows(display_rows)
+    table["data_grid"] = _clone_grid_rows(display_rows)
+    table["raw_row_texts"] = audit_raw_row_texts
+    table["display_row_texts"] = _render_row_texts(display_rows)
+    table["row_texts"] = _render_row_texts(display_rows)
+    table["data_row_texts"] = list(table["row_texts"])
+    table["raw_row_count"] = len(table["raw_row_texts"])
+    table["display_row_count"] = len(display_rows)
+    table["row_count"] = len(display_rows)
+    table["data_row_count"] = len(display_rows)
+    table["logical_row_count"] = len(display_rows)
+
+
+def _raw_row_texts_with_external_title(
+    table: dict[str, Any],
+    raw_grid: list[list[str | None]],
+) -> list[str] | None:
+    title = _semantic_cell_text(table.get("title"))
+    if not title or not raw_grid:
+        return None
+    title_block = table.get("title_block") or {}
+    if str(title_block.get("source", "") or "") not in {"text-layer", "split_title_merge"}:
+        return None
+    compact_title = _compact_text(title)
+    first_row_text = _semantic_cell_text(raw_grid[0][0] if raw_grid and raw_grid[0] else "")
+    if first_row_text and compact_title and _compact_text(first_row_text).startswith(compact_title[: min(12, len(compact_title))]):
+        return None
+    title_row = [None] * max(1, len(raw_grid[0]))
+    title_row[0] = title
+    return _render_row_texts([title_row] + _clone_grid_rows(raw_grid))
+
+
+def _should_include_external_title_in_audit_rows(table: dict[str, Any]) -> bool:
+    if table.get("external_header_projection"):
+        return True
+    return str(table.get("detection_source") or table.get("detection_method") or "").strip() in {
+        "caption_anchored_horizontal_rules",
+        "vector_ocr",
+    }
+
+
+def _looks_like_projected_multiline_header_continuation(
+    table: dict[str, Any],
+    raw_grid: list[list[str | None]],
+) -> bool:
+    data_start_row = int(table.get("data_start_row", 0) or 0)
+    if data_start_row <= 1 or len(raw_grid) <= data_start_row:
+        return False
+    first_public_row = raw_grid[0]
+    for row in raw_grid[1:data_start_row]:
+        non_empty = _semantic_non_empty_columns(row)
+        if not non_empty:
+            continue
+        if len(non_empty) > max(1, len(first_public_row) // 2):
+            continue
+        if any(_cell_value_profile_kind(_semantic_cell_text(row[col_idx])) in {"numeric", "statistical"} for col_idx in non_empty):
+            continue
+        if any(_semantic_cell_text(first_public_row[col_idx]) for col_idx in non_empty if col_idx < len(first_public_row)):
+            return True
+    return False
 
 
 def _project_semantic_grid_from_cells(
@@ -1791,6 +3763,8 @@ def compact_leading_key_carry_forward_rows(
     col_count = int(table.get("col_count", 0) or 0)
     if len(data_grid) < 3 or col_count < 3:
         return False
+    original_data_grid = _clone_grid_rows(data_grid)
+    data_grid = _compact_sparse_wrapped_content_rows_for_carry_forward(data_grid, col_count)
 
     header = table.get("header") or []
     header_texts = [str(item.get("text", "")).strip() for item in header]
@@ -1912,6 +3886,12 @@ def compact_leading_key_carry_forward_rows(
         return False
 
     _write_semantic_grid(table, semantic_grid)
+    if data_grid != original_data_grid:
+        _sync_display_grid_after_sparse_wrapped_content_compaction(
+            table,
+            original_data_grid=original_data_grid,
+            compacted_data_grid=data_grid,
+        )
     table["semantic_compaction"] = {
         "applied": True,
         "strategy": "leading_key_carry_forward",
@@ -1920,6 +3900,65 @@ def compact_leading_key_carry_forward_rows(
         "groups": semantic_groups,
     }
     return True
+
+
+def _compact_sparse_wrapped_content_rows_for_carry_forward(
+    grid: list[list[str | None]],
+    col_count: int,
+) -> list[list[str | None]]:
+    """Merge wrapped content fragments before leading-key carry-forward."""
+    if len(grid) < 3 or col_count < 3:
+        return grid
+    projected: list[list[str | None]] = []
+    row_idx = 0
+    while row_idx < len(grid):
+        row = list(grid[row_idx])
+        content_col = _find_sparse_wrapped_cell_anchor_column(row)
+        if content_col is None:
+            projected.append(row)
+            row_idx += 1
+            continue
+        fragments: list[str] = []
+        lookahead_idx = row_idx + 1
+        while lookahead_idx < len(grid) and _is_sparse_wrapped_cell_fragment_row(
+            anchor_row=row,
+            fragment_row=grid[lookahead_idx],
+            content_col=content_col,
+        ):
+            fragments.append(_semantic_cell_text(grid[lookahead_idx][content_col]))
+            lookahead_idx += 1
+        if not fragments:
+            projected.append(row)
+            row_idx += 1
+            continue
+        merged_text = _join_sparse_wrapped_cell_fragments([_semantic_cell_text(row[content_col]), *fragments])
+        if merged_text:
+            row[content_col] = merged_text
+        projected.append(row)
+        row_idx = lookahead_idx
+    return projected
+
+
+def _sync_display_grid_after_sparse_wrapped_content_compaction(
+    table: dict[str, Any],
+    *,
+    original_data_grid: list[list[str | None]],
+    compacted_data_grid: list[list[str | None]],
+) -> None:
+    if not original_data_grid or original_data_grid == compacted_data_grid:
+        return
+    display_grid = _clone_grid_rows(table.get("display_grid") or [])
+    data_start_row = _get_data_start_row(table)
+    if data_start_row < 0 or data_start_row > len(display_grid):
+        return
+    if len(display_grid) - data_start_row != len(original_data_grid):
+        return
+
+    compacted_display = project_table_grid_display_text(_clone_grid_rows(compacted_data_grid))
+    table["display_grid"] = display_grid[:data_start_row] + compacted_display
+    table["display_row_texts"] = _render_row_texts(table["display_grid"])
+    table["display_row_count"] = len(table["display_grid"])
+    table["grid"] = _clone_grid_rows(table.get("data_grid") or table.get("grid") or [])
 
 
 def _write_semantic_grid(table: dict[str, Any], semantic_grid: list[list[str | None]]) -> None:
@@ -1997,6 +4036,8 @@ def compact_vector_ocr_placeholder_tail_column_pairs(table: dict[str, Any]) -> b
         return False
 
     raw_grid = _get_authoritative_raw_grid(table)
+    if _compact_two_column_vector_ocr_wrapped_values(table, raw_grid):
+        return True
     if len(raw_grid) < 5:
         return False
 
@@ -2104,6 +4145,72 @@ def compact_vector_ocr_placeholder_tail_column_pairs(table: dict[str, Any]) -> b
         "compacted_data_row_count": len(semantic_grid),
         "header_continuation_row_count": len(header_continuation_rows),
         "groups": semantic_groups,
+    }
+    return True
+
+
+def _compact_two_column_vector_ocr_wrapped_values(
+    table: dict[str, Any],
+    raw_grid: list[list[Any]],
+) -> bool:
+    col_count = int(table.get("col_count", 0) or 0)
+    physical_col_count = int(table.get("physical_col_count", 0) or 0)
+    if col_count != 2 or physical_col_count != 2 or len(raw_grid) < 4:
+        return False
+    header = table.get("header") or []
+    header_texts = [str(item.get("text", "")).strip() for item in header]
+    if len(header_texts) != 2 or not header_texts[0] or not header_texts[1]:
+        return False
+
+    data_start_row = _get_data_start_row(table)
+    if data_start_row <= 0:
+        return False
+    data_rows = [list(row[:2]) + [None] * max(0, 2 - len(row)) for row in raw_grid[data_start_row:]]
+    if len(data_rows) < 2:
+        return False
+
+    header_continuations: list[str] = []
+    while data_rows and not _semantic_cell_text(data_rows[0][0]) and _semantic_cell_text(data_rows[0][1]):
+        header_continuations.append(_semantic_cell_text(data_rows.pop(0)))
+    if not data_rows:
+        return False
+
+    semantic_grid: list[list[str | None]] = []
+    idx = 0
+    while idx < len(data_rows):
+        anchor = _semantic_cell_text(data_rows[idx][0])
+        value = _semantic_cell_text(data_rows[idx][1])
+        if not anchor or not value:
+            return False
+        idx += 1
+        value_parts = [value]
+        while idx < len(data_rows) and not _semantic_cell_text(data_rows[idx][0]) and _semantic_cell_text(data_rows[idx][1]):
+            value_parts.append(_semantic_cell_text(data_rows[idx][1]))
+            idx += 1
+        semantic_grid.append([anchor, _merge_vector_ocr_multiline_values(value_parts)])
+
+    source_row_count = len(data_rows) + len(header_continuations)
+    if len(semantic_grid) > source_row_count:
+        return False
+    merged_header_value = _merge_vector_ocr_multiline_values([header_texts[1], *header_continuations])
+    _write_semantic_projection(
+        table,
+        header_texts=[header_texts[0], merged_header_value],
+        semantic_grid=semantic_grid,
+    )
+    table["semantic_compaction"] = {
+        "applied": True,
+        "strategy": "vector_ocr_placeholder_tail_column_pairs",
+        "source_data_row_count": source_row_count,
+        "compacted_data_row_count": len(semantic_grid),
+        "header_continuation_row_count": len(header_continuations),
+        "groups": [
+            {
+                "anchor_text": row[0],
+                "source_data_row_count": 1,
+            }
+            for row in semantic_grid
+        ],
     }
     return True
 
@@ -2253,6 +4360,7 @@ def _estimate_row_height(table: dict[str, Any]) -> float:
 
 def merge_two_table_fragments(primary: dict[str, Any], secondary: dict[str, Any]) -> dict[str, Any]:
     """合并两个表格片段"""
+    dense_overlap_merge = _can_merge_dense_overlapping_grid_fragments(primary, secondary)
     primary_bbox = tuple(primary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
     secondary_bbox = tuple(secondary.get("bbox", (0.0, 0.0, 0.0, 0.0)))
 
@@ -2303,7 +4411,11 @@ def merge_two_table_fragments(primary: dict[str, Any], secondary: dict[str, Any]
     primary_raw_grid = _get_authoritative_raw_grid(primary)
     secondary_raw_grid = _get_authoritative_raw_grid(secondary)
     if primary_raw_grid or secondary_raw_grid:
-        primary["raw_grid"] = primary_raw_grid + secondary_raw_grid
+        if dense_overlap_merge:
+            primary["raw_grid"] = _merge_grid_rows_without_duplicate_boundaries(primary_raw_grid, secondary_raw_grid)
+            primary["dense_overlap_fragment_merge"] = True
+        else:
+            primary["raw_grid"] = primary_raw_grid + secondary_raw_grid
         _refresh_row_texts_from_grid(primary)
         primary["cells"] = _build_cells_from_grid(primary.get("grid", []))
     else:
@@ -2312,6 +4424,53 @@ def merge_two_table_fragments(primary: dict[str, Any], secondary: dict[str, Any]
         primary["row_count"] = int(primary.get("row_count", 0)) + int(secondary.get("row_count", 0))
 
     return primary
+
+
+def _merge_grid_rows_without_duplicate_boundaries(
+    primary_grid: list[list[str | None]],
+    secondary_grid: list[list[str | None]],
+) -> list[list[str | None]]:
+    merged = _clone_grid_rows(primary_grid)
+    seen = {_row_signature(row) for row in merged if _row_signature(row)}
+    for row in _clone_grid_rows(secondary_grid):
+        signature = _row_signature(row)
+        if signature and signature in seen:
+            continue
+        merged.append(row)
+        if signature:
+            seen.add(signature)
+    return merged
+
+
+def _row_signature(row: list[Any]) -> str:
+    parts = [
+        re.sub(r"\s+", "", _semantic_cell_text(cell)).lower()
+        for cell in row
+        if _semantic_cell_text(cell)
+    ]
+    if not parts:
+        return ""
+    return "|".join(parts)
+
+
+def _grid_has_dense_numeric_profile(grid: list[list[str | None]]) -> bool:
+    rows = [row for row in grid if isinstance(row, list)]
+    if len(rows) < 3:
+        return False
+    wide_rows = 0
+    numeric_like = 0
+    filled = 0
+    for row in rows:
+        values = [_semantic_cell_text(cell) for cell in row if _semantic_cell_text(cell)]
+        if len(values) >= 6:
+            wide_rows += 1
+        for value in values:
+            filled += 1
+            if re.search(r"\d", value):
+                numeric_like += 1
+    if wide_rows < max(2, len(rows) // 2):
+        return False
+    return numeric_like >= max(4, filled // 3)
 
 
 def merge_same_page_table_fragments(
@@ -2328,6 +4487,10 @@ def merge_same_page_table_fragments(
     for table in sorted_tables[1:]:
         candidate = dict(table)
         previous = merged_tables[-1]
+        if can_merge_horizontal_table_fragments_on_same_page(previous, candidate):
+            merged_tables[-1] = merge_horizontal_table_fragments(previous, candidate)
+            merge_count += 1
+            continue
         if can_merge_table_fragments_on_same_page(previous, candidate):
             merged_tables[-1] = merge_two_table_fragments(previous, candidate)
             merge_count += 1
@@ -2489,6 +4652,11 @@ __all__ = [
     "header_similarity",
     "compact_vector_ocr_placeholder_tail_column_pairs",
     "compact_vector_ocr_sparse_anchor_rows",
+    "project_table_header_grammar",
+    "project_compound_spanning_table_headers",
+    "project_rowspan_body_groups",
+    "project_simple_schema_header_data_views",
+    "extract_trailing_table_note_rows",
     "compact_leading_key_carry_forward_rows",
     # Cross-page stitching
     "stitch_cross_page_tables",

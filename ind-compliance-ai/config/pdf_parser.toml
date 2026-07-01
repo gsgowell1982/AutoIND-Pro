@@ -53,3 +53,7 @@ gap_ratio_min = -0.1
 gap_ratio_max = 0.35
 header_similarity_threshold = 0.0
 respect_preceding_text_barrier = true
+
+[ocr_runtime_policy]
+runtime_profile = "text_layer_ind_fast"
+emit_stage_timings = true

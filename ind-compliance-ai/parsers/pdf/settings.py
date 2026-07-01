@@ -76,12 +76,19 @@ class SamePageMergePolicy:
 
 
 @dataclass(slots=True)
+class OcrRuntimePolicy:
+    runtime_profile: str = "text_layer_ind_fast"
+    emit_stage_timings: bool = True
+
+
+@dataclass(slots=True)
 class PdfParserSettings:
     cross_page_stitching: CrossPageStitchingThresholds
     table_content_policy: TableContentPolicy
     rule_engine_policy: RuleEnginePolicy
     table_detection_policy: TableDetectionPolicy
     same_page_merge_policy: SamePageMergePolicy
+    ocr_runtime_policy: OcrRuntimePolicy
 
 
 def _project_root() -> Path:
@@ -127,6 +134,7 @@ def get_pdf_parser_settings() -> PdfParserSettings:
     rule_engine_policy = RuleEnginePolicy()
     table_detection_policy = TableDetectionPolicy()
     same_page_merge_policy = SamePageMergePolicy()
+    ocr_runtime_policy = OcrRuntimePolicy()
 
     if not cfg_path.exists():
         return PdfParserSettings(
@@ -135,6 +143,7 @@ def get_pdf_parser_settings() -> PdfParserSettings:
             rule_engine_policy=rule_engine_policy,
             table_detection_policy=table_detection_policy,
             same_page_merge_policy=same_page_merge_policy,
+            ocr_runtime_policy=ocr_runtime_policy,
         )
 
     try:
@@ -147,6 +156,7 @@ def get_pdf_parser_settings() -> PdfParserSettings:
             rule_engine_policy=rule_engine_policy,
             table_detection_policy=table_detection_policy,
             same_page_merge_policy=same_page_merge_policy,
+            ocr_runtime_policy=ocr_runtime_policy,
         )
 
     section = data.get("cross_page_stitching", {}) if isinstance(data, dict) else {}
@@ -265,10 +275,20 @@ def get_pdf_parser_settings() -> PdfParserSettings:
         same_page_merge_policy.respect_preceding_text_barrier,
     )
 
+    ocr_section = data.get("ocr_runtime_policy", {}) if isinstance(data, dict) else {}
+    ocr_runtime_policy.runtime_profile = str(
+        ocr_section.get("runtime_profile", ocr_runtime_policy.runtime_profile) or ocr_runtime_policy.runtime_profile
+    ).strip()
+    ocr_runtime_policy.emit_stage_timings = _to_bool(
+        ocr_section.get("emit_stage_timings"),
+        ocr_runtime_policy.emit_stage_timings,
+    )
+
     return PdfParserSettings(
         cross_page_stitching=thresholds,
         table_content_policy=table_content_policy,
         rule_engine_policy=rule_engine_policy,
         table_detection_policy=table_detection_policy,
         same_page_merge_policy=same_page_merge_policy,
+        ocr_runtime_policy=ocr_runtime_policy,
     )

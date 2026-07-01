@@ -1,0 +1,632 @@
+{
+  "schema_version": "regulation-library-v1",
+  "regulation_id": "cn_ectd_technical_specification",
+  "rule_candidate_count": 38,
+  "rule_candidates": [
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_1_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_1_1",
+      "article_no": 1,
+      "title": "1.1 目的",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_1_1",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_1_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_1_2",
+      "article_no": 2,
+      "title": "1.2 范围和应用",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_1_2",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_1_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_1_3",
+      "article_no": 3,
+      "title": "1.3 配套文件",
+      "recommended_rule_mode": "citation_only",
+      "material_checkability": "external_only",
+      "ind_relevance": "low",
+      "automation_ready": false,
+      "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_1_3",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_1",
+      "article_no": 4,
+      "title": "2.1 申请信息",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_1",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_1_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_1",
+      "article_no": 5,
+      "title": "2.1.1 申请编号",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_1_1",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_1_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_2",
+      "article_no": 6,
+      "title": "2.1.2 申请类型",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_1_2",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_1_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_3",
+      "article_no": 7,
+      "title": "2.1.3 产品类型",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_1_3",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_1_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_4",
+      "article_no": 8,
+      "title": "2.1.4 原始编号",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_1_4",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_2",
+      "article_no": 9,
+      "title": "2.2 注册行为信息",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_2",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_2_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_2_1",
+      "article_no": 10,
+      "title": "2.2.1 注册行为类型",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_2_1",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_2_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_2_2",
+      "article_no": 11,
+      "title": "2.2.2 相关序列",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_2_2",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_3",
+      "article_no": 12,
+      "title": "2.3 序列信息",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_3",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_3_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_1",
+      "article_no": 13,
+      "title": "2.3.1 序列号",
+      "recommended_rule_mode": "hard",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_3_1",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_3_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_2",
+      "article_no": 14,
+      "title": "2.3.2 序列类型",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_3_2",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_3_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_3",
+      "article_no": 15,
+      "title": "2.3.3 序列描述",
+      "recommended_rule_mode": "hard",
+      "material_checkability": "direct",
+      "ind_relevance": "high",
+      "automation_ready": true,
+      "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+      "expected_material_evidence": [
+        "general_registration_dossier",
+        "api_supporting_materials"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_3_3",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_3_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_4",
+      "article_no": 16,
+      "title": "2.3.4 序列联系人信息",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_3_4",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_2_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_2_4",
+      "article_no": 17,
+      "title": "2.4 申请、注册行为和序列的关系",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_2_4",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_1",
+      "article_no": 18,
+      "title": "3.1 模块一的行政文件和药品信息",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_1",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_2",
+      "article_no": 19,
+      "title": "3.2 3.2.R 章节的使用",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_2",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_3",
+      "article_no": 20,
+      "title": "3.3 文件和文件夹",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_3",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_3_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_1",
+      "article_no": 21,
+      "title": "3.3.1 内容文件的格式",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "clinical_trial_materials"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_3_1",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_3_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_2",
+      "article_no": 22,
+      "title": "3.3.2 文件和文件夹命名规则",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_3_2",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_3_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_3",
+      "article_no": 23,
+      "title": "3.3.3 关于空缺章节的处理",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_3_3",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_3_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_4",
+      "article_no": 24,
+      "title": "3.3.4 文件的重复使用",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_3_4",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_4",
+      "article_no": 25,
+      "title": "3.4 PDF 电子提交标准",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_4",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_5",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_5",
+      "article_no": 26,
+      "title": "3.5 外文参考资料的要求",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_5",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_5_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_5_1",
+      "article_no": 27,
+      "title": "3.5.1 语言属性的设置",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_5_1",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_5_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_5_2",
+      "article_no": 28,
+      "title": "3.5.2 语言属性的生命周期管理",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_5_2",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_6",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_6",
+      "article_no": 29,
+      "title": "3.6 eCTD 骨架属性和元数据",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_6",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_7",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_7",
+      "article_no": 30,
+      "title": "3.7 扩展节点",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_7",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_8",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_8",
+      "article_no": 31,
+      "title": "3.8 研究标签文件",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "clinical_trial_materials",
+        "nonclinical_study_materials"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_8",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_9",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_9",
+      "article_no": 32,
+      "title": "3.9 生命周期操作",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_9",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_10",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_10",
+      "article_no": 33,
+      "title": "3.10 电子签名",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_10",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_3_11",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_3_11",
+      "article_no": 34,
+      "title": "3.11 eCTD 提交方式",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_3_11",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_4_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "article_no": 35,
+      "title": "4.1 创建模块一骨架文件",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_4_1",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_4_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_4_2",
+      "article_no": 36,
+      "title": "4.2 XML 根元素",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_4_2",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_4_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_4_3",
+      "article_no": 37,
+      "title": "4.3 信封元素",
+      "recommended_rule_mode": "soft",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [
+        "general_registration_dossier"
+      ],
+      "citation_anchor": "cn_ectd_technical_specification#sec_4_3",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    },
+    {
+      "rule_candidate_id": "cn_ectd_technical_specification:rule_sec_4_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "article_no": 38,
+      "title": "4.4 目录元素",
+      "recommended_rule_mode": "review_only",
+      "material_checkability": "partial",
+      "ind_relevance": "medium",
+      "automation_ready": false,
+      "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+      "expected_material_evidence": [],
+      "citation_anchor": "cn_ectd_technical_specification#sec_4_4",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf"
+    }
+  ]
+}

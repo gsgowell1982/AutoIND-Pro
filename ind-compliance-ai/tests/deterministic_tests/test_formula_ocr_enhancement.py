@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from parsers.pdf.formula_ocr import (
     FormulaOcrCandidate,
     build_formula_latex_enhancement,
+    enhance_equation_blocks_with_formula_ocr,
     enhance_inline_formula_spans_with_formula_ocr,
     _extract_paddle_formula_latex,
     _extract_texteller_latex,
@@ -13,9 +15,153 @@ from parsers.pdf.formula_ocr import (
     _recognize_with_texteller_cli,
 )
 from parsers.pdf.postprocess import _clean_display_equation_text
+from parsers.pdf.postprocess import (
+    _apply_complexity_text_projection,
+    _build_plain_text_inline_formula_spans,
+    _looks_like_duplicate_equation_text_block,
+    _merge_preferred_inline_formula_spans,
+    _suppress_inline_formula_fragment_spans_for_text,
+)
 
 
 class FormulaOcrEnhancementTests(unittest.TestCase):
+    def test_duplicate_equation_text_block_accepts_short_identical_formula_with_bbox_overlap(self) -> None:
+        text_block = {
+            "text": "d w ( x , y ,)= x - y w ,",
+            "bbox": [301.91, 500.39, 370.08, 510.25],
+        }
+        equation_source = {
+            "text": "d w ( x , y ,)= x - y w , ( 5 )",
+            "bbox": [301.91, 500.39, 553.4, 510.25],
+        }
+
+        self.assertTrue(_looks_like_duplicate_equation_text_block(text_block, equation_source))
+
+    def test_complexity_projection_uses_formula_shape_and_semantic_context_not_section_number(self) -> None:
+        text_block = {
+            "text": "The runtime complexity is O (( nd + Ind ) g ) . +) )",
+            "bbox": [10.0, 20.0, 200.0, 30.0],
+            "section_context": {
+                "outline_index": "5.2",
+                "section_title": "Runtime analysis",
+            },
+        }
+
+        _apply_complexity_text_projection(text_block)
+        spans = _build_plain_text_inline_formula_spans(text_block)
+
+        self.assertEqual(
+            text_block.get("display_text"),
+            "The runtime complexity is $O((nd + Ind)g)$.",
+        )
+        self.assertEqual(text_block.get("text_projection"), "complexity_inline_math")
+        self.assertIn("O((nd + Ind)g)", [span.get("latex_text") for span in spans])
+
+    def test_complexity_projection_keeps_linear_iteration_term_distinct_from_quadratic_shape(self) -> None:
+        text_block = {
+            "text": "() O Ind respectively. Here, n is number of",
+            "bbox": [10.0, 20.0, 200.0, 30.0],
+            "section_context": {
+                "outline_index": "9.1",
+                "section_title": "Runtime analysis",
+            },
+        }
+
+        _apply_complexity_text_projection(text_block)
+        spans = _build_plain_text_inline_formula_spans(text_block)
+
+        self.assertEqual(
+            text_block.get("display_text"),
+            "$O(Ind)$ respectively. Here, n is number of",
+        )
+        self.assertIn("O(Ind)", [span.get("latex_text") for span in spans])
+        self.assertNotIn("O(I(n^2d + nd))", [span.get("latex_text") for span in spans])
+
+    def test_plain_text_inline_math_spans_cover_uppercase_vector_assignments(self) -> None:
+        s_block = {
+            "text": "Let S = [ x 1 , ..., x n ] T ∈ R n × d be a training data set containing n",
+            "bbox": [10.0, 20.0, 200.0, 30.0],
+        }
+        y_block = {
+            "text": "Y = [ y 1 , ..., y n ] T is the corresponding class labels, and d ≫ n.",
+            "bbox": [10.0, 20.0, 200.0, 30.0],
+        }
+
+        s_spans = _build_plain_text_inline_formula_spans(s_block)
+        y_spans = _build_plain_text_inline_formula_spans(y_block)
+
+        self.assertIn(r"S=[x_1,\ldots,x_n]^T \in R^{n \times d}", [span.get("latex_text") for span in s_spans])
+        self.assertIn(r"Y=[y_1,\ldots,y_n]^T", [span.get("latex_text") for span in y_spans])
+        self.assertTrue(any(span.get("formula_complexity") == "inline_formula" for span in s_spans))
+        self.assertTrue(any(span.get("formula_complexity") == "inline_formula" for span in y_spans))
+
+    def test_plain_text_inline_math_spans_do_not_convert_normal_word_fragments_to_subscripts(self) -> None:
+        word_block = {
+            "text": "The method compared with the six state-of-the-art methods and Kullback-Leibler di-",
+            "bbox": [10.0, 20.0, 300.0, 30.0],
+        }
+        math_block = {
+            "text": "where g is the number of classes, x ij, c ij the j-th element of x i",
+            "bbox": [10.0, 40.0, 300.0, 50.0],
+        }
+
+        word_spans = _build_plain_text_inline_formula_spans(word_block)
+        math_spans = _build_plain_text_inline_formula_spans(math_block)
+
+        self.assertNotIn("s_{ix}", [span.get("latex_text") for span in word_spans])
+        self.assertNotIn("d_i", [span.get("latex_text") for span in word_spans])
+        self.assertIn("x_{ij}", [span.get("latex_text") for span in math_spans])
+        self.assertIn("c_{ij}", [span.get("latex_text") for span in math_spans])
+        self.assertIn("x_i", [span.get("latex_text") for span in math_spans])
+
+    def test_merge_keeps_same_symbol_when_two_candidates_come_from_distinct_source_ranges(self) -> None:
+        spans = [
+            {
+                "content": "xi",
+                "latex_text": "x_i",
+                "formula_complexity": "inline_symbol",
+                "bbox": [100.0, 10.0, 120.0, 20.0],
+                "_source_start": 18,
+                "_source_end": 20,
+            },
+            {
+                "content": "x i",
+                "latex_text": "x_i",
+                "formula_complexity": "inline_symbol",
+                "bbox": [100.0, 10.0, 120.0, 20.0],
+                "_source_start": 41,
+                "_source_end": 44,
+            },
+        ]
+
+        merged = _merge_preferred_inline_formula_spans(spans)
+
+        self.assertEqual(["x_i", "x_i"], [span.get("latex_text") for span in merged])
+        self.assertEqual(["xi", "x i"], [span.get("content") for span in merged])
+
+    def test_merge_prefers_positioned_symbol_over_duplicate_without_source_range(self) -> None:
+        spans = [
+            {
+                "content": "xi",
+                "latex_text": "x_i",
+                "formula_complexity": "inline_symbol",
+                "bbox": [100.0, 10.0, 120.0, 20.0],
+                "_source_start": 18,
+                "_source_end": 20,
+            },
+            {
+                "content": "x i",
+                "latex_text": "x_i",
+                "formula_complexity": "inline_symbol",
+                "bbox": [100.0, 10.0, 120.0, 20.0],
+            },
+        ]
+
+        merged = _merge_preferred_inline_formula_spans(spans)
+
+        self.assertEqual(["xi"], [span.get("content") for span in merged])
+        self.assertEqual([(18, 20)], [(span.get("_source_start"), span.get("_source_end")) for span in merged])
+
     def test_display_equation_text_trims_explanatory_prose_transitions(self) -> None:
         cleaned = _clean_display_equation_text(
             "d ( k ) = - g ( k ) , k = 0, where beta = 1 and g k is the gradient of F v",
@@ -70,6 +216,34 @@ class FormulaOcrEnhancementTests(unittest.TestCase):
         self.assertIsNone(enhancement["latex_text"])
         self.assertLess(enhancement["latex_confidence"], 0.85)
         self.assertIn("insufficient_math_structure", enhancement["latex_validation"]["issues"])
+
+    def test_disabled_formula_ocr_preserves_high_confidence_text_layer_latex(self) -> None:
+        equation_blocks = [
+            {
+                "text": "partial partial partial partial F v v v = * 0 = ,",
+                "latex_text": r"\frac{\partial F}{\partial v}(v^*) = 0",
+                "latex_confidence": 0.88,
+                "latex_source": "pdf_text_layer_formula_pattern",
+                "latex_candidate_text": "partial partial partial partial F v v v = * 0 = ,",
+                "latex_validation": {
+                    "accepted": True,
+                    "score": 0.88,
+                    "signals": ["text_layer_derivative_stationarity_pattern"],
+                    "issues": [],
+                },
+            }
+        ]
+
+        with patch.dict("os.environ", {"IND_FORMULA_OCR_ENABLED": ""}, clear=False):
+            enhance_equation_blocks_with_formula_ocr(Path("unused.pdf"), equation_blocks)
+
+        equation = equation_blocks[0]
+        self.assertEqual(equation["latex_text"], r"\frac{\partial F}{\partial v}(v^*) = 0")
+        self.assertEqual(equation["latex_confidence"], 0.88)
+        self.assertEqual(equation["latex_source"], "pdf_text_layer_formula_pattern")
+        self.assertTrue(equation["latex_validation"]["accepted"])
+        self.assertEqual(equation["formula_ocr_enhancement"]["latex_source"], "disabled")
+        self.assertFalse(equation["formula_ocr_enhancement"]["latex_validation"]["accepted"])
 
     def test_rejects_repetitive_hallucinated_candidate_without_high_confidence_flag(self) -> None:
         equation = {

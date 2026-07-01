@@ -1,0 +1,1202 @@
+{
+  "schema_version": "regulation-library-v1",
+  "regulation_id": "cn_ectd_technical_specification",
+  "clause_count": 38,
+  "clauses": [
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_1_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "1",
+      "chapter_no": 1,
+      "chapter_title": "介绍",
+      "article_no_raw": "1.1",
+      "article_no": 1,
+      "heading": "1.1 目的",
+      "original_text": "1.1 目的 eCTD 是用于药品注册申报和审评的电子注册文件。通 过可扩展标记语言（Extensible Markup Language，XML）将 符合通用技术文档（CTD）规范的药品申报资料以电子化形 式进行组织、传输和呈现。 本文档为eCTD 技术规范，用以指导eCTD 软件公司开 发符合要求的eCTD 出版软件，及申请人制作符合要求的 eCTD 申报资料。 在本文档中将使用CN 作为中国的区域代码。",
+      "normalized_text": "1.1 目的 eCTD 是用于药品注册申报和审评的电子注册文件。通 过可扩展标记语言（Extensible Markup Language，XML）将 符合通用技术文档（CTD）规范的药品申报资料以电子化形 式进行组织、传输和呈现。 本文档为eCTD 技术规范，用以指导eCTD 软件公司开 发符合要求的eCTD 出版软件，及申请人制作符合要求的 eCTD 申报资料。 在本文档中将使用CN 作为中国的区域代码。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 42,
+        "citation_anchor": "cn_ectd_technical_specification#sec_1_1"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_1_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "1",
+      "chapter_no": 1,
+      "chapter_title": "介绍",
+      "article_no_raw": "1.2",
+      "article_no": 2,
+      "heading": "1.2 范围和应用",
+      "original_text": "1.2 范围和应用 本文档对eCTD 模块一行政文件和药品信息，以及其他 区域性信息进行了说明。 申请人准备eCTD 申报资料，除本文档外，还应参考《ICH eCTD 技术规范V3.2.2》等相关规范。",
+      "normalized_text": "1.2 范围和应用 本文档对eCTD 模块一行政文件和药品信息，以及其他 区域性信息进行了说明。 申请人准备eCTD 申报资料，除本文档外，还应参考《ICH eCTD 技术规范V3.2.2》等相关规范。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 51,
+        "citation_anchor": "cn_ectd_technical_specification#sec_1_2"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_1_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "1",
+      "chapter_no": 1,
+      "chapter_title": "介绍",
+      "article_no_raw": "1.3",
+      "article_no": 3,
+      "heading": "1.3 配套文件",
+      "original_text": "1.3 配套文件 eCTD 技术规范还包括以下配套文件： 1. ICH 文档类型定义（DTD）文件和区域Schema 文件 DTD 和Schema 都是用于对XML 文档结构进行规 范并验证其有效性的定义和描述文件。 DTD 文件指ICH 发布的“ich-ectd-3-2.dtd”和“ich-stf- v2-2.dtd”文件，用于对eCTD 骨架文件、研究标签文件 （STF）的有效性进行技术验证。模块二至模块五的骨 架文件及研究标签文件中将引用上述DTD 文件，请参 考附件2-1：ICH DTD 文件和附件2-2：ICH STF DTD 文件。 区域Schema 文件指“cn-regional-1-0.xsd”文件，用于 定义eCTD 信封信息和模块一的标题，对区域性信息进 行技术验证以确保申报资料相关信息的准确性， “xlink.xsd”和“xml.xsd”文件作为区域Schema 文件的引 用文件，用于定义XML 文件的基本结构，请参考附件 1-1：区域Schema 文件、附件3-1：w3c 标准xlink 结构 定义文件、附件3-2：w3c 标准xml 命名规范定义文件。 2. 受控词汇文件 一套XML 格式的代码定义文件，用以实现多语言 显示/处理。代码定义文件主要包含内容有：eCTD 的有 效标题列表、提交的申请中使用的代码类型、代码名称、 中英文显示值、以及包括有效日期在内的代码版本控制 信息，请参考附件1-2：受控词汇文件包。 3. eCTD 验证标准 验证标准提供了验证项目描述、验证项目详细说明、 严重程度（错误、警告、提示信息)，用于对申报资料进 行验证，指导申请人如何纠正错误，制作出符合eCTD 标准的申报资料。 4. 样式表格文件 样式表格文件包括ICH 发布的“ectd-2-0.xsl”文件、 “ich-stf-stylesheet-2-2a.xsl” 或“ich-stf-stylesheet-2-3.xsl” 文件，以及模块一的样式表格文件“cn-regional-1-0.xsl”， 分别用于规定模块二至模块五的骨架文件、申报资料中 的STF 文件和模块一的骨架文件的展示样式，请参考附 件2-3：ICH 样式文件、附件2-4：ICH STF 样式文件2- 2a、附件2-5：ICH STF 样式文件2-3、附件1-3：区域 样式文件。 5. STF 相关属性和标签有效值定义文件 ICH 发布的“valid-values.xml（version 5）”文件，用 于定义STF 文件中使用到的属性值和标签值，请参考附 件2-6：STF 标签值文件。 6. CTD 模块一文件组织结构 用于定义模块一文件夹和文件的编号、标题名称、 元素名称、相对路径等信息，请参考附件1-4：CTD 模 块一文件组织结构。",
+      "normalized_text": "1.3 配套文件 eCTD 技术规范还包括以下配套文件： 1. ICH 文档类型定义（DTD）文件和区域Schema 文件 DTD 和Schema 都是用于对XML 文档结构进行规 范并验证其有效性的定义和描述文件。 DTD 文件指ICH 发布的“ich-ectd-3-2.dtd”和“ich-stf- v2-2.dtd”文件，用于对eCTD 骨架文件、研究标签文件 （STF）的有效性进行技术验证。模块二至模块五的骨 架文件及研究标签文件中将引用上述DTD 文件，请参 考附件2-1：ICH DTD 文件和附件2-2：ICH STF DTD 文件。 区域Schema 文件指“cn-regional-1-0.xsd”文件，用于 定义eCTD 信封信息和模块一的标题，对区域性信息进 行技术验证以确保申报资料相关信息的准确性， “xlink.xsd”和“xml.xsd”文件作为区域Schema 文件的引 用文件，用于定义XML 文件的基本结构，请参考附件 1-1：区域Schema 文件、附件3-1：w3c 标准xlink 结构 定义文件、附件3-2：w3c 标准xml 命名规范定义文件。 2. 受控词汇文件 一套XML 格式的代码定义文件，用以实现多语言 显示/处理。代码定义文件主要包含内容有：eCTD 的有 效标题列表、提交的申请中使用的代码类型、代码名称、 中英文显示值、以及包括有效日期在内的代码版本控制 信息，请参考附件1-2：受控词汇文件包。 3. eCTD 验证标准 验证标准提供了验证项目描述、验证项目详细说明、 严重程度（错误、警告、提示信息)，用于对申报资料进 行验证，指导申请人如何纠正错误，制作出符合eCTD 标准的申报资料。 4. 样式表格文件 样式表格文件包括ICH 发布的“ectd-2-0.xsl”文件、 “ich-stf-stylesheet-2-2a.xsl” 或“ich-stf-stylesheet-2-3.xsl” 文件，以及模块一的样式表格文件“cn-regional-1-0.xsl”， 分别用于规定模块二至模块五的骨架文件、申报资料中 的STF 文件和模块一的骨架文件的展示样式，请参考附 件2-3：ICH 样式文件、附件2-4：ICH STF 样式文件2- 2a、附件2-5：ICH STF 样式文件2-3、附件1-3：区域 样式文件。 5. STF 相关属性和标签有效值定义文件 ICH 发布的“valid-values.xml（version 5）”文件，用 于定义STF 文件中使用到的属性值和标签值，请参考附 件2-6：STF 标签值文件。 6. CTD 模块一文件组织结构 用于定义模块一文件夹和文件的编号、标题名称、 元素名称、相对路径等信息，请参考附件1-4：CTD 模 块一文件组织结构。",
+      "clause_type": "definition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 56,
+        "citation_anchor": "cn_ectd_technical_specification#sec_1_3"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.1",
+      "article_no": 4,
+      "heading": "2.1 申请信息",
+      "original_text": "2.1 申请信息 申请是指为了一个特殊的监管目的（如临床试验申请） 来整理和提交的申报资料的集合。一个药品在临床试验和新 药申请，或临床试验和仿制药申请两个阶段，对应两套独立 的申报资料集合，即两个申请。 每个申请信息包含申请编号、申请类型、产品类型、原 始编号信息。",
+      "normalized_text": "2.1 申请信息 申请是指为了一个特殊的监管目的（如临床试验申请） 来整理和提交的申报资料的集合。一个药品在临床试验和新 药申请，或临床试验和仿制药申请两个阶段，对应两套独立 的申报资料集合，即两个申请。 每个申请信息包含申请编号、申请类型、产品类型、原 始编号信息。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 109,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_1"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.1.1",
+      "article_no": 5,
+      "heading": "2.1.1 申请编号",
+      "original_text": "2.1.1 申请编号 申请编号是一个申请在其全生命周期内的唯一识别编 号，由监管机构分配给申请人。 在首次提交临床试验申请、新药申请或仿制药申请的 eCTD 序列时，申请人应从监管机构获取相应的申请编号。 申请编号编码规则如下所示： 字母（x=新药申请；y=仿制药申请；l=临床试验申请） +年份（4 位数字）+5 位流水号。 例如：x202112345。",
+      "normalized_text": "2.1.1 申请编号 申请编号是一个申请在其全生命周期内的唯一识别编 号，由监管机构分配给申请人。 在首次提交临床试验申请、新药申请或仿制药申请的 eCTD 序列时，申请人应从监管机构获取相应的申请编号。 申请编号编码规则如下所示： 字母（x=新药申请；y=仿制药申请；l=临床试验申请） +年份（4 位数字）+5 位流水号。 例如：x202112345。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 116,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_1_1"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.1.2",
+      "article_no": 6,
+      "heading": "2.1.2 申请类型",
+      "original_text": "2.1.2 申请类型 申请类型是一组定义的类型，用以描述申请的目的。有 关申请类型的详细信息请参考附件1-2 受控词汇文件中cv- application-type.xml 文件的最新版本。",
+      "normalized_text": "2.1.2 申请类型 申请类型是一组定义的类型，用以描述申请的目的。有 关申请类型的详细信息请参考附件1-2 受控词汇文件中cv- application-type.xml 文件的最新版本。",
+      "clause_type": "definition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 125,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_1_2"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.1.3",
+      "article_no": 7,
+      "heading": "2.1.3 产品类型",
+      "original_text": "2.1.3 产品类型 产品类型是一组定义的类型，用以描述产品分类信息。 有关产品类型的详细信息请参考附件1-2 受控词汇文件中 cv-product-type.xml 文件的最新版本。",
+      "normalized_text": "2.1.3 产品类型 产品类型是一组定义的类型，用以描述产品分类信息。 有关产品类型的详细信息请参考附件1-2 受控词汇文件中 cv-product-type.xml 文件的最新版本。",
+      "clause_type": "definition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 129,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_1_3"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.1.4",
+      "article_no": 8,
+      "heading": "2.1.4 原始编号",
+      "original_text": "2.1.4 原始编号 原始编号是对一个进入注册审批程序的药品所给予的 基本的和永久的资料代号，是用于标识申请人、活性成分和 剂型的唯一识别码，由监管机构分配。 原始编号编码规则为年份（4 位数字）+6 位流水号，例 如：2021123456。",
+      "normalized_text": "2.1.4 原始编号 原始编号是对一个进入注册审批程序的药品所给予的 基本的和永久的资料代号，是用于标识申请人、活性成分和 剂型的唯一识别码，由监管机构分配。 原始编号编码规则为年份（4 位数字）+6 位流水号，例 如：2021123456。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 133,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_1_4"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.2",
+      "article_no": 9,
+      "heading": "2.2 注册行为信息",
+      "original_text": "2.2 注册行为信息 注册行为是指针对某一特定注册目的从首次提交到获 得批准的所有序列的申报资料集合，可以包含一个序列或多 个序列。同一个注册行为中的多个序列可以是连续的序列， 也可以是不连续的序列。 每个注册行为信息包括注册行为类型信息和相关序列 信息。",
+      "normalized_text": "2.2 注册行为信息 注册行为是指针对某一特定注册目的从首次提交到获 得批准的所有序列的申报资料集合，可以包含一个序列或多 个序列。同一个注册行为中的多个序列可以是连续的序列， 也可以是不连续的序列。 每个注册行为信息包括注册行为类型信息和相关序列 信息。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 139,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_2"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_2_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.2.1",
+      "article_no": 10,
+      "heading": "2.2.1 注册行为类型",
+      "original_text": "2.2.1 注册行为类型 注册行为类型是一组定义的类型，用于描述注册行为的 目的。有关注册行为类型的详细信息请参考附件1-2 受控词 汇文件中cv-regulatory-activity-type.xml 文件的最新版本。",
+      "normalized_text": "2.2.1 注册行为类型 注册行为类型是一组定义的类型，用于描述注册行为的 目的。有关注册行为类型的详细信息请参考附件1-2 受控词 汇文件中cv-regulatory-activity-type.xml 文件的最新版本。",
+      "clause_type": "definition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 146,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_2_1"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_2_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.2.2",
+      "article_no": 11,
+      "heading": "2.2.2 相关序列",
+      "original_text": "2.2.2 相关序列 相关序列用于将一个申请中的序列按照注册行为进行 分组。一个注册行为中首次提交的序列被称为该注册行为中 提交的所有序列的相关序列。 相关序列应用的具体示例如下表1 和下表2 所示： 表1.临床试验申请的相关序列示例 表2.新药申请的相关序列示例",
+      "normalized_text": "2.2.2 相关序列 相关序列用于将一个申请中的序列按照注册行为进行 分组。一个注册行为中首次提交的序列被称为该注册行为中 提交的所有序列的相关序列。 相关序列应用的具体示例如下表1 和下表2 所示： 表1.临床试验申请的相关序列示例 表2.新药申请的相关序列示例",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 150,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_2_2"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.3",
+      "article_no": 12,
+      "heading": "2.3 序列信息",
+      "original_text": "2.3 序列信息 序列是指在某一注册行为中单次提交的申报资料的集 合。 每个序列信息包括序列号、序列类型、序列描述和序列 联系人信息。",
+      "normalized_text": "2.3 序列信息 序列是指在某一注册行为中单次提交的申报资料的集 合。 每个序列信息包括序列号、序列类型、序列描述和序列 联系人信息。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 157,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_3"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.3.1",
+      "article_no": 13,
+      "heading": "2.3.1 序列号",
+      "original_text": "2.3.1 序列号 序列号是申请中唯一的4 位数字的字符串，是用于区分 同一申请中不同提交序列的唯一标识。 申请人应从0000 开始提交，每次提交时须将序列号加 1，并按先后次序提交，不得跳号提交。",
+      "normalized_text": "2.3.1 序列号 序列号是申请中唯一的4 位数字的字符串，是用于区分 同一申请中不同提交序列的唯一标识。 申请人应从0000 开始提交，每次提交时须将序列号加 1，并按先后次序提交，不得跳号提交。",
+      "clause_type": "prohibition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 162,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_3_1"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "hard",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.3.2",
+      "article_no": 14,
+      "heading": "2.3.2 序列类型",
+      "original_text": "2.3.2 序列类型 序列类型是一组定义的类型，用于描述序列的目的。有 关序列类型的详细信息请参考附件1-2 受控词汇文件中cv- sequence-type.xml 文件的最新版本。",
+      "normalized_text": "2.3.2 序列类型 序列类型是一组定义的类型，用于描述序列的目的。有 关序列类型的详细信息请参考附件1-2 受控词汇文件中cv- sequence-type.xml 文件的最新版本。",
+      "clause_type": "definition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 167,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_3_2"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.3.3",
+      "article_no": 15,
+      "heading": "2.3.3 序列描述",
+      "original_text": "2.3.3 序列描述 序列描述是对序列提交目的的简要描述，用于区分相似 类型的序列。序列描述长度应在120 个中文字符以内。 以下列出了一些序列描述的示例： 1. 适应症为xx 的新药上市申请 2. 对序列xx 的发补回复 3. 药品生产商的变更，从xx 改为yy 4. 增加新的原料药生产商，xx 5. 增加新适应症xx 6. xx（方案编号）方案修正 申请人填写的序列描述不得替代对监管机构问题的回 复、说明函，或用于向监管机构提问等。",
+      "normalized_text": "2.3.3 序列描述 序列描述是对序列提交目的的简要描述，用于区分相似 类型的序列。序列描述长度应在120 个中文字符以内。 以下列出了一些序列描述的示例： 1. 适应症为xx 的新药上市申请 2. 对序列xx 的发补回复 3. 药品生产商的变更，从xx 改为yy 4. 增加新的原料药生产商，xx 5. 增加新适应症xx 6. xx（方案编号）方案修正 申请人填写的序列描述不得替代对监管机构问题的回 复、说明函，或用于向监管机构提问等。",
+      "clause_type": "prohibition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 171,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_3_3"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "hard",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "api_supporting_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.3.4",
+      "article_no": 16,
+      "heading": "2.3.4 序列联系人信息",
+      "original_text": "2.3.4 序列联系人信息 序列联系人信息是对该序列的申报资料负责的联系人 信息。申请人需要提供的信息包括联系人姓名、电话及邮箱 地址。",
+      "normalized_text": "2.3.4 序列联系人信息 序列联系人信息是对该序列的申报资料负责的联系人 信息。申请人需要提供的信息包括联系人姓名、电话及邮箱 地址。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 183,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_3_4"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "article_no_raw": "2.4",
+      "article_no": 17,
+      "heading": "2.4 申请、注册行为和序列的关系",
+      "original_text": "2.4 申请、注册行为和序列的关系 申请人应按照现行注册程序，并根据申报资料的实际情 况选择对应的申请类型、注册行为类型和序列类型。有关申 请类型、注册行为类型、序列类型对应关系的详细信息请参 考附件1-2 受控词汇文件中depend-apt-rat-sqt.xml 文件的最 新版本。下表3 举例说明了申请类型、注册行为类型、序列 类型的一些实际应用： 表3.申请、注册行为和序列的关系",
+      "normalized_text": "2.4 申请、注册行为和序列的关系 申请人应按照现行注册程序，并根据申报资料的实际情 况选择对应的申请类型、注册行为类型和序列类型。有关申 请类型、注册行为类型、序列类型对应关系的详细信息请参 考附件1-2 受控词汇文件中depend-apt-rat-sqt.xml 文件的最 新版本。下表3 举例说明了申请类型、注册行为类型、序列 类型的一些实际应用： 表3.申请、注册行为和序列的关系",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 187,
+        "citation_anchor": "cn_ectd_technical_specification#sec_2_4"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.1",
+      "article_no": 18,
+      "heading": "3.1 模块一的行政文件和药品信息",
+      "original_text": "3.1 模块一的行政文件和药品信息 模块一的总体构架请参见本文档第四章节。",
+      "normalized_text": "3.1 模块一的行政文件和药品信息 模块一的总体构架请参见本文档第四章节。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 197,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_1"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.2",
+      "article_no": 19,
+      "heading": "3.2 3.2.R 章节的使用",
+      "original_text": "3.2 3.2.R 章节的使用 区域性药学信息应位于3.2.R 章节。 对于生物制品，3.2.R 章节需进行粒度细分以符合注册申 报资料提交要求。该细分的粒度应使用扩展节点和子文件夹 来构建。 扩展节点的标题命名规则如下表4 所示： 表4. 3.2.R 章节扩展节点标题命名规则 扩展节点在骨架文件中的内容如下图2 所示： 图2.扩展节点骨架文件示例 其他3.2.R 章节的技术规范参照《ICH eCTD 技术规范 V3.2.2》执行。",
+      "normalized_text": "3.2 3.2.R 章节的使用 区域性药学信息应位于3.2.R 章节。 对于生物制品，3.2.R 章节需进行粒度细分以符合注册申 报资料提交要求。该细分的粒度应使用扩展节点和子文件夹 来构建。 扩展节点的标题命名规则如下表4 所示： 表4. 3.2.R 章节扩展节点标题命名规则 扩展节点在骨架文件中的内容如下图2 所示： 图2.扩展节点骨架文件示例 其他3.2.R 章节的技术规范参照《ICH eCTD 技术规范 V3.2.2》执行。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 199,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_2"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.3",
+      "article_no": 20,
+      "heading": "3.3 文件和文件夹",
+      "original_text": "3.3 文件和文件夹",
+      "normalized_text": "3.3 文件和文件夹",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 210,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_3"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.3.1",
+      "article_no": 21,
+      "heading": "3.3.1 内容文件的格式",
+      "original_text": "3.3.1 内容文件的格式 对于eCTD 申报资料，适用的文件格式有以下五种： 1. 便携文件格式（PDF）- .pdf 文件扩展名 例如：审评内容文件 2. 可扩展标记语言 （XML）- .xml 文件扩展名 例如：eCTD 骨架文件 3. SAS XPORT 传输文件 - .xpt 文件扩展名 例如：临床试验数据文件 4. 文本文件（TXT）- .txt 文件扩展名 例如：程序代码文件 5. 可扩展样式表语言文件（XSL）- .xsl 文件扩展名 例如：XML 文档的可视化格式文件",
+      "normalized_text": "3.3.1 内容文件的格式 对于eCTD 申报资料，适用的文件格式有以下五种： 1. 便携文件格式（PDF）- .pdf 文件扩展名 例如：审评内容文件 2. 可扩展标记语言 （XML）- .xml 文件扩展名 例如：eCTD 骨架文件 3. SAS XPORT 传输文件 - .xpt 文件扩展名 例如：临床试验数据文件 4. 文本文件（TXT）- .txt 文件扩展名 例如：程序代码文件 5. 可扩展样式表语言文件（XSL）- .xsl 文件扩展名 例如：XML 文档的可视化格式文件",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 211,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_3_1"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.3.2",
+      "article_no": 22,
+      "heading": "3.3.2 文件和文件夹命名规则",
+      "original_text": "3.3.2 文件和文件夹命名规则 eCTD 申报资料文件及文件夹命名仅允许使用下列字符： 小写字母“a”至“z”、数字“0”至“9”、中划线“-”和下划线1 “_”。 对于申报资料中的任一文件，由序列文件夹开始的所有文件 夹和文件名（含扩展名）路径长度不应超过180 个字符，单 一文件夹或文件名称（含扩展名）长度不应超过64 个字符。 其他命名规则参见下表5。 所有目录结构都必须在XML 骨架文件中被引用，以有 效地导航到指定位置。 表5.文件与文件夹命名规则示例 1 《ICH eCTD 技术规范V3.2.2》中规定的文件命名要求不允许使用下划线，但在临床数据集提 交时，SAS XPORT 文件的命名可能会使用下划线。考虑到在其他国家监管机构按照eCTD 格式 递交的临床数据集文件命名也允许使用下划线，并且在《ICH eCTD 技术规范V4.0》中也将允 许文件命名使用下划线，因此本技术规范允许在对文件和文件夹的命名中使用下划线。",
+      "normalized_text": "3.3.2 文件和文件夹命名规则 eCTD 申报资料文件及文件夹命名仅允许使用下列字符： 小写字母“a”至“z”、数字“0”至“9”、中划线“-”和下划线1 “_”。 对于申报资料中的任一文件，由序列文件夹开始的所有文件 夹和文件名（含扩展名）路径长度不应超过180 个字符，单 一文件夹或文件名称（含扩展名）长度不应超过64 个字符。 其他命名规则参见下表5。 所有目录结构都必须在XML 骨架文件中被引用，以有 效地导航到指定位置。 表5.文件与文件夹命名规则示例 1 《ICH eCTD 技术规范V3.2.2》中规定的文件命名要求不允许使用下划线，但在临床数据集提 交时，SAS XPORT 文件的命名可能会使用下划线。考虑到在其他国家监管机构按照eCTD 格式 递交的临床数据集文件命名也允许使用下划线，并且在《ICH eCTD 技术规范V4.0》中也将允 许文件命名使用下划线，因此本技术规范允许在对文件和文件夹的命名中使用下划线。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 223,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_3_2"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.3.3",
+      "article_no": 23,
+      "heading": "3.3.3 关于空缺章节的处理",
+      "original_text": "3.3.3 关于空缺章节的处理 申请人提交的序列文件夹中不允许存在空文件夹，即没 有文件或子文件夹的文件夹。 申请人提交的序列中不允许存在占位文档，即不允许存 在没有任何实际内容的文档。对于申请中不适用的章节，申 请人应在模块一的说明函中进行说明，而无需在eCTD 编制 过程中单独递交“不适用”文档作为占位文档。",
+      "normalized_text": "3.3.3 关于空缺章节的处理 申请人提交的序列文件夹中不允许存在空文件夹，即没 有文件或子文件夹的文件夹。 申请人提交的序列中不允许存在占位文档，即不允许存 在没有任何实际内容的文档。对于申请中不适用的章节，申 请人应在模块一的说明函中进行说明，而无需在eCTD 编制 过程中单独递交“不适用”文档作为占位文档。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 237,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_3_3"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.3.4",
+      "article_no": 24,
+      "heading": "3.3.4 文件的重复使用",
+      "original_text": "3.3.4 文件的重复使用 文件复用包括两种情况，即引用同一序列中的文件和引 用同一申请中前序序列中的文件。申请人如需要在同一个申 请中提交相同的文件，无需重复提交实体文件，只需在骨架 文件中对应章节生成叶元素并引用相应实体文件的位置。 不支持跨申请引用，即不允许引用另一个申请中提交的 文件。 更多关于文件复用的说明请参考《ICH eCTD 技术规范 V3.2.2》附录6 中的文件重复使用章节。",
+      "normalized_text": "3.3.4 文件的重复使用 文件复用包括两种情况，即引用同一序列中的文件和引 用同一申请中前序序列中的文件。申请人如需要在同一个申 请中提交相同的文件，无需重复提交实体文件，只需在骨架 文件中对应章节生成叶元素并引用相应实体文件的位置。 不支持跨申请引用，即不允许引用另一个申请中提交的 文件。 更多关于文件复用的说明请参考《ICH eCTD 技术规范 V3.2.2》附录6 中的文件重复使用章节。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 244,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_3_4"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.4",
+      "article_no": 25,
+      "heading": "3.4 PDF 电子提交标准",
+      "original_text": "3.4 PDF 电子提交标准 PDF 是eCTD 申报资料的主要文件格式。《ICH eCTD 文 件格式规范V1.2》（参见本文档第五章节）为创建用于eCTD 提交的PDF 文件提出了建议，主要包括以下方面：限制、版 本、文件大小、字体、字体大小、字体颜色、页面方向、页 面大小和页边距、页眉和页脚、电子文件来源、创建PDF 文 档和图像的建议、压缩图像减少文件大小、图像颜色匹配、 ICC 配置文件、文档导航（超文本链接、书签和目录）、页码、 初始视图设置、优化、安全、使用Acrobat 插件。 除参考上述规范外，申请人还应遵循以下要求： 1. 如果提交的单个申报资料文件（除外文参考资料、参 考文献和申请表之外）内容超过五页，需要提供对应 的目录（正文目录、表格目录、图表目录）和书签来 辅助导航。 2. 在不能使用目录和书签进行文档导航的情况下可使 用超文本链接来帮助定位。例如，位于不同页的相关 章节、文献、附件、表格及图表可以创建超文本链接 进行导航。申请人创建的跨文档超文本链接至少应包 括：由模块一的上市后变更/研究等项目到模块二至 模块五中的具体内容之间的超文本链接、由模块二的 概述和总结文件到模块三至模块五的详细信息之间 的超文本链接、由临床研究报告到对应附件（如图表） 之间的超文本链接、PDF 格式的临床数据集数据说明 文件至相应xpt 文件的超文本链接等。为避免超文本 链接失效或定位错误，申请人不应在申报资料中创建 跨申请超文本链接。 3. 针对中文申报资料的要求： （1） 字体：宋体 （2） 字号 1） 正文：不小于小四号字 2） 表格：不小于五号字 3） 目录：小四号字 4） 脚注：五号字 （3） 字体颜色 1） 叙述性文字：黑色 2） 超文本链接：建议使用蓝色文字或黑色文 字带蓝色框表示",
+      "normalized_text": "3.4 PDF 电子提交标准 PDF 是eCTD 申报资料的主要文件格式。《ICH eCTD 文 件格式规范V1.2》（参见本文档第五章节）为创建用于eCTD 提交的PDF 文件提出了建议，主要包括以下方面：限制、版 本、文件大小、字体、字体大小、字体颜色、页面方向、页 面大小和页边距、页眉和页脚、电子文件来源、创建PDF 文 档和图像的建议、压缩图像减少文件大小、图像颜色匹配、 ICC 配置文件、文档导航（超文本链接、书签和目录）、页码、 初始视图设置、优化、安全、使用Acrobat 插件。 除参考上述规范外，申请人还应遵循以下要求： 1. 如果提交的单个申报资料文件（除外文参考资料、参 考文献和申请表之外）内容超过五页，需要提供对应 的目录（正文目录、表格目录、图表目录）和书签来 辅助导航。 2. 在不能使用目录和书签进行文档导航的情况下可使 用超文本链接来帮助定位。例如，位于不同页的相关 章节、文献、附件、表格及图表可以创建超文本链接 进行导航。申请人创建的跨文档超文本链接至少应包 括：由模块一的上市后变更/研究等项目到模块二至 模块五中的具体内容之间的超文本链接、由模块二的 概述和总结文件到模块三至模块五的详细信息之间 的超文本链接、由临床研究报告到对应附件（如图表） 之间的超文本链接、PDF 格式的临床数据集数据说明 文件至相应xpt 文件的超文本链接等。为避免超文本 链接失效或定位错误，申请人不应在申报资料中创建 跨申请超文本链接。 3. 针对中文申报资料的要求： （1） 字体：宋体 （2） 字号 1） 正文：不小于小四号字 2） 表格：不小于五号字 3） 目录：小四号字 4） 脚注：五号字 （3） 字体颜色 1） 叙述性文字：黑色 2） 超文本链接：建议使用蓝色文字或黑色文 字带蓝色框表示",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 253,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_4"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_5",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.5",
+      "article_no": 26,
+      "heading": "3.5 外文参考资料的要求",
+      "original_text": "3.5 外文参考资料的要求 申请人提交的全部申报资料应当使用中文并附原文，其 他文种的资料可附后作为参考。中文译文应当与原文内容一 致。 在eCTD 骨架文件中，外文参考资料应放置在对应的中 文申报资料同级目录结构中，即同一目录元素下的不同叶元 素中。中文申报资料在前并使用中文叶标题进行标识，外文 参考资料在后并使用外文叶标题进行标识，申请人可使用 “xml:lang”属性对中文申报资料及其外文参考资料进行区分。 中外文申报资料在骨架文件中的内容示例如下图3 所示： 图3.中外文申报资料骨架文件示例",
+      "normalized_text": "3.5 外文参考资料的要求 申请人提交的全部申报资料应当使用中文并附原文，其 他文种的资料可附后作为参考。中文译文应当与原文内容一 致。 在eCTD 骨架文件中，外文参考资料应放置在对应的中 文申报资料同级目录结构中，即同一目录元素下的不同叶元 素中。中文申报资料在前并使用中文叶标题进行标识，外文 参考资料在后并使用外文叶标题进行标识，申请人可使用 “xml:lang”属性对中文申报资料及其外文参考资料进行区分。 中外文申报资料在骨架文件中的内容示例如下图3 所示： 图3.中外文申报资料骨架文件示例",
+      "clause_type": "obligation",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 290,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_5"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_5_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.5.1",
+      "article_no": 27,
+      "heading": "3.5.1 语言属性的设置",
+      "original_text": "3.5.1 语言属性的设置 在eCTD 骨架文件中，每个叶元素都代表一个对应的文 件。叶元素中包含了一个可选属性“xml:lang”，该属性标识了 当前叶元素对应的文件将被视为中文申报资料或外文参考 资料。设置该属性值时应遵循ISO639-1 标准。在以下情况时， 叶元素对应文件将被识别为中文申报资料： 1. 语言属性设置为中文（zh），如下图4 所示： 图4.语言属性设置为中文示例 2. 语言属性设置为空，如下图5 所示： 图5.语言属性设置为空示例 3. 未设置语言属性，如下图6 所示： 图6.未设置语言属性示例 在以下情况时，叶元素对应文件将被识别为外文参考资 料： 1. 语言属性设置为外文，如下图7 所示： 图7.语言属性设置为英文示例 2. 语言属性设置为无效的值，如下图8 所示： 图8.语言属性设置为无效的值示例",
+      "normalized_text": "3.5.1 语言属性的设置 在eCTD 骨架文件中，每个叶元素都代表一个对应的文 件。叶元素中包含了一个可选属性“xml:lang”，该属性标识了 当前叶元素对应的文件将被视为中文申报资料或外文参考 资料。设置该属性值时应遵循ISO639-1 标准。在以下情况时， 叶元素对应文件将被识别为中文申报资料： 1. 语言属性设置为中文（zh），如下图4 所示： 图4.语言属性设置为中文示例 2. 语言属性设置为空，如下图5 所示： 图5.语言属性设置为空示例 3. 未设置语言属性，如下图6 所示： 图6.未设置语言属性示例 在以下情况时，叶元素对应文件将被识别为外文参考资 料： 1. 语言属性设置为外文，如下图7 所示： 图7.语言属性设置为英文示例 2. 语言属性设置为无效的值，如下图8 所示： 图8.语言属性设置为无效的值示例",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 301,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_5_1"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_5_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.5.2",
+      "article_no": 28,
+      "heading": "3.5.2 语言属性的生命周期管理",
+      "original_text": "3.5.2 语言属性的生命周期管理 使用eCTD 生命周期操作“替换”，将前序序列中提交的 文件替换为新文件时，被替换的文件和新文件应具有相同的 语言属性。即中文申报资料只能被另一份中文申报资料所替 换，而外文参考资料只能被另一份外文参考资料所替换。",
+      "normalized_text": "3.5.2 语言属性的生命周期管理 使用eCTD 生命周期操作“替换”，将前序序列中提交的 文件替换为新文件时，被替换的文件和新文件应具有相同的 语言属性。即中文申报资料只能被另一份中文申报资料所替 换，而外文参考资料只能被另一份外文参考资料所替换。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 319,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_5_2"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_6",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.6",
+      "article_no": 29,
+      "heading": "3.6 eCTD 骨架属性和元数据",
+      "original_text": "3.6 eCTD 骨架属性和元数据 eCTD 骨架属性指申报资料模块一至模块五章节的相关 属性的集合，包括了本文档4.3 章节中定义的信封元素属性 以及《ICH eCTD 技术规范V3.2.2》中定义的模块二至模块 五的属性。 元数据是申请人为模块一至模块五章节相关属性设定 的值的集合。 ICH eCTD DTD 中定义了模块二至模块五部分章节的选 填属性和必填属性（例如2.3.S 及3.2.S 中的活性成分及生产 商为必填属性，2.3.P 及3.2.P 中的产品名称、剂型、生产商 为选填属性）。这些属性是为了对该特定章节的内容进行简 单有用的描述，以便于对内容进行区分和分组。 申请人对ICH 元数据进行更新时，必须同时提交该属性 对应的全部申报资料的内容变更。不允许在没有更新申报资 料内容的情况下仅对元数据进行更改，也不允许在更新元数 据时，仅对其对应部分申报资料的内容进行变更。例如，申 请人更新2.3.S 和3.2.S 中的活性成分和生产商元数据时，必 须删除已有的2.3.S 和3.2.S 章节内容，并在新的2.3.S 和3.2.S 章节中添加全部相关资料。 更多关于如何合理使用eCTD 模块二至模块五元数据的 指导原则，请参考《ICH eCTD IWG 问题解答和规范变更要 求文件V1.31》。 关于信封元素属性的使用，请参见本文档4.3 章节。",
+      "normalized_text": "3.6 eCTD 骨架属性和元数据 eCTD 骨架属性指申报资料模块一至模块五章节的相关 属性的集合，包括了本文档4.3 章节中定义的信封元素属性 以及《ICH eCTD 技术规范V3.2.2》中定义的模块二至模块 五的属性。 元数据是申请人为模块一至模块五章节相关属性设定 的值的集合。 ICH eCTD DTD 中定义了模块二至模块五部分章节的选 填属性和必填属性（例如2.3.S 及3.2.S 中的活性成分及生产 商为必填属性，2.3.P 及3.2.P 中的产品名称、剂型、生产商 为选填属性）。这些属性是为了对该特定章节的内容进行简 单有用的描述，以便于对内容进行区分和分组。 申请人对ICH 元数据进行更新时，必须同时提交该属性 对应的全部申报资料的内容变更。不允许在没有更新申报资 料内容的情况下仅对元数据进行更改，也不允许在更新元数 据时，仅对其对应部分申报资料的内容进行变更。例如，申 请人更新2.3.S 和3.2.S 中的活性成分和生产商元数据时，必 须删除已有的2.3.S 和3.2.S 章节内容，并在新的2.3.S 和3.2.S 章节中添加全部相关资料。 更多关于如何合理使用eCTD 模块二至模块五元数据的 指导原则，请参考《ICH eCTD IWG 问题解答和规范变更要 求文件V1.31》。 关于信封元素属性的使用，请参见本文档4.3 章节。",
+      "clause_type": "definition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 324,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_6"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_7",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.7",
+      "article_no": 30,
+      "heading": "3.7 扩展节点",
+      "original_text": "3.7 扩展节点 扩展节点为申请人提供了自定义目录元素的途径，用以 扩展技术规范中既定的eCTD 目录元素结构，实现将多个叶 元素在自定义目录元素下组合显示功能。 扩展节点仅允许在产品类型为生物制品的提交序列的 3.2.R 章节中使用。",
+      "normalized_text": "3.7 扩展节点 扩展节点为申请人提供了自定义目录元素的途径，用以 扩展技术规范中既定的eCTD 目录元素结构，实现将多个叶 元素在自定义目录元素下组合显示功能。 扩展节点仅允许在产品类型为生物制品的提交序列的 3.2.R 章节中使用。",
+      "clause_type": "definition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 347,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_7"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_8",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.8",
+      "article_no": 31,
+      "heading": "3.8 研究标签文件",
+      "original_text": "3.8 研究标签文件 模块四中的4.2.X 章节和模块五中的5.3.1.X-5.3.5.X 章 节的所有文件应使用STF。 非临床试验报告可参考CTD 模块四相关章节的目录结 构进行组织，并使用“pre-clinical-study-report”标签进行标记。 临床研究报告可参考《ICH E3 临床研究报告的结构和 内容》的要求，并使用适当的STF 文件标签来展现文档的内 容。未按照ICH E3 相关指南编制的临床研究报告可提交单 独的PDF 文件，并使用“legacy-clinical-study-report”标签进行 标记。 临床研究报告相关的临床试验数据集应在eCTD 申报资 料中一并提交，在骨架文件中应位于相应的临床研究报告之 后，并使用适当的STF 标签进行标识。更多eCTD 中临床试 验数据集及相关资料的申报要求详见《药物临床试验数据递 交指导原则（试行）》。 模块五中的5.2 所有临床研究列表、5.3.6 上市后报告和 5.4 参考文献可以不使用STF，作为独立的文件提交。更多关 于STF 的信息，请参照《ICH 研究标签文件的eCTD 骨架文 件技术规范V2.6.1》。",
+      "normalized_text": "3.8 研究标签文件 模块四中的4.2.X 章节和模块五中的5.3.1.X-5.3.5.X 章 节的所有文件应使用STF。 非临床试验报告可参考CTD 模块四相关章节的目录结 构进行组织，并使用“pre-clinical-study-report”标签进行标记。 临床研究报告可参考《ICH E3 临床研究报告的结构和 内容》的要求，并使用适当的STF 文件标签来展现文档的内 容。未按照ICH E3 相关指南编制的临床研究报告可提交单 独的PDF 文件，并使用“legacy-clinical-study-report”标签进行 标记。 临床研究报告相关的临床试验数据集应在eCTD 申报资 料中一并提交，在骨架文件中应位于相应的临床研究报告之 后，并使用适当的STF 标签进行标识。更多eCTD 中临床试 验数据集及相关资料的申报要求详见《药物临床试验数据递 交指导原则（试行）》。 模块五中的5.2 所有临床研究列表、5.3.6 上市后报告和 5.4 参考文献可以不使用STF，作为独立的文件提交。更多关 于STF 的信息，请参照《ICH 研究标签文件的eCTD 骨架文 件技术规范V2.6.1》。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 353,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_8"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "clinical_trial_materials",
+          "nonclinical_study_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_9",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.9",
+      "article_no": 32,
+      "heading": "3.9 生命周期操作",
+      "original_text": "3.9 生命周期操作 在ICH 技术规范中，针对每个文件都赋予了4 个生命周 期的操作类型：新建、替换、删除和增补。 推荐使用“新建”、“替换”和“删除”操作类型。除对STF 进行的操作，其他情况下不建议使用“增补”操作类型。 申请人对STF 以外的文件进行增补操作，将导致申报资 料验证时出现警告信息，对此申请人应在说明函中做出解释。 对STF 进行增补操作，验证时不会出现警告信息。",
+      "normalized_text": "3.9 生命周期操作 在ICH 技术规范中，针对每个文件都赋予了4 个生命周 期的操作类型：新建、替换、删除和增补。 推荐使用“新建”、“替换”和“删除”操作类型。除对STF 进行的操作，其他情况下不建议使用“增补”操作类型。 申请人对STF 以外的文件进行增补操作，将导致申报资 料验证时出现警告信息，对此申请人应在说明函中做出解释。 对STF 进行增补操作，验证时不会出现警告信息。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 372,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_9"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_10",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.10",
+      "article_no": 33,
+      "heading": "3.10 电子签名",
+      "original_text": "3.10 电子签名 符合《中华人民共和国电子签名法》要求的电子签名与 手写签名或者盖章具有同等的法律效力。eCTD 申请中将接 受上述电子签名的使用。",
+      "normalized_text": "3.10 电子签名 符合《中华人民共和国电子签名法》要求的电子签名与 手写签名或者盖章具有同等的法律效力。eCTD 申请中将接 受上述电子签名的使用。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 380,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_10"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_11",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "article_no_raw": "3.11",
+      "article_no": 34,
+      "heading": "3.11 eCTD 提交方式",
+      "original_text": "3.11 eCTD 提交方式 申请人准备的eCTD 申报资料需通过物理电子媒介提交。 目前只接受一次写入型光盘作为存储介质，包括CD-R、 DVD+R、DVD-R 这三类。 不得使用双面DVD 或对提交的申报资料设置密码保护。",
+      "normalized_text": "3.11 eCTD 提交方式 申请人准备的eCTD 申报资料需通过物理电子媒介提交。 目前只接受一次写入型光盘作为存储介质，包括CD-R、 DVD+R、DVD-R 这三类。 不得使用双面DVD 或对提交的申报资料设置密码保护。",
+      "clause_type": "prohibition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 384,
+        "citation_anchor": "cn_ectd_technical_specification#sec_3_11"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块一的总体架构",
+      "article_no_raw": "4.1",
+      "article_no": 35,
+      "heading": "4.1 创建模块一骨架文件",
+      "original_text": "4.1 创建模块一骨架文件 模块一骨架文件由XML 根元素、信封元素、目录元素 三个部分组成。申请人可按照以下步骤为给定的序列创建模 块一的骨架文件： 1. 创建一个标准的XML 文件及XML 根元素。 2. 创建符合标准的信封信息，用来描述该序列。 3. 按照《M4：人用药物注册申请通用技术文档》模块 一文件的内容，创建该序列所需的目录元素和叶元 素。 （1） 目录元素，参照CTD 模块一的目录结构。 （2） 叶元素，包含序列中提交的单个文件的引用 地址、校验和及生命周期操作等信息。 4. 命名模块一的eCTD 骨架文件为cn-regional.xml， 并将其放置在模块一的cn 子文件夹中。",
+      "normalized_text": "4.1 创建模块一骨架文件 模块一骨架文件由XML 根元素、信封元素、目录元素 三个部分组成。申请人可按照以下步骤为给定的序列创建模 块一的骨架文件： 1. 创建一个标准的XML 文件及XML 根元素。 2. 创建符合标准的信封信息，用来描述该序列。 3. 按照《M4：人用药物注册申请通用技术文档》模块 一文件的内容，创建该序列所需的目录元素和叶元 素。 （1） 目录元素，参照CTD 模块一的目录结构。 （2） 叶元素，包含序列中提交的单个文件的引用 地址、校验和及生命周期操作等信息。 4. 命名模块一的eCTD 骨架文件为cn-regional.xml， 并将其放置在模块一的cn 子文件夹中。",
+      "clause_type": "procedure",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 397,
+        "citation_anchor": "cn_ectd_technical_specification#sec_4_1"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_4_2",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块一的总体架构",
+      "article_no_raw": "4.2",
+      "article_no": 36,
+      "heading": "4.2 XML 根元素",
+      "original_text": "4.2 XML 根元素 所有模块一的骨架文件都应包含标准XML 根元素。其 信息包括XML 声明以及根元素<cn_ectd>，该根元素的属性 将这个XML 文件链接到指定的XML 定义文件。如下图10 所示： 图10.XML 根元素示例",
+      "normalized_text": "4.2 XML 根元素 所有模块一的骨架文件都应包含标准XML 根元素。其 信息包括XML 声明以及根元素<cn_ectd>，该根元素的属性 将这个XML 文件链接到指定的XML 定义文件。如下图10 所示： 图10.XML 根元素示例",
+      "clause_type": "definition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 411,
+        "citation_anchor": "cn_ectd_technical_specification#sec_4_2"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_4_3",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块一的总体架构",
+      "article_no_raw": "4.3",
+      "article_no": 37,
+      "heading": "4.3 信封元素",
+      "original_text": "4.3 信封元素 信封元素包含的属性信息如下表6 所示，各属性详细介 绍请参见本文档“申请信息”（2.1 章节）、“注册行为信息”（2.2 章节）、“序列信息”（2.3 章节）。 表6.信封元素 针对申请人提交的每个序列，所有属性均为必填项，并 有且仅有一个值。在同一申请中，申请人不允许更新申请级 别的信封元素属性信息，即申请编号、申请类型、产品类型 和原始编号。在同一注册行为中，申请人不允许更新注册行 为级别的信封元素属性信息，即相关序列、注册行为类型。 对于有受控词汇的信封元素属性，在骨架文件中记录的 属性值必须为受控词汇文件中定义的代码名称，而信封实际 显示信息中只展示对应代码的显示值。 信封元素在骨架文件中的呈现形式如下图11 所示： 图11.信封骨架文件示例 信封元素的实际显示信息如下图12 所示： 图12.信封实际显示信息示例 受控词汇文件中的每个代码都有对应的版本号、生效日 期、失效日期（可选），用来标识该代码适用的时间范围。申 请人在使用代码时应注意其对应版本的开始生效日期和失 效日期，并使用有效的代码。 受控词汇文件的详细信息如下图13 所示： 图13.受控词汇文件示例",
+      "normalized_text": "4.3 信封元素 信封元素包含的属性信息如下表6 所示，各属性详细介 绍请参见本文档“申请信息”（2.1 章节）、“注册行为信息”（2.2 章节）、“序列信息”（2.3 章节）。 表6.信封元素 针对申请人提交的每个序列，所有属性均为必填项，并 有且仅有一个值。在同一申请中，申请人不允许更新申请级 别的信封元素属性信息，即申请编号、申请类型、产品类型 和原始编号。在同一注册行为中，申请人不允许更新注册行 为级别的信封元素属性信息，即相关序列、注册行为类型。 对于有受控词汇的信封元素属性，在骨架文件中记录的 属性值必须为受控词汇文件中定义的代码名称，而信封实际 显示信息中只展示对应代码的显示值。 信封元素在骨架文件中的呈现形式如下图11 所示： 图11.信封骨架文件示例 信封元素的实际显示信息如下图12 所示： 图12.信封实际显示信息示例 受控词汇文件中的每个代码都有对应的版本号、生效日 期、失效日期（可选），用来标识该代码适用的时间范围。申 请人在使用代码时应注意其对应版本的开始生效日期和失 效日期，并使用有效的代码。 受控词汇文件的详细信息如下图13 所示： 图13.受控词汇文件示例",
+      "clause_type": "definition",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 417,
+        "citation_anchor": "cn_ectd_technical_specification#sec_4_3"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "regulation_id": "cn_ectd_technical_specification",
+      "regulation_title": "eCTD技术规范",
+      "version_label": "2021-09-v1.0",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块一的总体架构",
+      "article_no_raw": "4.4",
+      "article_no": 38,
+      "heading": "4.4 目录元素",
+      "original_text": "4.4 目录元素 每个目录元素的内容由一个或多个叶元素组成。 叶元素包含了《ICH eCTD 技术规范V3.2.2》中定义的 <title>元素及一系列属性，如“operation”、“xlink:href”、 “checksum-type”、“checksum”等。其中“checksum-type”属性的 值必须设置为“MD5”或“md5”。 叶元素的叶标题内容应当简短、明确并能提供有用信息。 目录元素在骨架文件中的内容如下图14 所示： 图14.目录元素骨架文件示例 目录元素实际显示信息如下图15 所示： 图15.目录元素实际显示信息示例",
+      "normalized_text": "4.4 目录元素 每个目录元素的内容由一个或多个叶元素组成。 叶元素包含了《ICH eCTD 技术规范V3.2.2》中定义的 <title>元素及一系列属性，如“operation”、“xlink:href”、 “checksum-type”、“checksum”等。其中“checksum-type”属性的 值必须设置为“MD5”或“md5”。 叶元素的叶标题内容应当简短、明确并能提供有用信息。 目录元素在骨架文件中的内容如下图14 所示： 图14.目录元素骨架文件示例 目录元素实际显示信息如下图15 所示： 图15.目录元素实际显示信息示例",
+      "clause_type": "obligation",
+      "source_path": "data\\regulations\\eCTD技术规范.pdf",
+      "source_filename": "eCTD技术规范.pdf",
+      "source_locator": {
+        "line_index": 440,
+        "citation_anchor": "cn_ectd_technical_specification#sec_4_4"
+      },
+      "severity": "",
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    }
+  ]
+}

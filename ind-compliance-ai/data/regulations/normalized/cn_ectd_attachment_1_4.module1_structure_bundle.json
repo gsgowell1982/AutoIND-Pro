@@ -1,0 +1,994 @@
+{
+  "schema_version": "ectd-module1-structure-bundle-v1",
+  "bundle_id": "cn_ectd_attachment_1_4",
+  "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-4：CTD模块一文件组织结构\\附件1-4：CTD模块一文件组织结构.pdf",
+  "page_count": 14,
+  "record_count": 70,
+  "entry_kind_counts": {
+    "文件": 54,
+    "目录": 16
+  },
+  "cross_page_record_count": 10,
+  "records": [
+    {
+      "ordinal": 1,
+      "raw_section_no": "",
+      "title": "",
+      "element": "",
+      "entry_kind": "文件",
+      "path": "m1/cn/cn-regional.xml",
+      "page_span": [
+        2,
+        2
+      ],
+      "description": "骨架文件",
+      "section_no": ""
+    },
+    {
+      "ordinal": 2,
+      "raw_section_no": "1.0",
+      "title": "说明函",
+      "element": "cn-1-0",
+      "entry_kind": "文件",
+      "path": "m1/cn/00/cover-letter.pdf",
+      "page_span": [
+        2,
+        2
+      ],
+      "description": "主要对于本次申请关键信息的概括与说明。",
+      "section_no": "1.0"
+    },
+    {
+      "ordinal": 3,
+      "raw_section_no": "1.2",
+      "title": "申请表",
+      "element": "cn-1-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/02/application-form.pdf",
+      "page_span": [
+        2,
+        2
+      ],
+      "description": "主要包括产品名称、剂型、规格及申请事项等产品基本信息。",
+      "section_no": "1.2"
+    },
+    {
+      "ordinal": 4,
+      "raw_section_no": "1.3",
+      "title": "产品信息相关材料",
+      "element": "cn-1-3",
+      "entry_kind": "目录",
+      "path": "m1/cn/03",
+      "page_span": [
+        2,
+        2
+      ],
+      "description": "产品信息相关材料",
+      "section_no": "1.3"
+    },
+    {
+      "ordinal": 5,
+      "raw_section_no": "1.3.1",
+      "title": "说明书",
+      "element": "cn-1-3-1",
+      "entry_kind": "目录",
+      "path": "m1/cn/03",
+      "page_span": [
+        2,
+        2
+      ],
+      "description": "说明书",
+      "section_no": "1.3.1"
+    },
+    {
+      "ordinal": 6,
+      "raw_section_no": "1.3.1.1",
+      "title": "研究药物说明书及修订说明（适用于临床试验申请）",
+      "element": "cn-1-3-1-1",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/pi-ind-drug.pdf",
+      "page_span": [
+        2,
+        3
+      ],
+      "description": "研究药物说明书及修订说明（适用于临床试验申请）",
+      "section_no": "1.3.1.1"
+    },
+    {
+      "ordinal": 7,
+      "raw_section_no": "1.3.1.2",
+      "title": "上市药品说明书及修订说明（适用于上市及上市后变更申请）",
+      "element": "cn-1-3-1-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/pi-nda-drug.pdf",
+      "page_span": [
+        3,
+        3
+      ],
+      "description": "境外已上市药品尚需提供境外上市国家或地区药品管理机构核准的原文说明书，并附中文译本。",
+      "section_no": "1.3.1.2"
+    },
+    {
+      "ordinal": 8,
+      "raw_section_no": "1.3.2",
+      "title": "包装标签",
+      "element": "cn-1-3-2",
+      "entry_kind": "目录",
+      "path": "m1/cn/03",
+      "page_span": [
+        3,
+        3
+      ],
+      "description": "包装标签",
+      "section_no": "1.3.2"
+    },
+    {
+      "ordinal": 9,
+      "raw_section_no": "1.3.2.1",
+      "title": "研究药物包装标签（适用于临床试验申请）",
+      "element": "cn-1-3-2-1",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/label-ind-drug.pdf",
+      "page_span": [
+        3,
+        3
+      ],
+      "description": "研究药物包装标签（适用于临床试验申请）",
+      "section_no": "1.3.2.1"
+    },
+    {
+      "ordinal": 10,
+      "raw_section_no": "1.3.2.2",
+      "title": "上市药品包装标签（适用于上市及上市后变更申请）",
+      "element": "cn-1-3-2-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/label-nda-drug.pdf",
+      "page_span": [
+        3,
+        3
+      ],
+      "description": "境外已上市药品尚需提供该药品生产国家或者地区上市使用的包装标签实样。",
+      "section_no": "1.3.2.2"
+    },
+    {
+      "ordinal": 11,
+      "raw_section_no": "1.3.3",
+      "title": "产品质量标准和生产工艺/制造和检定规程",
+      "element": "cn-1-3-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/spec-mfg-process.pdf",
+      "page_span": [
+        3,
+        3
+      ],
+      "description": "化学药品上市申请时提交生产工艺信息表和质量标准，生物制品提交制造及检定规程和质量标准。",
+      "section_no": "1.3.3"
+    },
+    {
+      "ordinal": 12,
+      "raw_section_no": "1.3.4",
+      "title": "临床试验相关资料（适用于临床试验申请）",
+      "element": "cn-1-3-4",
+      "entry_kind": "目录",
+      "path": "m1/cn/03",
+      "page_span": [
+        3,
+        4
+      ],
+      "description": "临床试验相关资料（适用于临床试验申请）",
+      "section_no": "1.3.4"
+    },
+    {
+      "ordinal": 13,
+      "raw_section_no": "1.3.4.1",
+      "title": "临床试验计划和方案",
+      "element": "cn-1-3-4-1",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/ind-plan-prot.pdf",
+      "page_span": [
+        4,
+        4
+      ],
+      "description": "临床试验计划和方案",
+      "section_no": "1.3.4.1"
+    },
+    {
+      "ordinal": 14,
+      "raw_section_no": "1.3.4.2",
+      "title": "知情同意书样稿",
+      "element": "cn-1-3-4-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/sample-icf.pdf",
+      "page_span": [
+        4,
+        4
+      ],
+      "description": "知情同意书样稿",
+      "section_no": "1.3.4.2"
+    },
+    {
+      "ordinal": 15,
+      "raw_section_no": "1.3.4.3",
+      "title": "研究者手册",
+      "element": "cn-1-3-4-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/ib.pdf",
+      "page_span": [
+        4,
+        4
+      ],
+      "description": "研究者手册",
+      "section_no": "1.3.4.3"
+    },
+    {
+      "ordinal": 16,
+      "raw_section_no": "1.3.5",
+      "title": "药品通用名称核准申请材料",
+      "element": "cn-1-3-5",
+      "entry_kind": "目录",
+      "path": "m1/cn/03/gen-name-app.pdf",
+      "page_span": [
+        4,
+        4
+      ],
+      "description": "未列入国家药品标准或者药品注册标准的，上市许可申请时应提交药品通用名称核准申请材料。",
+      "section_no": "1.3.5"
+    },
+    {
+      "ordinal": 17,
+      "raw_section_no": "1.3.6",
+      "title": "检查相关信息（适用于上市申请和涉及检查检验的补充申请）",
+      "element": "cn-1-3-6",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/ins-rel-dos.pdf",
+      "page_span": [
+        4,
+        4
+      ],
+      "description": "包括药品研制情况信息表，药品生产情况信息表，现场主文件清单，药品注册临床试验研究信息表，临床试验信息表以及检验报告。",
+      "section_no": "1.3.6"
+    },
+    {
+      "ordinal": 18,
+      "raw_section_no": "1.3.7",
+      "title": "疫苗生物安全及环境影响评价",
+      "element": "cn-1-3-7",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/vacc-biosafety-eia.pdf",
+      "page_span": [
+        4,
+        5
+      ],
+      "description": "疫苗生物安全及环境影响评价",
+      "section_no": "1.3.7"
+    },
+    {
+      "ordinal": 19,
+      "raw_section_no": "1.3.8",
+      "title": "产品相关证明性文件（如适用）",
+      "element": "cn-1-3-8",
+      "entry_kind": "文件",
+      "path": "m1/cn/03",
+      "page_span": [
+        5,
+        5
+      ],
+      "description": "产品相关证明性文件（如适用）",
+      "section_no": "1.3.8"
+    },
+    {
+      "ordinal": 20,
+      "raw_section_no": "1.3.8.1",
+      "title": "原料药、药用辅料及药包材证明文件",
+      "element": "cn-1-3-8-1",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/cert-docs.pdf",
+      "page_span": [
+        5,
+        5
+      ],
+      "description": "原料药、药用辅料及药包材合法来源证明文件，包括供货协议、发票等（适用于制剂未选用已登记原辅包情形）。原料药、药用辅料及药包材的授权使用书（适用于制剂选用已登记原辅包情形）。",
+      "section_no": "1.3.8.1"
+    },
+    {
+      "ordinal": 21,
+      "raw_section_no": "1.3.8.2",
+      "title": "专利信息及证明文件",
+      "element": "cn-1-3-8-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/pat-info-and-cert-docs.pdf",
+      "page_span": [
+        5,
+        5
+      ],
+      "description": "申请的药物或者使用的处方、工艺、用途等专利情况及其权属状态说明，以及对他人的专利不构成侵权的声明。",
+      "section_no": "1.3.8.2"
+    },
+    {
+      "ordinal": 22,
+      "raw_section_no": "1.3.8.3",
+      "title": "特殊药品研制立项批准文件",
+      "element": "cn-1-3-8-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/app-for-specialdrug-dev.pdf",
+      "page_span": [
+        5,
+        5
+      ],
+      "description": "麻醉药品和精神药品需提供研制立项批复文件复印件。",
+      "section_no": "1.3.8.3"
+    },
+    {
+      "ordinal": 23,
+      "raw_section_no": "1.3.8.4",
+      "title": "商标信息及证明文件",
+      "element": "cn-1-3-8-4",
+      "entry_kind": "目录",
+      "path": "m1/cn/03/trademark-letter.pdf",
+      "page_span": [
+        5,
+        5
+      ],
+      "description": "商标信息及证明文件",
+      "section_no": "1.3.8.4"
+    },
+    {
+      "ordinal": 24,
+      "raw_section_no": "1.3.8.5",
+      "title": "对照药来源证明文件",
+      "element": "cn-1-3-8-5",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/cert-docs-ref-drug.pdf",
+      "page_span": [
+        5,
+        6
+      ],
+      "description": "对照药来源证明文件",
+      "section_no": "1.3.8.5"
+    },
+    {
+      "ordinal": 25,
+      "raw_section_no": "1.3.8.6",
+      "title": "药物临床试验相关证明文件（适用于上市申请）",
+      "element": "cn-1-3-8-6",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/cert-study-docs-nda.pdf",
+      "page_span": [
+        6,
+        6
+      ],
+      "description": "《药物临床试验批件》/临床试验通知书、临床试验用药质量标准及临床试验登记号/生物等效性试验备案登记号（内部核查）。",
+      "section_no": "1.3.8.6"
+    },
+    {
+      "ordinal": 26,
+      "raw_section_no": "1.3.8.7",
+      "title": "研究机构资质证明文件",
+      "element": "cn-1-3-8-7",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/qual-docs-of-res-inst.pdf",
+      "page_span": [
+        6,
+        6
+      ],
+      "description": "非临床研究安全性评价机构应提供药品监督管理部门出具的符合《药物非临床研究质量管理规范》（简称GLP）的批准证明或检查报告等证明性文件。临床试验机构应提供备案证明（内部核查）。",
+      "section_no": "1.3.8.7"
+    },
+    {
+      "ordinal": 27,
+      "raw_section_no": "1.3.8.8",
+      "title": "药械组合产品相关证明性文件",
+      "element": "cn-1-3-5-8",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/cert-docs-for-drugdevicecombo.pdf",
+      "page_span": [
+        6,
+        6
+      ],
+      "description": "如属于药品或以药品为主的药械组合产品，应提交药械组合产品的属性界定结果通知书（内部核查）。",
+      "section_no": "1.3.8.8"
+    },
+    {
+      "ordinal": 28,
+      "raw_section_no": "1.3.8.9",
+      "title": "允许药品上市销售证明文件（适用于境外已上市的药品）",
+      "element": "cn-1-3-8-9",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/docs-perm-mod.pdf",
+      "page_span": [
+        6,
+        6
+      ],
+      "description": "境外药品管理机构出具的允许该药品上市销售证明文件、公证认证文书及中文译文。",
+      "section_no": "1.3.8.9"
+    },
+    {
+      "ordinal": 29,
+      "raw_section_no": "1.3.8.10",
+      "title": "允许药品变更的证明文件",
+      "element": "cn-1-3-8-10",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/cert-docs-for-vrt-app.pdf",
+      "page_span": [
+        6,
+        7
+      ],
+      "description": "境外药品管理机构出具的允许药品变更的证明文件、公证认证文书及其中文译文。",
+      "section_no": "1.3.8.10"
+    },
+    {
+      "ordinal": 30,
+      "raw_section_no": "1.3.9",
+      "title": "其他产品信息相关材料",
+      "element": "cn-1-3-9",
+      "entry_kind": "文件",
+      "path": "m1/cn/03/other-pi-docs.pdf",
+      "page_span": [
+        7,
+        7
+      ],
+      "description": "其他产品信息相关材料",
+      "section_no": "1.3.9"
+    },
+    {
+      "ordinal": 31,
+      "raw_section_no": "1.4",
+      "title": "申请状态（如适用）",
+      "element": "cn-1-4",
+      "entry_kind": "文件",
+      "path": "m1/cn/04",
+      "page_span": [
+        7,
+        7
+      ],
+      "description": "申请状态（如适用）",
+      "section_no": "1.4"
+    },
+    {
+      "ordinal": 32,
+      "raw_section_no": "1.4.1",
+      "title": "既往批准情况",
+      "element": "cn-1-4-1",
+      "entry_kind": "文件",
+      "path": "m1/cn/04/prev-app-info.pdf",
+      "page_span": [
+        7,
+        7
+      ],
+      "description": "提供该品种相关的历次申请情况说明及批准/未批准证明文件（内部核查）",
+      "section_no": "1.4.1"
+    },
+    {
+      "ordinal": 33,
+      "raw_section_no": "1.4.2",
+      "title": "申请调整临床试验方案、暂停或者终止临床试验",
+      "element": "cn-1-4-2",
+      "entry_kind": "目录",
+      "path": "m1/cn/04/applic-withdraw-cta.pdf",
+      "page_span": [
+        7,
+        7
+      ],
+      "description": "申请调整临床试验方案、暂停或者终止临床试验",
+      "section_no": "1.4.2"
+    },
+    {
+      "ordinal": 34,
+      "raw_section_no": "1.4.3",
+      "title": "暂停后申请恢复临床试验",
+      "element": "cn-1-4-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/04/req-resume-ind.pdf",
+      "page_span": [
+        7,
+        7
+      ],
+      "description": "暂停后申请恢复临床试验",
+      "section_no": "1.4.3"
+    },
+    {
+      "ordinal": 35,
+      "raw_section_no": "1.4.4",
+      "title": "终止后重新申请临床试验",
+      "element": "cn-1-4-4",
+      "entry_kind": "文件",
+      "path": "m1/cn/04/applic-new-cta.pdf",
+      "page_span": [
+        7,
+        7
+      ],
+      "description": "终止后重新申请临床试验",
+      "section_no": "1.4.4"
+    },
+    {
+      "ordinal": 36,
+      "raw_section_no": "1.4.5",
+      "title": "申请撤回尚未批准的药物临床试验申请、上市注册许可申请、补充申请或再注册申请",
+      "element": "cn-1-4-5",
+      "entry_kind": "文件",
+      "path": "m1/cn/04/req-withdraw-appli.pdf",
+      "page_span": [
+        8,
+        8
+      ],
+      "description": "申请撤回尚未批准的药物临床试验申请、上市注册许可申请、补充申请或再注册申请",
+      "section_no": "1.4.5"
+    },
+    {
+      "ordinal": 37,
+      "raw_section_no": "1.4.6",
+      "title": "申请上市注册审评期间变更仅包括申请人更名、变更注册地址名称等不涉及技术审评内容的变更",
+      "element": "cn-1-4-6",
+      "entry_kind": "文件",
+      "path": "m1/cn/04/appli-var.pdf",
+      "page_span": [
+        8,
+        8
+      ],
+      "description": "申请上市注册审评期间变更仅包括申请人更名、变更注册地址名称等不涉及技术审评内容的变更",
+      "section_no": "1.4.6"
+    },
+    {
+      "ordinal": 38,
+      "raw_section_no": "1.4.7",
+      "title": "申请注销药品注册证书",
+      "element": "cn-1-4-7",
+      "entry_kind": "文件",
+      "path": "m1/cn/04/req-withdraw-drug-reg-cert.pdf",
+      "page_span": [
+        8,
+        8
+      ],
+      "description": "申请注销药品注册证书",
+      "section_no": "1.4.7"
+    },
+    {
+      "ordinal": 39,
+      "raw_section_no": "1.5",
+      "title": "加快上市注册程序申请（如适用）",
+      "element": "cn-1-5",
+      "entry_kind": "文件",
+      "path": "m1/cn/05",
+      "page_span": [
+        8,
+        8
+      ],
+      "description": "加快上市注册程序申请（如适用）",
+      "section_no": "1.5"
+    },
+    {
+      "ordinal": 40,
+      "raw_section_no": "1.5.1",
+      "title": "加快上市注册程序申请",
+      "element": "cn-1-5-1",
+      "entry_kind": "目录",
+      "path": "m1/cn/05/appli-for-accel-desig.pdf",
+      "page_span": [
+        8,
+        8
+      ],
+      "description": "包括突破性治疗药物程序、附条件批准程序、优先审评审批程序及特别审批程序",
+      "section_no": "1.5.1"
+    },
+    {
+      "ordinal": 41,
+      "raw_section_no": "1.5.2",
+      "title": "加快上市注册程序终止申请",
+      "element": "cn-1-5-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/05/appli-for-withdraw-accel-desig.pdf",
+      "page_span": [
+        8,
+        9
+      ],
+      "description": "加快上市注册程序终止申请",
+      "section_no": "1.5.2"
+    },
+    {
+      "ordinal": 42,
+      "raw_section_no": "1.5.3",
+      "title": "其他加快注册程序申请",
+      "element": "cn-1-5-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/05/other-appli-for-accel-desig.pdf",
+      "page_span": [
+        9,
+        9
+      ],
+      "description": "其他加快注册程序申请",
+      "section_no": "1.5.3"
+    },
+    {
+      "ordinal": 43,
+      "raw_section_no": "1.6",
+      "title": "沟通交流会议（如适用）",
+      "element": "cn-1-6",
+      "entry_kind": "文件",
+      "path": "m1/cn/06",
+      "page_span": [
+        9,
+        9
+      ],
+      "description": "沟通交流会议（如适用）",
+      "section_no": "1.6"
+    },
+    {
+      "ordinal": 44,
+      "raw_section_no": "1.6.1",
+      "title": "会议申请",
+      "element": "cn-1-6-1",
+      "entry_kind": "目录",
+      "path": "m1/cn/06/meeting-request.pdf",
+      "page_span": [
+        9,
+        9
+      ],
+      "description": "会议申请",
+      "section_no": "1.6.1"
+    },
+    {
+      "ordinal": 45,
+      "raw_section_no": "1.6.2",
+      "title": "会议背景资料",
+      "element": "cn-1-6-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/06/bb.pdf",
+      "page_span": [
+        9,
+        9
+      ],
+      "description": "会议背景资料",
+      "section_no": "1.6.2"
+    },
+    {
+      "ordinal": 46,
+      "raw_section_no": "1.6.3",
+      "title": "会议相关信函、会议纪要以及答复",
+      "element": "cn-1-6-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/06/corresp-and-minutes.pdf",
+      "page_span": [
+        9,
+        9
+      ],
+      "description": "会议相关信函、会议纪要以及答复",
+      "section_no": "1.6.3"
+    },
+    {
+      "ordinal": 47,
+      "raw_section_no": "1.7",
+      "title": "临床试验过程管理信息（如适用）",
+      "element": "cn-1-7",
+      "entry_kind": "文件",
+      "path": "m1/cn/07",
+      "page_span": [
+        9,
+        9
+      ],
+      "description": "临床试验过程管理信息（如适用）",
+      "section_no": "1.7"
+    },
+    {
+      "ordinal": 48,
+      "raw_section_no": "1.7.1",
+      "title": "临床试验期间增加新适应症",
+      "element": "cn-1-7-1",
+      "entry_kind": "目录",
+      "path": "m1/cn/07/new-indication-ind.pdf",
+      "page_span": [
+        9,
+        10
+      ],
+      "description": "临床试验期间增加新适应症",
+      "section_no": "1.7.1"
+    },
+    {
+      "ordinal": 49,
+      "raw_section_no": "1.7.2",
+      "title": "变更临床试验方案、重大药学变更、非临床研究重要安全性发现等可能增加受试者安全性风险的",
+      "element": "cn-1-7-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/07/prot-amend-cmc-nonclin-related.pdf",
+      "page_span": [
+        10,
+        10
+      ],
+      "description": "变更临床试验方案、重大药学变更、非临床研究重要安全性发现等可能增加受试者安全性风险的",
+      "section_no": "1.7.2"
+    },
+    {
+      "ordinal": 50,
+      "raw_section_no": "1.7.3",
+      "title": "要求申办者调整临床试验方案、暂停或终止药物临床试验",
+      "element": "cn-1-7-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/07/req-adj-ct-protocol.pdf",
+      "page_span": [
+        10,
+        10
+      ],
+      "description": "要求申办者调整临床试验方案、暂停或终止药物临床试验",
+      "section_no": "1.7.3"
+    },
+    {
+      "ordinal": 51,
+      "raw_section_no": "1.8",
+      "title": "药物警戒与风险管理（如适用）",
+      "element": "cn-1-8",
+      "entry_kind": "目录",
+      "path": "m1/cn/08",
+      "page_span": [
+        10,
+        10
+      ],
+      "description": "药物警戒与风险管理（如适用）",
+      "section_no": "1.8"
+    },
+    {
+      "ordinal": 52,
+      "raw_section_no": "1.8.1",
+      "title": "研发期间安全性更新报告及附件",
+      "element": "cn-1-8-1",
+      "entry_kind": "目录",
+      "path": "m1/cn/08",
+      "page_span": [
+        10,
+        10
+      ],
+      "description": "研发期间安全性更新报告及附件",
+      "section_no": "1.8.1"
+    },
+    {
+      "ordinal": 53,
+      "raw_section_no": "1.8.1.1",
+      "title": "研发期间安全性更新报告",
+      "element": "cn-1-8-1-1",
+      "entry_kind": "文件",
+      "path": "m1/cn/08/dsur.pdf",
+      "page_span": [
+        10,
+        10
+      ],
+      "description": "研发期间安全性更新报告",
+      "section_no": "1.8.1.1"
+    },
+    {
+      "ordinal": 54,
+      "raw_section_no": "1.8.1.2",
+      "title": "严重不良反应（SAR）累计汇总表",
+      "element": "cn-1-8-1-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/08/sar-sum-tbl.pdf",
+      "page_span": [
+        10,
+        11
+      ],
+      "description": "严重不良反应（SAR）累计汇总表",
+      "section_no": "1.8.1.2"
+    },
+    {
+      "ordinal": 55,
+      "raw_section_no": "1.8.1.3",
+      "title": "报告周期内境内死亡受试者列表",
+      "element": "cn-1-8-1-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/08/list-of-deceased.pdf",
+      "page_span": [
+        11,
+        11
+      ],
+      "description": "报告周期内境内死亡受试者列表",
+      "section_no": "1.8.1.3"
+    },
+    {
+      "ordinal": 56,
+      "raw_section_no": "1.8.1.4",
+      "title": "报告周期内境内因任何不良事件而退出临床试验的受试者列表",
+      "element": "cn-1-8-1-4",
+      "entry_kind": "文件",
+      "path": "m1/cn/08/list-of-terminations.pdf",
+      "page_span": [
+        11,
+        11
+      ],
+      "description": "报告周期内境内因任何不良事件而退出临床试验的受试者列表",
+      "section_no": "1.8.1.4"
+    },
+    {
+      "ordinal": 57,
+      "raw_section_no": "1.8.1.5",
+      "title": "报告周期内发生的药物临床试验方案变更或者临床方面的新发现、非临床或者药学的变化或者新发现总结表",
+      "element": "cn-1-8-1-5",
+      "entry_kind": "目录",
+      "path": "m1/cn/08/sum-changes.pdf",
+      "page_span": [
+        11,
+        11
+      ],
+      "description": "报告周期内发生的药物临床试验方案变更或者临床方面的新发现、非临床或者药学的变化或者新发现总结表",
+      "section_no": "1.8.1.5"
+    },
+    {
+      "ordinal": 58,
+      "raw_section_no": "1. 8.1.6",
+      "title": "下一报告周期内总体研究计划概要",
+      "element": "cn-1-8-1-6",
+      "entry_kind": "文件",
+      "path": "m1/cn/08/sum-res-plan.pdf",
+      "page_span": [
+        11,
+        11
+      ],
+      "description": "下一报告周期内总体研究计划概要",
+      "section_no": "1.8.1.6"
+    },
+    {
+      "ordinal": 59,
+      "raw_section_no": "1.8.2",
+      "title": "其他潜在的严重安全性风险信息",
+      "element": "cn-1-8-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/08/other-ssri.pdf",
+      "page_span": [
+        11,
+        11
+      ],
+      "description": "其他潜在的严重安全性风险信息",
+      "section_no": "1.8.2"
+    },
+    {
+      "ordinal": 60,
+      "raw_section_no": "1.8.3",
+      "title": "风险管理计划（RMP）",
+      "element": "cn-1-8-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/08/rmp.pdf",
+      "page_span": [
+        11,
+        12
+      ],
+      "description": "包括药物警戒活动计划和风险最小化措施等。",
+      "section_no": "1.8.3"
+    },
+    {
+      "ordinal": 61,
+      "raw_section_no": "1.9",
+      "title": "上市后研究（如适用）",
+      "element": "cn-1-9",
+      "entry_kind": "文件",
+      "path": "m1/cn/09/post-app-study.pdf",
+      "page_span": [
+        12,
+        12
+      ],
+      "description": "包括Ⅳ期和有特定研究目的的研究等。",
+      "section_no": "1.9"
+    },
+    {
+      "ordinal": 62,
+      "raw_section_no": "1.10",
+      "title": "上市后变更（如适用）",
+      "element": "cn-1-10",
+      "entry_kind": "目录",
+      "path": "m1/cn/10",
+      "page_span": [
+        12,
+        12
+      ],
+      "description": "上市后变更（如适用）",
+      "section_no": "1.10"
+    },
+    {
+      "ordinal": 63,
+      "raw_section_no": "1.10.1",
+      "title": "审批类变更",
+      "element": "cn-1-10-1",
+      "entry_kind": "文件",
+      "path": "m1/cn/10/post-app-cmcchange.pdf",
+      "page_span": [
+        12,
+        12
+      ],
+      "description": "审批类变更",
+      "section_no": "1.10.1"
+    },
+    {
+      "ordinal": 64,
+      "raw_section_no": "1.10.2",
+      "title": "备案类变更",
+      "element": "cn-1-10-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/10/post-app-pichange.pdf",
+      "page_span": [
+        12,
+        12
+      ],
+      "description": "改变不涉及技术审评的药品注册证书载明信息的，境外持有人提交其所在国家或地区药品监督管理机构出具的允许变更的证明文件；境内持有人提交有关管理机构同意更名的文件复印件，如《营业执照》、《药品生产许可证》及变更记录页。药品分包装申请需提交分包装合同（含使用进口药品商标的授权）、分包装生产企业《药品生产许可证》、分包装工艺、直接接触药品的包装材料和容器的选择依据及质量标准。",
+      "section_no": "1.10.2"
+    },
+    {
+      "ordinal": 65,
+      "raw_section_no": "1.10.3",
+      "title": "报告类变更",
+      "element": "cn-1-10-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/10/mahchange.pdf",
+      "page_span": [
+        12,
+        12
+      ],
+      "description": "报告类变更",
+      "section_no": "1.10.3"
+    },
+    {
+      "ordinal": 66,
+      "raw_section_no": "1.11",
+      "title": "申请人/上市许可持有人证明性文件",
+      "element": "cn-1-11",
+      "entry_kind": "目录",
+      "path": "m1/cn/11",
+      "page_span": [
+        13,
+        13
+      ],
+      "description": "申请人/上市许可持有人证明性文件",
+      "section_no": "1.11"
+    },
+    {
+      "ordinal": 67,
+      "raw_section_no": "1.11.1",
+      "title": "境内生产药品申请人/生产企业资质证明文件",
+      "element": "cn-1-11-1",
+      "entry_kind": "目录",
+      "path": "m1/cn/11/cert-qual-dom.pdf",
+      "page_span": [
+        13,
+        13
+      ],
+      "description": "申请人/生产企业机构合法登记证明文件 （营业执照等）。申请药品上市许可时，申请人和生产企业应当已取得相应的《药品生产许可证》（内部核查）。申请临床试验的，应提供其临床试验用药物在符合药品生产质量管理规范的条件下制备的情况说明。",
+      "section_no": "1.11.1"
+    },
+    {
+      "ordinal": 68,
+      "raw_section_no": "1.11.2",
+      "title": "境外生产药品申请人/生产企业资质证明文件",
+      "element": "cn-1-11-2",
+      "entry_kind": "文件",
+      "path": "m1/cn/11/cert-qual-ovs.pdf",
+      "page_span": [
+        13,
+        13
+      ],
+      "description": "生产厂和包装厂符合药品生产质量管理规范的证明文件、公证认证文书及中文译文。申请临床试验的，应提供其临床试验用药物在符合药品生产质量管理规范的条件下制备的情况说明。",
+      "section_no": "1.11.2"
+    },
+    {
+      "ordinal": 69,
+      "raw_section_no": "1.11.3",
+      "title": "注册代理机构证明文件",
+      "element": "cn-1-11-3",
+      "entry_kind": "文件",
+      "path": "m1/cn/11/cert-docs-for-agency.pdf",
+      "page_span": [
+        13,
+        13
+      ],
+      "description": "境外申请人指定中国境内的企业法人办理相关药品注册事项的，应当提供委托文书、公证文书及其中文译本，以及注册代理机构的营业执照复印件。",
+      "section_no": "1.11.3"
+    },
+    {
+      "ordinal": 70,
+      "raw_section_no": "1.12",
+      "title": "小微企业证明文件（如适用）",
+      "element": "cn-1-12",
+      "entry_kind": "文件",
+      "path": "m1/cn/12/cert-docs-for-smallmicro.pdf",
+      "page_span": [
+        13,
+        14
+      ],
+      "description": "小微企业证明文件（如适用）",
+      "section_no": "1.12"
+    }
+  ]
+}

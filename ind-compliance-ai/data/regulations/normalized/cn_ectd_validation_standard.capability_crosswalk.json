@@ -1,0 +1,1412 @@
+{
+  "schema_version": "regulation-library-v1",
+  "capability_crosswalk_schema_version": "regulation-capability-crosswalk-v1",
+  "source_regulation_id": "cn_ectd_validation_standard",
+  "target_regulation_id": "cn_ectd_technical_specification",
+  "relation_basis": "shared_runtime_rule_ids",
+  "relation_note": "Shared runtime rules indicate common executable capability reuse across regulations; they do not by themselves claim strict one-to-one normative equivalence.",
+  "relation_count": 78,
+  "source_clause_count_with_links": 58,
+  "source_clause_count_without_links": 88,
+  "relations": [
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_1::cn_ectd_technical_specification:sec_3_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_1",
+      "source_heading": "2.1 文件夹不能为空",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3",
+      "shared_rule_ids": [
+        "HR-ECTD-021"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_1::cn_ectd_technical_specification:sec_3_3_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_1",
+      "source_heading": "2.1 文件夹不能为空",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3_3",
+      "shared_rule_ids": [
+        "HR-ECTD-021"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_3::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_3",
+      "source_heading": "2.3 不允许未被引用的文件",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-010"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_4::cn_ectd_technical_specification:sec_3_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_4",
+      "source_heading": "2.4 文件类型（文件扩展名检查）",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3",
+      "shared_rule_ids": [
+        "HR-ECTD-019"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_4::cn_ectd_technical_specification:sec_3_3_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_4",
+      "source_heading": "2.4 文件类型（文件扩展名检查）",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3_1",
+      "shared_rule_ids": [
+        "HR-ECTD-019"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_5::cn_ectd_technical_specification:sec_3_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_5",
+      "source_heading": "2.5 文件和文件夹命名规范必须正确",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3",
+      "shared_rule_ids": [
+        "HR-ECTD-005"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_5::cn_ectd_technical_specification:sec_3_3_2",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_5",
+      "source_heading": "2.5 文件和文件夹命名规范必须正确",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3_2",
+      "shared_rule_ids": [
+        "HR-ECTD-005"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_6::cn_ectd_technical_specification:sec_4_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_6",
+      "source_heading": "2.6 m1文件夹存在但是不存放单个文件",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "shared_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_7::cn_ectd_technical_specification:sec_2_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_7",
+      "source_heading": "2.7 util文件夹必须存在且包含的文件必须正确",
+      "target_clause_id": "cn_ectd_technical_specification:sec_2_4",
+      "shared_rule_ids": [
+        "HR-ECTD-017"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_7::cn_ectd_technical_specification:sec_4_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_7",
+      "source_heading": "2.7 util文件夹必须存在且包含的文件必须正确",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "shared_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_8::cn_ectd_technical_specification:sec_4_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_8",
+      "source_heading": "2.8 序列号根文件夹不允许其他文件",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "shared_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_9::cn_ectd_technical_specification:sec_4_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_9",
+      "source_heading": "2.9 序列文件夹要求",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "shared_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_2_10::cn_ectd_technical_specification:sec_2_3_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_10",
+      "source_heading": "2.10 序列编号",
+      "target_clause_id": "cn_ectd_technical_specification:sec_2_3_1",
+      "shared_rule_ids": [
+        "HR-ECTD-001"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_1::cn_ectd_technical_specification:sec_4_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_1",
+      "source_heading": "3.1 index.xml文件必须存在",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "shared_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_2::cn_ectd_technical_specification:sec_1_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_2",
+      "source_heading": "3.2 index.xml中DTD的引用必须指向util文件夹中提供的DTD",
+      "target_clause_id": "cn_ectd_technical_specification:sec_1_3",
+      "shared_rule_ids": [
+        "HR-ECTD-078"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_3::cn_ectd_technical_specification:sec_1_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_3",
+      "source_heading": "3.3 index.xml文件必须有效。",
+      "target_clause_id": "cn_ectd_technical_specification:sec_1_3",
+      "shared_rule_ids": [
+        "HR-ECTD-079"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_4::cn_ectd_technical_specification:sec_3_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_4",
+      "source_heading": "3.4 文件引用（xlink:href）属性指向的文件必须存在",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3",
+      "shared_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_4::cn_ectd_technical_specification:sec_3_3_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_4",
+      "source_heading": "3.4 文件引用（xlink:href）属性指向的文件必须存在",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3_4",
+      "shared_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_4::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_4",
+      "source_heading": "3.4 文件引用（xlink:href）属性指向的文件必须存在",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_5::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_5",
+      "source_heading": "3.5 文件在一个序列中不允许对应多个操作",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-065"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_6::cn_ectd_technical_specification:sec_3_3_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_6",
+      "source_heading": "3.6 替换或增补的内容不能与之前文件相同",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3_4",
+      "shared_rule_ids": [
+        "HR-ECTD-063"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_6::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_6",
+      "source_heading": "3.6 替换或增补的内容不能与之前文件相同",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-063"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_7::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_7",
+      "source_heading": "3.7 叶元素：新建、替换或增补的叶元素，必须有“文件引用（xlink:href）”值",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-066"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_8::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_8",
+      "source_heading": "3.8 叶元素：删除的叶元素不能包含“文件引用（xlink:href）”值",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-067"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_9::cn_ectd_technical_specification:sec_3_9",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_9",
+      "source_heading": "3.9 叶元素：对替换、删除和增补的叶元素，必须有对应的文件“操作（operation）”属性值为“替换（replace）”、“删除（delete）”或“增补（append）”的所有叶元素，对应的“被修改文件对象（modified-file）”必须有值。",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_9",
+      "shared_rule_ids": [
+        "HR-ECTD-025",
+        "SR-ECTD-009"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_9::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_9",
+      "source_heading": "3.9 叶元素：对替换、删除和增补的叶元素，必须有对应的文件“操作（operation）”属性值为“替换（replace）”、“删除（delete）”或“增补（append）”的所有叶元素，对应的“被修改文件对象（modified-file）”必须有值。",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-068"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_10::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_10",
+      "source_heading": "3.10 叶元素：初始序列中所有文件必须为新建",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-071"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_11::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_11",
+      "source_heading": "3.11 被修改文件对象必须存在",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-072"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_12::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_12",
+      "source_heading": "3.12 只允许使用相对路径引用",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-073"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_13::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_13",
+      "source_heading": "3.13 “checksum-type”属性",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-003"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_16::cn_ectd_technical_specification:sec_3_7",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_16",
+      "source_heading": "3.16 扩展节点的使用要求",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_7",
+      "shared_rule_ids": [
+        "HR-ECTD-074"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_17::cn_ectd_technical_specification:sec_3_2",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_17",
+      "source_heading": "3.17 扩展节点标题的命名规范",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_2",
+      "shared_rule_ids": [
+        "SR-ECTD-026"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_18::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_18",
+      "source_heading": "3.18 叶标题不能为空",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-069"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_19::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_19",
+      "source_heading": "3.19 删除的叶标题必须和被删除的叶标题保持一致",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-070"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_20::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_20",
+      "source_heading": "3.20 叶标题开头和结尾不能为空格",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "SR-ECTD-025"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_21::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_21",
+      "source_heading": "3.21 元素下必须有叶元素",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-062"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_25::cn_ectd_technical_specification:sec_3_6",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_25",
+      "source_heading": "3.25 属性-适应症（indication）",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_6",
+      "shared_rule_ids": [
+        "HR-ECTD-075"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_26::cn_ectd_technical_specification:sec_3_6",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_26",
+      "source_heading": "3.26 属性-生产商（manufacturer）",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_6",
+      "shared_rule_ids": [
+        "HR-ECTD-076"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_27::cn_ectd_technical_specification:sec_3_6",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_27",
+      "source_heading": "3.27 属性-活性成分（substance）",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_6",
+      "shared_rule_ids": [
+        "HR-ECTD-077"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_28::cn_ectd_technical_specification:sec_3_6",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_28",
+      "source_heading": "3.28 属性值开头和结尾不能为空格",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_6",
+      "shared_rule_ids": [
+        "SR-ECTD-027"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_36::cn_ectd_technical_specification:sec_3_5",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_36",
+      "source_heading": "3.36 替换操作时语言属性不得变更",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_5",
+      "shared_rule_ids": [
+        "HR-ECTD-026"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_3_36::cn_ectd_technical_specification:sec_3_5_2",
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_36",
+      "source_heading": "3.36 替换操作时语言属性不得变更",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_5_2",
+      "shared_rule_ids": [
+        "HR-ECTD-026"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_1::cn_ectd_technical_specification:sec_4_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_1",
+      "source_heading": "4.1.1 模块一的区域骨架文件必须存在",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "shared_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_5::cn_ectd_technical_specification:sec_3_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_5",
+      "source_heading": "4.1.5 文件引用（xlink:href）属性指向的文件必须存在",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3",
+      "shared_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_5::cn_ectd_technical_specification:sec_3_3_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_5",
+      "source_heading": "4.1.5 文件引用（xlink:href）属性指向的文件必须存在",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3_4",
+      "shared_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_5::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_5",
+      "source_heading": "4.1.5 文件引用（xlink:href）属性指向的文件必须存在",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_7::cn_ectd_technical_specification:sec_3_3_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_7",
+      "source_heading": "4.1.7 替换或增补的内容不能与之前文件相同",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3_4",
+      "shared_rule_ids": [
+        "HR-ECTD-064"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_7::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_7",
+      "source_heading": "4.1.7 替换或增补的内容不能与之前文件相同",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-064"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_12::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_12",
+      "source_heading": "4.1.12 “checksum-type”属性",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-003"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_13::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_13",
+      "source_heading": "4.1.13 MD5值校验",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-050"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_14::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_14",
+      "source_heading": "4.1.14 说明函的“操作（operations）”属性",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-051"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_15::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_15",
+      "source_heading": "4.1.15 申请表的“操作（operations）”属性",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-052"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_20::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_20",
+      "source_heading": "4.1.20 元素下必须有叶元素",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-061"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_21::cn_ectd_technical_specification:sec_4_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_21",
+      "source_heading": "4.1.21 申请文件夹名称",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "shared_rule_ids": [
+        "HR-ECTD-016"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_22::cn_ectd_technical_specification:sec_4_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_22",
+      "source_heading": "4.1.22 序列文件夹名称",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "shared_rule_ids": [
+        "HR-ECTD-016"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_23::cn_ectd_technical_specification:sec_4_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_23",
+      "source_heading": "4.1.23 m1文件夹目录结构",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "shared_rule_ids": [
+        "HR-ECTD-015"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_24::cn_ectd_technical_specification:sec_3_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_24",
+      "source_heading": "4.1.24 内容的引用",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3",
+      "shared_rule_ids": [
+        "HR-ECTD-027"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_24::cn_ectd_technical_specification:sec_3_3_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_24",
+      "source_heading": "4.1.24 内容的引用",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3_4",
+      "shared_rule_ids": [
+        "HR-ECTD-027"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_30::cn_ectd_technical_specification:sec_3_9",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_30",
+      "source_heading": "4.1.30 增补（append）的使用",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_9",
+      "shared_rule_ids": [
+        "SR-ECTD-009"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_31::cn_ectd_technical_specification:sec_3_5",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_31",
+      "source_heading": "4.1.31 替换操作时语言属性不得变更",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_5",
+      "shared_rule_ids": [
+        "HR-ECTD-026"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_1_31::cn_ectd_technical_specification:sec_3_5_2",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_31",
+      "source_heading": "4.1.31 替换操作时语言属性不得变更",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_5_2",
+      "shared_rule_ids": [
+        "HR-ECTD-026"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_1::cn_ectd_technical_specification:sec_2_1_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_1",
+      "source_heading": "4.2.1 信封元素：申请编号",
+      "target_clause_id": "cn_ectd_technical_specification:sec_2_1_1",
+      "shared_rule_ids": [
+        "HR-ECTD-002"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_2::cn_ectd_technical_specification:sec_2_1_2",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_2",
+      "source_heading": "4.2.2 信封元素：申请类型",
+      "target_clause_id": "cn_ectd_technical_specification:sec_2_1_2",
+      "shared_rule_ids": [
+        "HR-ECTD-037"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_2::cn_ectd_technical_specification:sec_4_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_2",
+      "source_heading": "4.2.2 信封元素：申请类型",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_3",
+      "shared_rule_ids": [
+        "HR-ECTD-037"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_3::cn_ectd_technical_specification:sec_2_1_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_3",
+      "source_heading": "4.2.3 信封元素：产品类型",
+      "target_clause_id": "cn_ectd_technical_specification:sec_2_1_3",
+      "shared_rule_ids": [
+        "HR-ECTD-038"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_3::cn_ectd_technical_specification:sec_4_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_3",
+      "source_heading": "4.2.3 信封元素：产品类型",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_3",
+      "shared_rule_ids": [
+        "HR-ECTD-038"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_6::cn_ectd_technical_specification:sec_2_2_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_6",
+      "source_heading": "4.2.6 信封元素：注册行为类型",
+      "target_clause_id": "cn_ectd_technical_specification:sec_2_2_1",
+      "shared_rule_ids": [
+        "HR-ECTD-039"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_6::cn_ectd_technical_specification:sec_4_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_6",
+      "source_heading": "4.2.6 信封元素：注册行为类型",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_3",
+      "shared_rule_ids": [
+        "HR-ECTD-039"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_7::cn_ectd_technical_specification:sec_2_3_1",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_7",
+      "source_heading": "4.2.7 信封元素：序列号",
+      "target_clause_id": "cn_ectd_technical_specification:sec_2_3_1",
+      "shared_rule_ids": [
+        "HR-ECTD-001"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_8::cn_ectd_technical_specification:sec_2_3_2",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_8",
+      "source_heading": "4.2.8 信封元素：序列类型",
+      "target_clause_id": "cn_ectd_technical_specification:sec_2_3_2",
+      "shared_rule_ids": [
+        "HR-ECTD-040"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_8::cn_ectd_technical_specification:sec_4_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_8",
+      "source_heading": "4.2.8 信封元素：序列类型",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_3",
+      "shared_rule_ids": [
+        "HR-ECTD-040"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_10::cn_ectd_technical_specification:sec_2_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_10",
+      "source_heading": "4.2.10 信封元素：序列相关信息",
+      "target_clause_id": "cn_ectd_technical_specification:sec_2_4",
+      "shared_rule_ids": [
+        "HR-ECTD-018"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_13::cn_ectd_technical_specification:sec_4_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_13",
+      "source_heading": "4.2.13 申请级别的信封元素必须保持不变",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_3",
+      "shared_rule_ids": [
+        "HR-ECTD-115"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_4_2_14::cn_ectd_technical_specification:sec_4_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_14",
+      "source_heading": "4.2.14 注册行为类型必须保持不变",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_3",
+      "shared_rule_ids": [
+        "HR-ECTD-116"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_5_2::cn_ectd_technical_specification:sec_3_3",
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_2",
+      "source_heading": "5.2 检查索引引用",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3",
+      "shared_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_5_2::cn_ectd_technical_specification:sec_3_3_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_2",
+      "source_heading": "5.2 检查索引引用",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_3_4",
+      "shared_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_5_2::cn_ectd_technical_specification:sec_4_4",
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_2",
+      "source_heading": "5.2 检查索引引用",
+      "target_clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "shared_rule_ids": [
+        "HR-ECTD-006"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    },
+    {
+      "relation_id": "cn_ectd_validation_standard:sec_5_17::cn_ectd_technical_specification:sec_3_8",
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_17",
+      "source_heading": "5.17 使用STF",
+      "target_clause_id": "cn_ectd_technical_specification:sec_3_8",
+      "shared_rule_ids": [
+        "SR-ECTD-010"
+      ],
+      "relation_type": "shared_runtime_rule_capability"
+    }
+  ],
+  "source_clauses_without_technical_spec_links": [
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_2_2",
+      "source_heading": "2.2 不能超出文件大小限制",
+      "implemented_rule_ids": [
+        "SR-ECTD-015"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_14",
+      "source_heading": "3.14 MD5值校验",
+      "implemented_rule_ids": [
+        "HR-ECTD-049"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_15",
+      "source_heading": "3.15 骨架文件的MD5值校验",
+      "implemented_rule_ids": [
+        "HR-ECTD-048"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_22",
+      "source_heading": "3.22 m1行政文件和药品信息元素必须存在。",
+      "implemented_rule_ids": [
+        "HR-ECTD-086"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_23",
+      "source_heading": "3.23 增补（append）的使用",
+      "implemented_rule_ids": [
+        "SR-ECTD-028"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_24",
+      "source_heading": "3.24 不能重新定位文件位置",
+      "implemented_rule_ids": [
+        "SR-ECTD-029"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_29",
+      "source_heading": "3.29 内容的引用",
+      "implemented_rule_ids": [
+        "HR-ECTD-087"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_30",
+      "source_heading": "3.30 检测无效的生命周期模式：增补操作造成分支",
+      "implemented_rule_ids": [
+        "HR-ECTD-080"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_31",
+      "source_heading": "3.31 检测无效的生命周期模式：删除操作造成分支",
+      "implemented_rule_ids": [
+        "HR-ECTD-081"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_32",
+      "source_heading": "3.32 检测无效的生命周期模式：替换操作造成分支",
+      "implemented_rule_ids": [
+        "HR-ECTD-082"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_33",
+      "source_heading": "3.33 检测无效的生命周期模式：对已删除叶元素的操作",
+      "implemented_rule_ids": [
+        "HR-ECTD-083"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_34",
+      "source_heading": "3.34 检测无效的生命周期模式：对增补的叶元素进行增补操作",
+      "implemented_rule_ids": [
+        "HR-ECTD-084"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_3_35",
+      "source_heading": "3.35 检测无效的生命周期模式：对不是最新的STF叶元素进行增",
+      "implemented_rule_ids": [
+        "HR-ECTD-085"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_2",
+      "source_heading": "4.1.2 cn-regional.xml中对Schema的引用必须指向util文件夹中",
+      "implemented_rule_ids": [
+        "HR-ECTD-112"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_3",
+      "source_heading": "4.1.3 区域骨架文件必须有效",
+      "implemented_rule_ids": [
+        "HR-ECTD-113"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_4",
+      "source_heading": "4.1.4 当前序列必须使用一个不低于先前序列所用的schema版本",
+      "implemented_rule_ids": [
+        "HR-ECTD-114"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_6",
+      "source_heading": "4.1.6 文件在一个序列中不允许对应多个操作",
+      "implemented_rule_ids": [
+        "HR-ECTD-059"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_8",
+      "source_heading": "4.1.8 叶元素：新建、替换或增补的叶元素，必须有“文件引用（xlink:href）”值",
+      "implemented_rule_ids": [
+        "HR-ECTD-055"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_9",
+      "source_heading": "4.1.9 叶元素：删除的叶元素不能包含“文件引用（xlink:href）”值",
+      "implemented_rule_ids": [
+        "HR-ECTD-056"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_10",
+      "source_heading": "4.1.10 叶元素：对替换、删除和增补的叶元素，必须有对应的文件“操作（operation）”属性值为“替换（replace）”、“删除（delete）”或“增补（append）”的所有叶元素，对应的“被修改文件对象（modified-file）”必须有值。",
+      "implemented_rule_ids": [
+        "HR-ECTD-057"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_11",
+      "source_heading": "4.1.11 叶元素：初始序列中所有文件必须为新建",
+      "implemented_rule_ids": [
+        "HR-ECTD-058"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_16",
+      "source_heading": "4.1.16 不允许使用“扩展节点（Node Extension）”",
+      "implemented_rule_ids": [
+        "HR-ECTD-053"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_17",
+      "source_heading": "4.1.17 叶标题不能为空",
+      "implemented_rule_ids": [
+        "HR-ECTD-054"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_18",
+      "source_heading": "4.1.18 删除的叶标题必须和被删除的叶标题保持一致",
+      "implemented_rule_ids": [
+        "HR-ECTD-060"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_19",
+      "source_heading": "4.1.19 叶标题开头和结尾不能为空格",
+      "implemented_rule_ids": [
+        "SR-ECTD-024"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_25",
+      "source_heading": "4.1.25 检测无效的生命周期模式：增补操作造成分支",
+      "implemented_rule_ids": [
+        "HR-ECTD-094"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_26",
+      "source_heading": "4.1.26 检测无效的生命周期模式：删除操作造成分支",
+      "implemented_rule_ids": [
+        "HR-ECTD-095"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_27",
+      "source_heading": "4.1.27 检测无效的生命周期模式：替换操作造成分支",
+      "implemented_rule_ids": [
+        "HR-ECTD-096"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_28",
+      "source_heading": "4.1.28 检测无效的生命周期模式：对已删除叶元素的操作",
+      "implemented_rule_ids": [
+        "HR-ECTD-097"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_1_29",
+      "source_heading": "4.1.29 检测无效的生命周期模式：对增补的叶元素进行增补操作",
+      "implemented_rule_ids": [
+        "HR-ECTD-098"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_4",
+      "source_heading": "4.2.4 信封元素：原始编号",
+      "implemented_rule_ids": [
+        "HR-ECTD-103"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_5",
+      "source_heading": "4.2.5 信封元素：相关序列",
+      "implemented_rule_ids": [
+        "HR-ECTD-102"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_9",
+      "source_heading": "4.2.9 信封元素：序列描述",
+      "implemented_rule_ids": [
+        "HR-ECTD-099"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_11",
+      "source_heading": "4.2.11 相关序列的值",
+      "implemented_rule_ids": [
+        "HR-ECTD-100"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_2_12",
+      "source_heading": "4.2.12 相关序列的值",
+      "implemented_rule_ids": [
+        "HR-ECTD-101"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_3_1",
+      "source_heading": "4.3.1 模块一完整性验证：",
+      "implemented_rule_ids": [
+        "HR-ECTD-106"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_3_2",
+      "source_heading": "4.3.2 模块一完整性验证：",
+      "implemented_rule_ids": [
+        "HR-ECTD-107"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_3_3",
+      "source_heading": "4.3.3 模块一完整性验证：",
+      "implemented_rule_ids": [
+        "HR-ECTD-108"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_3_4",
+      "source_heading": "4.3.4 模块一完整性验证：",
+      "implemented_rule_ids": [
+        "HR-ECTD-109"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_3_5",
+      "source_heading": "4.3.5 模块一完整性验证：",
+      "implemented_rule_ids": [
+        "HR-ECTD-110"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_3_6",
+      "source_heading": "4.3.6 模块一完整性验证：",
+      "implemented_rule_ids": [
+        "HR-ECTD-111"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_3_7",
+      "source_heading": "4.3.7 模块一完整性验证：",
+      "implemented_rule_ids": [
+        "HR-ECTD-104"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_3_8",
+      "source_heading": "4.3.8 模块一完整性验证：",
+      "implemented_rule_ids": [
+        "HR-ECTD-105"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_4_3_9",
+      "source_heading": "4.3.9 元素包含的叶元素数量",
+      "implemented_rule_ids": [
+        "SR-ECTD-055"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_1",
+      "source_heading": "5.1 STF文件必须有效",
+      "implemented_rule_ids": [
+        "HR-ECTD-090"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_3",
+      "source_heading": "5.3 不建议使用“content-block”元素",
+      "implemented_rule_ids": [
+        "SR-ECTD-030"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_4",
+      "source_heading": "5.4 文件引用值不能使用反斜杠",
+      "implemented_rule_ids": [
+        "HR-ECTD-088"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_5",
+      "source_heading": "5.5 研究标识的类别不能空",
+      "implemented_rule_ids": [
+        "SR-ECTD-031"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_6",
+      "source_heading": "5.6 研究标识的研究ID不能为空",
+      "implemented_rule_ids": [
+        "SR-ECTD-032"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_7",
+      "source_heading": "5.7 研究标识的标题必须与叶元素的叶标题匹配",
+      "implemented_rule_ids": [
+        "SR-ECTD-037"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_8",
+      "source_heading": "5.8 标签属性和类别元素的值",
+      "implemented_rule_ids": [
+        "SR-ECTD-036"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_9",
+      "source_heading": "5.9 STF的增补操作",
+      "implemented_rule_ids": [
+        "SR-ECTD-043"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_10",
+      "source_heading": "5.10 STF必须提供类别元素（category）信息",
+      "implemented_rule_ids": [
+        "SR-ECTD-038"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_11",
+      "source_heading": "5.11 STF不能引用另一个STF",
+      "implemented_rule_ids": [
+        "SR-ECTD-044"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_12",
+      "source_heading": "5.12 STF文件必须至少引用一个叶元素",
+      "implemented_rule_ids": [
+        "SR-ECTD-034"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_13",
+      "source_heading": "5.13 STF的“study-id”值必须保持一致",
+      "implemented_rule_ids": [
+        "SR-ECTD-039"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_14",
+      "source_heading": "5.14 无效的STF目录位置",
+      "implemented_rule_ids": [
+        "SR-ECTD-035"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_15",
+      "source_heading": "5.15 STF“doc-content”的标签（file-tag）数量",
+      "implemented_rule_ids": [
+        "SR-ECTD-033"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_16",
+      "source_heading": "5.16 5.3.7章节病例报告表结构",
+      "implemented_rule_ids": [
+        "HR-ECTD-089"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_18",
+      "source_heading": "5.18 临床试验数据集相关文件必须使用正确的STF文件标签",
+      "implemented_rule_ids": [
+        "SR-ECTD-040"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_19",
+      "source_heading": "5.19 申请人递交的药物临床试验数据必须有正确的数据集文件和",
+      "implemented_rule_ids": [
+        "SR-ECTD-041"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_5_20",
+      "source_heading": "5.20 同一个研究下提交的数据集不能重名",
+      "implemented_rule_ids": [
+        "SR-ECTD-042"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_1",
+      "source_heading": "6.1 PDF文件必须可读。",
+      "implemented_rule_ids": [
+        "HR-ECTD-044"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_2",
+      "source_heading": "6.2 书签必须指向相对路径",
+      "implemented_rule_ids": [
+        "SR-ECTD-050"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_3",
+      "source_heading": "6.3 有网页、邮箱地址或其他外部链接的书签",
+      "implemented_rule_ids": [
+        "HR-ECTD-092"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_4",
+      "source_heading": "6.4 不允许有未知动作的书签",
+      "implemented_rule_ids": [
+        "HR-ECTD-091"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_5",
+      "source_heading": "6.5 书签不能失效",
+      "implemented_rule_ids": [
+        "SR-ECTD-051"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_6",
+      "source_heading": "6.6 书签不能被损坏",
+      "implemented_rule_ids": [
+        "SR-ECTD-052"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_7",
+      "source_heading": "6.7 书签不能有多个动作",
+      "implemented_rule_ids": [
+        "SR-ECTD-049"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_8",
+      "source_heading": "6.8 书签必须承前缩放（Inherit Zoom）",
+      "implemented_rule_ids": [
+        "SR-ECTD-053"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_9",
+      "source_heading": "6.9 超文本链接必须使用相对路径",
+      "implemented_rule_ids": [
+        "SR-ECTD-021"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_10",
+      "source_heading": "6.10 有网页、邮箱地址或其他外部链接的超文本链接",
+      "implemented_rule_ids": [
+        "SR-ECTD-022"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_11",
+      "source_heading": "6.11 不允许有未知动作的超文本链接",
+      "implemented_rule_ids": [
+        "HR-ECTD-045"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_12",
+      "source_heading": "6.12 超文本链接不能处于失效状态",
+      "implemented_rule_ids": [
+        "SR-ECTD-023"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_13",
+      "source_heading": "6.13 超文本链接不能被损坏",
+      "implemented_rule_ids": [
+        "SR-ECTD-023"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_14",
+      "source_heading": "6.14 超文本链接不能有多个动作",
+      "implemented_rule_ids": [
+        "SR-ECTD-048"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_15",
+      "source_heading": "6.15 超文本链接必须承前缩放（Inherit Zoom）",
+      "implemented_rule_ids": [
+        "SR-ECTD-054"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_16",
+      "source_heading": "6.16 PDF版本必须正确",
+      "implemented_rule_ids": [
+        "SR-ECTD-018"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_17",
+      "source_heading": "6.17 不允许带附件的PDF文件",
+      "implemented_rule_ids": [
+        "HR-ECTD-041"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_18",
+      "source_heading": "6.18 有注释的PDF文件",
+      "implemented_rule_ids": [
+        "SR-ECTD-017"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_19",
+      "source_heading": "6.19 PDF文件不能有任何安全设置",
+      "implemented_rule_ids": [
+        "HR-ECTD-042"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_20",
+      "source_heading": "6.20 PDF初始视图正确",
+      "implemented_rule_ids": [
+        "SR-ECTD-019"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_21",
+      "source_heading": "6.21 PDF文件不能有密码保护",
+      "implemented_rule_ids": [
+        "HR-ECTD-043"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_22",
+      "source_heading": "6.22 PDF应该设置启用“快速Web访问（Fast Web Access）”",
+      "implemented_rule_ids": [
+        "SR-ECTD-046"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_23",
+      "source_heading": "6.23 大于5页的文件必须有书签",
+      "implemented_rule_ids": [
+        "SR-ECTD-016"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_24",
+      "source_heading": "6.24 PDF内容限制",
+      "implemented_rule_ids": [
+        "SR-ECTD-020"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_25",
+      "source_heading": "6.25 PDF内容可搜索",
+      "implemented_rule_ids": [
+        "SR-ECTD-045"
+      ]
+    },
+    {
+      "source_clause_id": "cn_ectd_validation_standard:sec_6_26",
+      "source_heading": "6.26 如使用非标准字体，需嵌入在PDF文件中",
+      "implemented_rule_ids": [
+        "SR-ECTD-047"
+      ]
+    }
+  ]
+}

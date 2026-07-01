@@ -1,0 +1,13 @@
+{
+  "baseline_id": "opendataloader_200_s226_table_convergence",
+  "scope": "OpenDataLoader Bench 200-sample AutoIND-goal convergence baseline for protected core text and table metrics",
+  "source_report": "C:\\Users\\gsgow\\.config\\superpowers\\worktrees\\AutoIND-Pro\\opendataloader-bench-eval\\external_benchmarks\\opendataloader-bench\\s226\\autoind_goal_metrics.md",
+  "metrics": {
+    "goal_score": {
+      "core_text_mean": 0.947789,
+      "table_teds_mean": 0.945294,
+      "table_teds_s_mean": 0.969348
+    }
+  },
+  "policy": "Future full 200-sample parser evaluations should not reduce core_text_mean, table_teds_mean, or table_teds_s_mean unless the change is explicitly accepted as an IND/eCTD semantic tradeoff."
+}

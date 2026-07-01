@@ -1,0 +1,182 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+	BSfileC06 depend-apt-rat-sqt.xml 
+	申请类型、注册行为类型、序列类型之间关系的定义文件
+
+	Version 1.0 - 2021年9月1日
+-->
+<dependency keys="cv-application-type,cv-regulatory-activity-type,cv-sequence-type" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="cn-dependency.xsd">
+	<version number="1.0" valid-from="2021-9-1">
+		<!-- 临床试验申请 Investigational New Drug -->
+		<code name="cnapt1">
+			<!-- 首次申请 Original Application -->
+			<code name="cnrat1">
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 补充申请 Supplement -->
+			<code name="cnrat2">			
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 新适应症和联合用药 New Indication and Drug Combination -->
+			<code name="cnrat5">
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>	
+			<!-- 研发期间安全性报告 Development Safety Report -->
+			<code name="cnrat7">
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>			
+		</code>
+		<!-- 新药申请 New Drug Application -->
+		<code name="cnapt2">
+			<!-- 首次申请 Original Application -->
+			<code name="cnrat1">
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 补充申请 Supplement -->
+			<code name="cnrat2">			
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 备案 Record -->
+			<code name="cnrat3">			
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 报告 Report -->
+			<code name="cnrat4">			
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>			
+			<!-- 新适应症 New Indication -->
+			<code name="cnrat6">		
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 再注册 Renewal -->
+			<code name="cnrat8">
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 基线 Baseline -->
+			<code name="cnrat9">
+				<!-- 格式转换 Reformat -->
+				<code name="cnsqt4" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>			
+		</code>
+		<!-- 仿制药申请 Abbreviated New Drug Application -->
+		<code name="cnapt3">			
+			<!-- 首次申请 Original Application -->
+			<code name="cnrat1">
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 补充申请 Supplement -->
+			<code name="cnrat2">			
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 备案 Record -->
+			<code name="cnrat3">			
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 报告 Report -->
+			<code name="cnrat4">			
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>			
+			<!-- 新适应症 New Indication -->
+			<code name="cnrat6">		
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 再注册 Renewal -->
+			<code name="cnrat8">
+				<!-- 首次提交 Original -->
+				<code name="cnsqt1" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>
+			<!-- 基线 Baseline -->
+			<code name="cnrat9">
+				<!-- 格式转换 Reformat -->
+				<code name="cnsqt4" />
+				<!-- 回复 Response -->
+				<code name="cnsqt2" />
+				<!-- 撤回 Withdrawal -->
+				<code name="cnsqt3" />
+			</code>	
+		</code>
+	</version>
+</dependency>

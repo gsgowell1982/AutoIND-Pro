@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ectd:study-values xmlns:ectd="http://www.ich.org/ectd" dtd-version="2.2">
+<!-- valid-values v5.0  - November10, 2016  -->
+	<category name="species">
+		<valid-value realm="ich" value="mouse"/>
+		<valid-value realm="ich" value="rat"/>
+		<valid-value realm="ich" value="hamster"/>
+		<valid-value realm="ich" value="other-rodent"/>
+		<valid-value realm="ich" value="rabbit"/>
+		<valid-value realm="ich" value="dog"/>
+		<valid-value realm="ich" value="non-human-primate"/>
+		<valid-value realm="ich" value="other-non-rodent-mammal"/>
+		<valid-value realm="ich" value="non-mammals"/>
+	</category>
+	<category name="route-of-admin">
+		<valid-value realm="ich" value="oral"/>
+		<valid-value realm="ich" value="intravenous"/>
+		<valid-value realm="ich" value="intramuscular"/>
+		<valid-value realm="ich" value="intraperitoneal"/>
+		<valid-value realm="ich" value="subcutaneous"/>
+		<valid-value realm="ich" value="inhalation"/>
+		<valid-value realm="ich" value="topical"/>
+		<valid-value realm="ich" value="other"/>
+	</category>
+	<category name="duration">
+		<valid-value realm="us" value="short"/>
+		<valid-value realm="us" value="medium"/>
+		<valid-value realm="us" value="long"/>
+	</category>
+	<category name="type-of-control">
+		<valid-value realm="ich" value="placebo"/>
+		<valid-value realm="ich" value="no-treatment"/>
+		<valid-value realm="ich" value="dose-response-without-placebo"/>
+		<valid-value realm="ich" value="active-control-without-placebo"/>
+		<valid-value realm="ich" value="external"/>
+	</category>
+	<property>
+		<valid-value realm="us" value="site-identifier"/>
+	</property>
+	<file-tag>
+		<valid-value realm="ich" value="pre-clinical-study-report"/>
+		<valid-value realm="ich" value="legacy-clinical-study-report"/>
+		<valid-value realm="ich" value="synopsis"/>
+		<valid-value realm="ich" value="study-report-body"/>
+		<valid-value realm="ich" value="protocol-or-amendment"/>
+		<valid-value realm="ich" value="sample-case-report-form"/>
+		<valid-value realm="ich" value="iec-irb-consent-form-list"/>
+		<valid-value realm="ich" value="list-description-investigator-site"/>
+		<valid-value realm="ich" value="signatures-investigators"/>
+		<valid-value realm="ich" value="list-patients-with-batches"/>
+		<valid-value realm="ich" value="randomisation-scheme"/>
+		<valid-value realm="ich" value="audit-certificates-report"/>
+		<valid-value realm="ich" value="statistical-methods-interim-analysis-plan"/>
+		<valid-value realm="ich" value="inter-laboratory-standardisation-methods-quality-assurance"/>
+		<valid-value realm="ich" value="publications-based-on-study"/>
+		<valid-value realm="ich" value="publications-referenced-in-report"/>
+		<valid-value realm="ich" value="discontinued-patients"/>
+		<valid-value realm="ich" value="protocol-deviations"/>
+		<valid-value realm="ich" value="patients-excluded-from-efficacy-analysis"/>
+		<valid-value realm="ich" value="demographic-data"/>
+		<valid-value realm="ich" value="compliance-and-drug-concentration-data"/>
+		<valid-value realm="ich" value="individual-efficacy-response-data"/>
+		<valid-value realm="ich" value="adverse-event-listings"/>
+		<valid-value realm="ich" value="listing-individual-laboratory-measurements-by-patient"/>
+		<valid-value realm="ich" value="case-report-forms"/>
+		<valid-value realm="ich" value="available-on-request"/>
+<!-- 20 new values below added v4.0  - June 5, 2012  -->
+		<valid-value realm="ich" value="assay-validation"/>
+		<valid-value realm="ich" value="biomarkers"/>
+		<valid-value realm="ich" value="data-monitoring-review-committees"/>
+		<valid-value realm="ich" value="device-information"/>
+		<valid-value realm="ich" value="diagnostic-tests"/>
+		<valid-value realm="ich" value="gene-therapy"/>
+		<valid-value realm="ich" value="patient-reported-outcomes"/>
+		<valid-value realm="ich" value="pharmacodynamics"/>
+		<valid-value realm="ich" value="pharmacogenomics"/>
+		<valid-value realm="ich" value="pharmacokinetics"/>
+		<valid-value realm="ich" value="quality-of-life"/>
+		<valid-value realm="ich" value="stem-cells"/>
+		<valid-value realm="ich" value="abuse-liability"/>
+		<valid-value realm="ich" value="antibody"/>
+		<valid-value realm="ich" value="healthcare-utilization"/>
+		<valid-value realm="ich" value="other-data-not-specified"/>
+		<valid-value realm="ich" value="PK-PD-relationship"/>
+		<valid-value realm="ich" value="specialty-report"/>
+		<valid-value realm="ich" value="bimo"/>
+		<valid-value realm="us" value="foreign-clinical-studies-not-under-ind"/>
+<!-- 20 new values above added v4.0  - June 5, 2012  -->
+		<valid-value realm="jp" value="complete-patient-list"/>
+		<valid-value realm="jp" value="serious-adverse-event-patient-list"/>
+		<valid-value realm="jp" value="adverse-event-patient-list"/>
+		<valid-value realm="jp" value="abnormal-lab-values-patient-list"/>
+		<valid-value realm="us" value="data-tabulation-dataset-legacy"/>
+		<valid-value realm="us" value="data-tabulation-dataset-sdtm"/>
+		<valid-value realm="us" value="data-tabulation-dataset-send"/>
+		<valid-value realm="us" value="data-tabulation-data-definition"/>
+		<valid-value realm="us" value="data-listing-dataset"/>
+		<valid-value realm="us" value="data-listing-data-definition"/>
+		<valid-value realm="us" value="analysis-dataset-adam"/>
+		<valid-value realm="us" value="analysis-dataset-legacy"/>
+		<valid-value realm="us" value="analysis-program"/>
+		<valid-value realm="us" value="analysis-data-definition"/>
+		<valid-value realm="us" value="annotated-crf"/>
+		<valid-value realm="us" value="ecg"/>
+		<valid-value realm="us" value="image"/>
+		<valid-value realm="us" value="subject-profiles"/>
+		<valid-value realm="us" value="safety-report"/>
+		<valid-value realm="us" value="antibacterial"/>
+		<valid-value realm="us" value="special-pathogen"/>
+		<valid-value realm="us" value="antiviral"/>
+		<valid-value realm="us" value="iss"/>
+		<valid-value realm="us" value="ise"/>
+		<valid-value realm="us" value="pm-description"/>
+<!--3 new values below added v5.0  - November 10, 2016  -->
+		<valid-value realm="us" value="HF-validation-protocol"/>
+		<valid-value realm="us" value="HF-validation-report"/>
+		<valid-value realm="us" value="HF-validation-other"/>
+<!--3 new values above added v5.0  - November 10, 2016  -->
+	</file-tag>
+</ectd:study-values>

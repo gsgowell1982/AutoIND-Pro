@@ -75,6 +75,38 @@ class EctdRegressionSampleTests(unittest.TestCase):
         self.assertEqual(self.metadata["toc_review_item_count"], 0)
         self.assertEqual(self.metadata["aggregated_toc_review_item_count"], 0)
 
+    def test_xml_example_figures_expose_code_markup_semantics(self) -> None:
+        code_figures = [
+            image
+            for image in self.result.get("image_blocks", []) or []
+            if (image.get("figure_semantics") or {}).get("semantic_type") == "code_or_markup_figure"
+        ]
+        pages = {int(image.get("page", 0) or 0) for image in code_figures}
+        self.assertTrue({19, 25, 34}.issubset(pages), msg=f"code figure pages were {sorted(pages)}")
+
+        for page_number in (19, 25, 34):
+            with self.subTest(page=page_number):
+                image = next(image for image in code_figures if int(image.get("page", 0) or 0) == page_number)
+                semantics = image.get("figure_semantics") or {}
+                self.assertEqual(semantics.get("language"), "xml")
+                self.assertEqual(semantics.get("content_kind"), "embedded_markup")
+                self.assertIn("markup_cue", semantics.get("evidence_signals", []))
+                self.assertIn(semantics.get("code_text_status"), {"available", "not_available"})
+                self.assertGreaterEqual(float(semantics.get("confidence", 0.0) or 0.0), 0.65)
+
+                signals = image.get("content_signals") or {}
+                self.assertTrue(signals.get("has_code_or_markup_semantics"))
+                self.assertEqual(signals.get("embedded_code_language"), "xml")
+
+                evidence = next(
+                    item
+                    for item in self.result.get("content_evidence", []) or []
+                    if item.get("source_type") == "image"
+                    and item.get("source_id") == image.get("image_id")
+                )
+                self.assertEqual(evidence.get("figure_semantics"), semantics)
+                self.assertTrue((evidence.get("content_signals") or {}).get("has_code_or_markup_semantics"))
+
     def test_page1_title_reconstruction_baseline(self) -> None:
         self.assertEqual(
             self.result["pages"][0]["text"],
@@ -289,10 +321,23 @@ class EctdRegressionSampleTests(unittest.TestCase):
         self.assertIn("V4.0", page20_note["text"])
         self.assertIn("https://www.ich.org", page39_note["text"])
         self.assertIn("https://www.cde.org.cn", page39_note["text"])
-        self.assertEqual(
-            page20_note["source_block_ids"],
-            ["txt_p20_031", "txt_p20_032", "txt_p20_033", "txt_p20_034"],
+        self.assertEqual(len(page20_note["source_block_ids"]), 4)
+        page20_blocks = {
+            block.get("block_id"): block
+            for page in self.result["document_ast"]["pages"]
+            if page["page"] == 20
+            for block in page["blocks"]
+        }
+        page20_source_blocks = [
+            page20_blocks[source_id]
+            for source_id in page20_note["source_block_ids"]
+        ]
+        self.assertEqual(page20_source_blocks[0].get("semantic_role"), "footnote")
+        self.assertTrue(
+            all(block.get("unit_role") == "footnote" for block in page20_source_blocks)
         )
+        self.assertIn("SAS XPORT", page20_source_blocks[0].get("footnote_text", ""))
+        self.assertIn("V4.0", page20_source_blocks[0].get("footnote_text", ""))
         self.assertEqual(page39_note["source_block_ids"], ["txt_p39_021", "txt_p39_022"])
 
         page20 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 20)
@@ -327,7 +372,12 @@ class EctdRegressionSampleTests(unittest.TestCase):
 
         page20 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 20)
         page39 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 39)
-        page20_note = next(block for block in page20["blocks"] if block.get("block_id") == "txt_p20_031")
+        page20_note = next(
+            block
+            for block in page20["blocks"]
+            if block.get("semantic_role") == "footnote"
+            and "SAS XPORT" in block.get("footnote_text", "")
+        )
         page39_note = next(block for block in page39["blocks"] if block.get("block_id") == "txt_p39_021")
 
         self.assertIn("SAS XPORT", page20_note.get("footnote_text", ""))

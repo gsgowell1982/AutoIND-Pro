@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 
+    BSfileC05 cn-cv.xsd
+	申请类型、注册行为类型、序列类型、产品类型受控词汇文件的 Schema 文件
+
+	Version 1.0 - 2021年9月1日
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:import namespace="http://www.w3.org/XML/1998/namespace" schemaLocation="xml.xsd" />
+  <xs:element name="controlled-vocabulary">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="description" type="T_description" minOccurs="0" maxOccurs="unbounded" />
+        <xs:element name="version" type="T_version" minOccurs="1" maxOccurs="unbounded" />
+      </xs:sequence>
+      <xs:attribute name="name" type="xs:string" use="required" />
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="T_description">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute ref="xml:lang" use="required" />
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:complexType name="T_version">
+    <xs:sequence>
+      <xs:element name="code" type="T_code" minOccurs="1" maxOccurs="unbounded" />
+    </xs:sequence>
+    <xs:attribute name="number" type="xs:string" use="required" />
+    <xs:attribute name="valid-from" type="xs:date" use="required" />
+    <xs:attribute name="valid-to" type="xs:date" use="optional" />
+  </xs:complexType>
+  <xs:complexType name="T_code">
+    <xs:sequence>
+      <xs:element name="description" type="xs:string" minOccurs="1" maxOccurs="unbounded" />
+    </xs:sequence>
+    <xs:attribute name="name" type="xs:string" use="required" />
+  </xs:complexType>
+</xs:schema>

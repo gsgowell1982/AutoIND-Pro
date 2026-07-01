@@ -1,0 +1,804 @@
+{
+  "schema_version": "regulation-library-v1",
+  "coverage_schema_version": "regulation-coverage-report-v1",
+  "regulation_id": "cn_ectd_technical_specification",
+  "regulation_title": "eCTD技术规范",
+  "scope": "chapter_1_to_4",
+  "clause_count": 38,
+  "chapter_count": 4,
+  "coverage_counts": {
+    "citation_only_recorded": 2,
+    "partially_covered": 12,
+    "covered": 20,
+    "deferred": 4
+  },
+  "traceability_gap_clause_count": 0,
+  "traceability_gap_clause_ids": [],
+  "chapter_summaries": [
+    {
+      "chapter_no": 1,
+      "chapter_title": "介绍",
+      "clause_count": 3,
+      "covered_clause_count": 0,
+      "partially_covered_clause_count": 1,
+      "deferred_clause_count": 0,
+      "citation_only_clause_count": 2,
+      "traceability_gap_clause_count": 0
+    },
+    {
+      "chapter_no": 2,
+      "chapter_title": "eCTD 申报资料结构",
+      "clause_count": 14,
+      "covered_clause_count": 11,
+      "partially_covered_clause_count": 2,
+      "deferred_clause_count": 1,
+      "citation_only_clause_count": 0,
+      "traceability_gap_clause_count": 0
+    },
+    {
+      "chapter_no": 3,
+      "chapter_title": "区域性管理信息",
+      "clause_count": 17,
+      "covered_clause_count": 8,
+      "partially_covered_clause_count": 6,
+      "deferred_clause_count": 3,
+      "citation_only_clause_count": 0,
+      "traceability_gap_clause_count": 0
+    },
+    {
+      "chapter_no": 4,
+      "chapter_title": "模块一的总体架构",
+      "clause_count": 4,
+      "covered_clause_count": 1,
+      "partially_covered_clause_count": 3,
+      "deferred_clause_count": 0,
+      "citation_only_clause_count": 0,
+      "traceability_gap_clause_count": 0
+    }
+  ],
+  "clause_coverages": [
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_1_1",
+      "chapter_no": 1,
+      "heading": "1.1 目的",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "citation_only_recorded",
+      "implemented_rule_ids": [],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Purpose/background clause. Recorded as context rather than an executable dossier rule."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_1_2",
+      "chapter_no": 1,
+      "heading": "1.2 范围和应用",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "citation_only_recorded",
+      "implemented_rule_ids": [],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Scope/application clause. Recorded as context and external dependency guidance."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_1_3",
+      "chapter_no": 1,
+      "heading": "1.3 配套文件",
+      "recommended_rule_mode": "citation_only",
+      "automation_ready": false,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-078",
+        "HR-ECTD-079"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_index_dtd_reference_points_to_util_dtd",
+        "cn_ectd_technical_specification:req_index_xml_valid_against_ich_dtd"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "ICH index.xml DTD reference and DTD validity boundaries are executable through validation-standard rules, while the broader supporting-file chapter also covers schema, stylesheet, STF, and controlled-vocabulary dependencies."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_1",
+      "chapter_no": 2,
+      "heading": "2.1 申请信息",
+      "recommended_rule_mode": "soft",
+      "automation_ready": true,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-006"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_application_information_core_completeness"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Aggregate application-information coverage exists, but original-number exactness is still outside the executable subset."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_1",
+      "chapter_no": 2,
+      "heading": "2.1.1 申请编号",
+      "recommended_rule_mode": "soft",
+      "automation_ready": true,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-002"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_application_number_format"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Application-number format is executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_2",
+      "chapter_no": 2,
+      "heading": "2.1.2 申请类型",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-011",
+        "HR-ECTD-037"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_application_type_controlled_vocabulary_validity"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Application-type controlled-vocabulary validity is executable against Attachment 1-2."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_3",
+      "chapter_no": 2,
+      "heading": "2.1.3 产品类型",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-011",
+        "HR-ECTD-038"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_product_type_controlled_vocabulary_validity"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Product-type controlled-vocabulary validity is executable against Attachment 1-2."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_1_4",
+      "chapter_no": 2,
+      "heading": "2.1.4 原始编号",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "deferred",
+      "implemented_rule_ids": [],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Original-number/product-number exactness is not yet modeled as a deterministic runtime rule."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_2",
+      "chapter_no": 2,
+      "heading": "2.2 注册行为信息",
+      "recommended_rule_mode": "soft",
+      "automation_ready": true,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-005"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_regulatory_activity_information_completeness"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Aggregate regulatory-activity information coverage exists."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_2_1",
+      "chapter_no": 2,
+      "heading": "2.2.1 注册行为类型",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-012",
+        "HR-ECTD-011",
+        "HR-ECTD-039"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_regulatory_activity_type_controlled_vocabulary_validity"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Regulatory-activity-type presence and controlled-vocabulary exactness are executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_2_2",
+      "chapter_no": 2,
+      "heading": "2.2.2 相关序列",
+      "recommended_rule_mode": "soft",
+      "automation_ready": true,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-003"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_related_sequence_reference"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Related-sequence reference integrity is covered at a bounded soft-rule level, not as a full history-hard exactness rule."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_3",
+      "chapter_no": 2,
+      "heading": "2.3 序列信息",
+      "recommended_rule_mode": "soft",
+      "automation_ready": true,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-004"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_sequence_information_completeness"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Aggregate sequence-information coverage exists."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_1",
+      "chapter_no": 2,
+      "heading": "2.3.1 序列号",
+      "recommended_rule_mode": "hard",
+      "automation_ready": true,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-001"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_sequence_number_progression"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Sequence-number progression and numbering constraints are executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_2",
+      "chapter_no": 2,
+      "heading": "2.3.2 序列类型",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-013",
+        "HR-ECTD-011",
+        "HR-ECTD-040"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_sequence_type_controlled_vocabulary_validity"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Sequence-type presence and controlled-vocabulary exactness are executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_3",
+      "chapter_no": 2,
+      "heading": "2.3.3 序列描述",
+      "recommended_rule_mode": "hard",
+      "automation_ready": true,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-002"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_sequence_description_length"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Sequence-description length boundary is executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_3_4",
+      "chapter_no": 2,
+      "heading": "2.3.4 序列联系人信息",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-014"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_sequence_contact_information_presence"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Sequence-contact presence is executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_2_4",
+      "chapter_no": 2,
+      "heading": "2.4 申请、注册行为和序列的关系",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-017",
+        "HR-ECTD-018"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_application_registration_sequence_type_compatibility"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Application/activity/sequence compatibility is executable against Attachment 1-2 support files."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_1",
+      "chapter_no": 3,
+      "heading": "3.1 模块一的行政文件和药品信息",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "deferred",
+      "implemented_rule_ids": [],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "This clause points forward to chapter 4 and M4 module-1 content rather than defining an independent executable boundary."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_2",
+      "chapter_no": 3,
+      "heading": "3.2 3.2.R 章节的使用",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-007",
+        "SR-ECTD-026"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_32r_node_extension_structure_and_title_compliance"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Bounded 3.2.R title/path structure is executable from both technical-spec and validation-standard-facing rule surfaces, but not the entire reviewer-facing semantics of regional information usage."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_3",
+      "chapter_no": 3,
+      "heading": "3.3 文件和文件夹",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-019",
+        "HR-ECTD-005",
+        "HR-ECTD-020",
+        "HR-ECTD-029",
+        "HR-ECTD-021",
+        "HR-ECTD-022",
+        "SR-ECTD-011",
+        "HR-ECTD-006",
+        "HR-ECTD-027"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_file_and_folder_packaging_boundaries"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Most executable packaging/file-system boundaries are covered, while softer reuse optimization guidance remains advisory."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_1",
+      "chapter_no": 3,
+      "heading": "3.3.1 内容文件的格式",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-019"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_content_file_format_allowed"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Allowed content-file format set is executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_2",
+      "chapter_no": 3,
+      "heading": "3.3.2 文件和文件夹命名规则",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-005",
+        "HR-ECTD-020",
+        "HR-ECTD-029"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_file_name_character_constraints"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Naming, path-character, path-length, and XML-covered directory boundaries are executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_3",
+      "chapter_no": 3,
+      "heading": "3.3.3 关于空缺章节的处理",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-021",
+        "HR-ECTD-022"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_no_empty_directories",
+        "cn_ectd_technical_specification:req_no_placeholder_documents"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "No-empty-directory and no-placeholder-document boundaries are executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_3_4",
+      "chapter_no": 3,
+      "heading": "3.3.4 文件的重复使用",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-011",
+        "HR-ECTD-006",
+        "HR-ECTD-027",
+        "HR-ECTD-063",
+        "HR-ECTD-064"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_duplicate_entity_file_submission_within_sequence_warning",
+        "cn_ectd_technical_specification:req_no_cross_application_leaf_reference"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Same-application reuse legality, cross-application prohibition, and replace/append checksum difference against modified-file targets are covered at practical executable boundaries."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_4",
+      "chapter_no": 3,
+      "heading": "3.4 PDF 电子提交标准",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-001",
+        "SR-ECTD-012",
+        "SR-ECTD-013",
+        "SR-ECTD-014",
+        "HR-ECTD-028"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_long_pdf_navigation_aids",
+        "cn_ectd_technical_specification:req_hyperlink_navigation_support",
+        "cn_ectd_technical_specification:req_no_cross_application_pdf_hyperlinks",
+        "cn_ectd_technical_specification:req_pdf_hyperlink_target_file_presence",
+        "cn_ectd_technical_specification:req_pdf_hyperlink_target_resolvability"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Navigation and hyperlink-integrity subsets are covered, but PDF typography/layout details remain outside the deterministic subset."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_5",
+      "chapter_no": 3,
+      "heading": "3.5 外文参考资料的要求",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-024",
+        "HR-ECTD-023",
+        "HR-ECTD-026"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_foreign_reference_leaf_sibling_structure"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Chinese/foreign sibling structure, xml:lang classification, and replace-language consistency are executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_5_1",
+      "chapter_no": 3,
+      "heading": "3.5.1 语言属性的设置",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-023"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_leaf_xml_lang_attribute_classification"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "xml:lang classification boundary is executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_5_2",
+      "chapter_no": 3,
+      "heading": "3.5.2 语言属性的生命周期管理",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-026"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_replace_leaf_language_class_consistency"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Replace-language class consistency is executable when a unique prior-sequence match exists."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_6",
+      "chapter_no": 3,
+      "heading": "3.6 eCTD 骨架属性和元数据",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-075",
+        "HR-ECTD-076",
+        "HR-ECTD-077",
+        "SR-ECTD-027"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_ich_indication_attribute_required",
+        "cn_ectd_technical_specification:req_ich_manufacturer_attribute_required",
+        "cn_ectd_technical_specification:req_ich_substance_attribute_required",
+        "cn_ectd_technical_specification:req_ich_attribute_edge_whitespace_warning"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Validation-standard-facing ICH backbone attribute required/non-empty checks and attribute edge-whitespace warnings are executable, while broader metadata update lifecycle coupling remains prerequisite-dependent."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_7",
+      "chapter_no": 3,
+      "heading": "3.7 扩展节点",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-008",
+        "HR-ECTD-074"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_node_extension_scope_boundary"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Node-extension scope boundary is executable; validation-standard-facing coverage hard-fails objective misuse while preserving prerequisite review for missing product-type evidence."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_8",
+      "chapter_no": 3,
+      "heading": "3.8 研究标签文件",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "SR-ECTD-010"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_stf_required_zone_structure"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "STF-required-zone structure is covered, but full STF tagging semantics remain dependent on the external STF specification."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_9",
+      "chapter_no": 3,
+      "heading": "3.9 生命周期操作",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-025",
+        "SR-ECTD-009"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_allowed_lifecycle_operation_values",
+        "cn_ectd_technical_specification:req_non_stf_append_warning"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Allowed lifecycle-operation values and non-STF append warning are covered, while broader lifecycle semantics remain bounded."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_10",
+      "chapter_no": 3,
+      "heading": "3.10 电子签名",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "deferred",
+      "implemented_rule_ids": [],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Electronic-signature legality is an external legal/operational boundary rather than a dossier-structure rule."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_3_11",
+      "chapter_no": 3,
+      "heading": "3.11 eCTD 提交方式",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "deferred",
+      "implemented_rule_ids": [],
+      "requirement_ids": [],
+      "traceability_gap": false,
+      "coverage_note": "Physical media and password-protection constraints are not reliably decidable from the unpacked dossier artifact alone."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_4_1",
+      "chapter_no": 4,
+      "heading": "4.1 创建模块一骨架文件",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-015",
+        "HR-ECTD-016",
+        "HR-ECTD-030",
+        "HR-ECTD-031",
+        "HR-ECTD-032"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_module1_package_backbone_composition"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Core module-1 package/backbone composition is executable."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_4_2",
+      "chapter_no": 4,
+      "heading": "4.2 XML 根元素",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-030",
+        "HR-ECTD-036"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_cn_regional_xml_root_element",
+        "cn_ectd_technical_specification:req_cn_regional_xml_schema_version"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Root element and schema-version exactness are covered; namespace declaration text was intentionally left outside hard enforcement."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_4_3",
+      "chapter_no": 4,
+      "heading": "4.3 信封元素",
+      "recommended_rule_mode": "soft",
+      "automation_ready": false,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-004",
+        "HR-ECTD-031",
+        "HR-ECTD-035",
+        "HR-ECTD-011",
+        "HR-ECTD-037",
+        "HR-ECTD-038",
+        "HR-ECTD-039",
+        "HR-ECTD-040",
+        "HR-ECTD-115",
+        "HR-ECTD-116"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_envelope_attributes_required",
+        "cn_ectd_technical_specification:req_application_level_envelope_immutability",
+        "cn_ectd_technical_specification:req_regulatory_activity_level_envelope_immutability",
+        "cn_ectd_technical_specification:req_envelope_controlled_vocabulary_validity"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Envelope structure, controlled-vocabulary exactness, and bounded cross-sequence immutability checks are covered; display semantics and missing-history prerequisites remain outside hard enforcement."
+    },
+    {
+      "clause_id": "cn_ectd_technical_specification:sec_4_4",
+      "chapter_no": 4,
+      "heading": "4.4 目录元素",
+      "recommended_rule_mode": "review_only",
+      "automation_ready": false,
+      "coverage_status": "partially_covered",
+      "implemented_rule_ids": [
+        "HR-ECTD-003",
+        "HR-ECTD-006",
+        "HR-ECTD-007",
+        "HR-ECTD-008",
+        "HR-ECTD-009",
+        "HR-ECTD-010",
+        "HR-ECTD-029",
+        "HR-ECTD-032",
+        "HR-ECTD-033",
+        "HR-ECTD-034",
+        "HR-ECTD-050",
+        "HR-ECTD-051",
+        "HR-ECTD-052",
+        "HR-ECTD-061",
+        "HR-ECTD-062",
+        "HR-ECTD-063",
+        "HR-ECTD-064",
+        "HR-ECTD-065",
+        "HR-ECTD-066",
+        "HR-ECTD-067",
+        "HR-ECTD-068",
+        "HR-ECTD-069",
+        "HR-ECTD-070",
+        "HR-ECTD-071",
+        "HR-ECTD-072",
+        "HR-ECTD-073",
+        "SR-ECTD-025"
+      ],
+      "requirement_ids": [
+        "cn_ectd_technical_specification:req_leaf_checksum_md5",
+        "cn_ectd_technical_specification:req_leaf_href_resolves_to_present_file",
+        "cn_ectd_technical_specification:req_package_xml_envelope_consistency",
+        "cn_ectd_technical_specification:req_package_xml_leaf_set_consistency",
+        "cn_ectd_technical_specification:req_package_xml_leaf_checksum_consistency",
+        "cn_ectd_technical_specification:req_package_declared_file_coverage"
+      ],
+      "traceability_gap": false,
+      "coverage_note": "Backbone integrity, module-1 leaf checksum exactness, replace/append checksum difference against modified-file targets, index.xml lifecycle href/modified-file/delete/single-operation/initial-sequence/target-existence/path exactness, index.xml leaf-title non-empty/continuity/edge-whitespace exactness, regional cover-letter/application-form operation exactness, module-1 hierarchy exactness, index.xml m-element leaf-descendant presence, and cn-content element leaf-descendant presence are covered, while qualitative display semantics remain outside deterministic enforcement."
+    }
+  ],
+  "supporting_artifact_coverage": [
+    {
+      "attachment_id": "cn_ectd_attachment_1_1",
+      "artifact_filename": "cn_ectd_attachment_1_1.region_schema_bundle.json",
+      "coverage_status": "covered",
+      "relevant_clause_ids": [
+        "cn_ectd_technical_specification:sec_1_3",
+        "cn_ectd_technical_specification:sec_4_2",
+        "cn_ectd_technical_specification:sec_4_3",
+        "cn_ectd_technical_specification:sec_4_4"
+      ]
+    },
+    {
+      "attachment_id": "cn_ectd_attachment_1_2",
+      "artifact_filename": "cn_ectd_attachment_1_2.controlled_vocabulary_bundle.json",
+      "coverage_status": "covered",
+      "relevant_clause_ids": [
+        "cn_ectd_technical_specification:sec_1_3",
+        "cn_ectd_technical_specification:sec_2_1_2",
+        "cn_ectd_technical_specification:sec_2_1_3",
+        "cn_ectd_technical_specification:sec_2_2_1",
+        "cn_ectd_technical_specification:sec_2_3_2",
+        "cn_ectd_technical_specification:sec_2_4",
+        "cn_ectd_technical_specification:sec_4_3"
+      ]
+    },
+    {
+      "attachment_id": "cn_ectd_attachment_1_3",
+      "artifact_filename": "cn_ectd_attachment_1_3.region_style_bundle.json",
+      "coverage_status": "covered",
+      "relevant_clause_ids": [
+        "cn_ectd_technical_specification:sec_1_3",
+        "cn_ectd_technical_specification:sec_4_2",
+        "cn_ectd_technical_specification:sec_4_3",
+        "cn_ectd_technical_specification:sec_4_4"
+      ]
+    },
+    {
+      "attachment_id": "cn_ectd_attachment_1_4",
+      "artifact_filename": "cn_ectd_attachment_1_4.module1_structure_bundle.json",
+      "coverage_status": "covered",
+      "relevant_clause_ids": [
+        "cn_ectd_technical_specification:sec_1_3",
+        "cn_ectd_technical_specification:sec_3_1",
+        "cn_ectd_technical_specification:sec_4_1",
+        "cn_ectd_technical_specification:sec_4_4"
+      ]
+    },
+    {
+      "attachment_id": "cn_ectd_attachment_2_6",
+      "artifact_filename": "cn_ectd_attachment_2_6.stf_valid_values_bundle.json",
+      "coverage_status": "covered",
+      "relevant_clause_ids": [
+        "cn_ectd_technical_specification:sec_1_3",
+        "cn_ectd_technical_specification:sec_3_8"
+      ]
+    }
+  ],
+  "recommended_next_direction": {
+    "primary": "run_technical_specification_closure_qa",
+    "primary_reason": "Technical-specification traceability gaps are closed; inspect partially_covered, deferred, and citation-only statuses for accurate evidence-boundary notes, and do not inflate prerequisite-dependent or review-only clauses into inaccurate executable rules.",
+    "secondary": "keep_validation_standard_closed_unless_artifacts_change",
+    "secondary_reason": "cn_ectd_validation_standard remains closed at 146 covered / 0 partially_covered / 3 citation-only; reopen it only if source artifacts or coverage requirements materially change."
+  }
+}

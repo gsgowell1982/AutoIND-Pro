@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	BSfileC01 cv-application-type.xml
+	申请类型的受控词汇文件
+
+	Version 1.0 - 2021年9月1日
+-->
+<controlled-vocabulary name="application-type">
+	<description xml:lang="zh">申请类型</description>
+	<description xml:lang="en">Application Type</description>
+	<version number="1.0" valid-from="2021-9-1">
+		<!-- 临床试验申请适用于药物临床试验期间所提出的申报事项 -->
+		<code name="cnapt1">
+			<description xml:lang="zh">临床试验申请</description>
+			<description xml:lang="en">Investigational New Drug</description>
+		</code>
+		<!-- 新药申请适用于化学药品1类、2类、5.1类以及预防用生物制品、治疗用生物制品的上市及上市后变更申报 -->
+		<code name="cnapt2">
+			<description xml:lang="zh">新药申请</description>
+			<description xml:lang="en">New Drug Application</description>
+		</code>
+		<!-- 仿制药申请适用于化学药品3类、4类、5.2类的上市及上市后变更申报 -->
+		<code name="cnapt3">
+			<description xml:lang="zh">仿制药申请</description>
+			<description xml:lang="en">Abbreviated New Drug Application</description>
+		</code>
+	</version>
+</controlled-vocabulary>

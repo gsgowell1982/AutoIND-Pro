@@ -124,7 +124,48 @@ def project_pdf_math_symbol_display_text(value: Any) -> Any:
     if has_statistical_context:
         text = re.sub(r"\(\s+\)(?=\s*\d)", "(-)", text)
         text = re.sub(r"(?<=\d)\(\s+\)", "(-)", text)
-    return text
+    text = _repair_high_confidence_scientific_ocr_atoms(text)
+    return _normalize_cjk_latin_abbreviation_spacing(text)
+
+
+def _repair_high_confidence_scientific_ocr_atoms(text: str) -> str:
+    """Repair compact scientific OCR atoms in reviewer-facing projections."""
+    repaired = re.sub(r"\bH20\b", "H2O", text)
+    if re.search(r"\brestriction\s+enzyme\b", repaired, re.IGNORECASE):
+        repaired = re.sub(r"\bBamHI-Hind(?:III|Ill|I1l|lli|lll|1ll)\b", "BamHI-HindIII", repaired)
+    return repaired
+
+
+def _normalize_cjk_latin_abbreviation_spacing(text: str) -> str:
+    """Remove PDF visual spacing between compact Latin abbreviations and CJK.
+
+    In Chinese regulatory tables, short all-caps scientific/regulatory
+    abbreviations are commonly typeset adjacent to the Chinese term
+    (for example an acronym followed by a Chinese noun). PyMuPDF can expose the
+    visual gap as an actual space. Keep mixed-case names and hyphenated species
+    labels unchanged so cells such as ``CD-1 小鼠`` and ``Sponsor Inc.`` remain
+    readable.
+    """
+    return re.sub(r"\b([A-Z][A-Z0-9]{1,7})\s+(?=[\u4e00-\u9fff])", _compact_abbrev_cjk_space, text)
+
+
+def _compact_abbrev_cjk_space(match: re.Match[str]) -> str:
+    prefix = str(match.group(1) or "")
+    following = str(match.string[match.end() :] or "")
+    before = str(match.string[: match.start(1)] or "")
+    if re.search(r"(?:\s|[、,，/（(])\s*$", before):
+        return match.group(0)
+    if not _looks_like_compact_cjk_latin_abbreviation(prefix, following):
+        return match.group(0)
+    return prefix
+
+
+def _looks_like_compact_cjk_latin_abbreviation(prefix: str, following: str) -> bool:
+    if prefix in {"GLP", "GMP", "GCP", "ICH", "CTD", "ECTD"}:
+        return True
+    if prefix in {"PK", "PD", "ADME", "ECG", "CNS"}:
+        return False
+    return len(prefix) >= 4
 
 
 def _split_cell_enumeration(text: str) -> list[str]:

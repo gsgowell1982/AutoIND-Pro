@@ -337,6 +337,12 @@ def normalize_raw_evidence(
         column_mapping,
         logical_col_count,
     )
+    visual_row_rebuild_count = _rebuild_sparse_ruled_table_rows_from_word_geometry(
+        raw_evidence=raw_evidence,
+        rows=rows,
+        grid=grid,
+        logical_col_count=logical_col_count,
+    )
     if parent_column_boundaries and len(parent_column_boundaries) >= logical_col_count + 1:
         _split_spanning_identifier_cells_from_words(
             raw_evidence=raw_evidence,
@@ -352,6 +358,12 @@ def normalize_raw_evidence(
             parent_boundaries=parent_column_boundaries,
             logical_col_count=logical_col_count,
         )
+    grouped_header_report = _project_dense_leaf_table_header_groups(
+        raw_evidence=raw_evidence,
+        rows=rows,
+        grid=grid,
+        logical_col_count=logical_col_count,
+    )
 
     # Step 6: semantic repairs through unified rule-engine (apply mode)
     semantic_repair_count = _apply_semantic_rule_engine(
@@ -404,7 +416,7 @@ def normalize_raw_evidence(
         column_mapping=column_mapping,
         rows=rows,
         grid=grid,
-        supplemented_cells_count=supplemented_count + semantic_repair_count,
+        supplemented_cells_count=supplemented_count + semantic_repair_count + visual_row_rebuild_count + (1 if grouped_header_report else 0),
         missing_content_candidates_count=0,
         missing_content_candidates=[],
         supplement_writeback_enabled=table_policy.enable_supplement_writeback,
@@ -419,8 +431,719 @@ def normalize_raw_evidence(
         normalization_strategy=strategy,
         structure_validation=validation,  # 新增
     )
+    if grouped_header_report:
+        if normalized.semantic_rule_engine is None:
+            normalized.semantic_rule_engine = {}
+        normalized.semantic_rule_engine["dense_leaf_header_groups"] = grouped_header_report
 
     return normalized
+
+
+def _rebuild_sparse_ruled_table_rows_from_word_geometry(
+    *,
+    raw_evidence: RawTableEvidence,
+    rows: list[NormalizedRow],
+    grid: list[list[str | None]],
+    logical_col_count: int,
+) -> int:
+    """Rebuild visual data rows when a ruled table lacks row separators.
+
+    PyMuPDF often collapses sparse ruled tables into a header row plus one
+    multi-line data row. When the table has stable column evidence and the words
+    inside the bbox form more visual y-rows than the physical grid, use word
+    geometry as the display/data grid while preserving raw evidence upstream.
+    """
+    if logical_col_count < 2 or not raw_evidence.words or not rows or not grid:
+        return 0
+    if raw_evidence.physical_row_count > 3:
+        return 0
+    if not _has_sparse_ruled_visual_row_shape(raw_evidence, grid, logical_col_count):
+        return 0
+
+    column_boundaries = _infer_current_table_column_boundaries(
+        raw_evidence=raw_evidence,
+        logical_col_count=logical_col_count,
+    )
+    if len(column_boundaries) < logical_col_count + 1:
+        return 0
+
+    visual_word_rows = _cluster_table_words_into_visual_rows(raw_evidence.words)
+    if len(visual_word_rows) <= len(grid) + 1:
+        return 0
+
+    header_limit_y = _estimate_sparse_table_header_bottom(raw_evidence, grid)
+    data_word_rows = [
+        word_row
+        for word_row in visual_word_rows
+        if _word_row_center_y(word_row) > header_limit_y + 1.0
+    ]
+    if len(data_word_rows) <= max(1, len(grid)):
+        return 0
+
+    rebuilt_pairs: list[tuple[list[str | None], list[RawWord]]] = []
+    for word_row in data_word_rows:
+        projected = _project_visual_word_row_to_columns(
+            word_row=word_row,
+            column_boundaries=column_boundaries,
+            logical_col_count=logical_col_count,
+        )
+        if _visual_projected_row_is_note(projected, logical_col_count):
+            rebuilt_pairs.append((projected, word_row))
+            continue
+        if sum(1 for value in projected if str(value or "").strip()) == 0:
+            continue
+        rebuilt_pairs.append((projected, word_row))
+
+    header_row = _project_sparse_table_header_row(
+        raw_evidence=raw_evidence,
+        column_boundaries=column_boundaries,
+        logical_col_count=logical_col_count,
+    )
+    rebuilt_grid = ([header_row] if header_row else []) + [row for row, _word_row in rebuilt_pairs]
+    if len(rebuilt_grid) <= len(grid):
+        return 0
+    if not _rebuilt_grid_is_better_sparse_projection(grid, rebuilt_grid, logical_col_count):
+        return 0
+
+    _replace_normalized_rows_with_visual_grid(
+        rows=rows,
+        grid=grid,
+        rebuilt_grid=rebuilt_grid,
+        source_word_rows=(
+            [_header_words_for_sparse_table(raw_evidence, header_row)] if header_row else []
+        ) + [word_row for _row, word_row in rebuilt_pairs],
+        column_boundaries=column_boundaries,
+        logical_col_count=logical_col_count,
+    )
+    return sum(1 for row in rebuilt_grid for value in row if str(value or "").strip())
+
+
+def _project_sparse_table_header_row(
+    *,
+    raw_evidence: RawTableEvidence,
+    column_boundaries: list[float],
+    logical_col_count: int,
+) -> list[str | None]:
+    if not raw_evidence.rows:
+        return []
+    first_row = raw_evidence.rows[0]
+    header_cells = [cell for cell in first_row.cells if str(cell.text or "").strip()]
+    if header_cells:
+        projected: list[str | None] = [None] * logical_col_count
+        for cell in header_cells:
+            x0, _y0, x1, _y1 = cell.bbox
+            logical_col = _assign_center_to_parent_skeleton(
+                center_x=(float(x0) + float(x1)) / 2.0,
+                parent_boundaries=column_boundaries,
+                logical_col_count=logical_col_count,
+            )
+            if 0 <= logical_col < logical_col_count:
+                text = _clean_cell_text(cell.text)
+                if text:
+                    existing = str(projected[logical_col] or "").strip()
+                    projected[logical_col] = f"{existing} {text}".strip() if existing else text
+        if sum(1 for value in projected if str(value or "").strip()) >= min(2, logical_col_count):
+            return projected
+
+    header_limit_y = _estimate_sparse_table_header_bottom(raw_evidence, [])
+    header_words = [
+        word for word in raw_evidence.words
+        if float(word.y_center) <= header_limit_y + 1.0
+    ]
+    if not header_words:
+        return []
+    projected = _project_visual_word_row_to_columns(
+        word_row=sorted(header_words, key=lambda item: float(item.x0)),
+        column_boundaries=column_boundaries,
+        logical_col_count=logical_col_count,
+    )
+    if sum(1 for value in projected if str(value or "").strip()) >= min(2, logical_col_count):
+        return projected
+    return []
+
+
+def _header_words_for_sparse_table(
+    raw_evidence: RawTableEvidence,
+    header_row: list[str | None],
+) -> list[RawWord]:
+    if not header_row:
+        return []
+    header_limit_y = _estimate_sparse_table_header_bottom(raw_evidence, [])
+    return [
+        word for word in raw_evidence.words
+        if float(word.y_center) <= header_limit_y + 1.0
+    ]
+
+
+def _clean_cell_text(value: Any) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return _normalize_merged_word_spacing(text)
+
+
+def _has_sparse_ruled_visual_row_shape(
+    raw_evidence: RawTableEvidence,
+    grid: list[list[str | None]],
+    logical_col_count: int,
+) -> bool:
+    v_lines = len(raw_evidence.vertical_lines)
+    unique_h_line_count = len(
+        _cluster_numeric_positions(
+            [float(line.center[1]) for line in raw_evidence.horizontal_lines],
+            tolerance=2.0,
+        )
+    )
+    if v_lines < max(2, logical_col_count - 1):
+        return False
+    if unique_h_line_count > max(4, raw_evidence.physical_row_count + 3):
+        return False
+    multiline_cells = 0
+    max_lines = 0
+    for row in grid:
+        for cell in row:
+            lines = [line.strip() for line in str(cell or "").splitlines() if line.strip()]
+            if len(lines) >= 3:
+                multiline_cells += 1
+            max_lines = max(max_lines, len(lines))
+    return multiline_cells >= 2 and max_lines >= 4
+
+
+def _infer_current_table_column_boundaries(
+    *,
+    raw_evidence: RawTableEvidence,
+    logical_col_count: int,
+) -> list[float]:
+    x0, _, x1, _ = raw_evidence.bbox
+    if x1 <= x0 or logical_col_count <= 0:
+        return []
+
+    vertical_positions = sorted(
+        float(line.center[0])
+        for line in raw_evidence.vertical_lines
+        if x0 - 2.0 <= float(line.center[0]) <= x1 + 2.0
+    )
+    clustered_positions = _cluster_numeric_positions(vertical_positions, tolerance=2.0)
+    if len(clustered_positions) >= logical_col_count + 1:
+        candidates = _choose_column_boundaries_from_positions(
+            positions=clustered_positions,
+            table_x0=x0,
+            table_x1=x1,
+            logical_col_count=logical_col_count,
+        )
+        if len(candidates) >= logical_col_count + 1:
+            return candidates
+
+    word_centers_by_col = _cluster_word_x_centers(raw_evidence.words, logical_col_count)
+    if len(word_centers_by_col) == logical_col_count:
+        boundaries = [x0]
+        for left_values, right_values in zip(word_centers_by_col, word_centers_by_col[1:]):
+            boundaries.append((max(left_values) + min(right_values)) / 2)
+        boundaries.append(x1)
+        if len(boundaries) == logical_col_count + 1:
+            return boundaries
+
+    return [
+        x0 + index * (x1 - x0) / logical_col_count
+        for index in range(logical_col_count + 1)
+    ]
+
+
+def _cluster_numeric_positions(values: list[float], *, tolerance: float) -> list[float]:
+    clusters: list[list[float]] = []
+    for value in sorted(values):
+        if not clusters or abs(value - statistics.median(clusters[-1])) > tolerance:
+            clusters.append([value])
+        else:
+            clusters[-1].append(value)
+    return [float(statistics.median(cluster)) for cluster in clusters if cluster]
+
+
+def _choose_column_boundaries_from_positions(
+    *,
+    positions: list[float],
+    table_x0: float,
+    table_x1: float,
+    logical_col_count: int,
+) -> list[float]:
+    needed = logical_col_count + 1
+    if len(positions) < needed:
+        return []
+    if len(positions) == needed:
+        return positions
+
+    best: list[float] = []
+    best_score = float("inf")
+    for start in range(0, len(positions) - needed + 1):
+        candidate = positions[start : start + needed]
+        span_penalty = abs(candidate[0] - table_x0) + abs(candidate[-1] - table_x1)
+        gaps = [candidate[idx + 1] - candidate[idx] for idx in range(len(candidate) - 1)]
+        positive_gaps = [gap for gap in gaps if gap > 0]
+        if len(positive_gaps) != logical_col_count:
+            continue
+        median_gap = statistics.median(positive_gaps)
+        gap_variance = sum((gap - median_gap) ** 2 for gap in positive_gaps) / len(positive_gaps)
+        score = span_penalty + gap_variance * 0.02
+        if score < best_score:
+            best_score = score
+            best = list(candidate)
+    return best
+
+
+def _cluster_word_x_centers(words: list[RawWord], logical_col_count: int) -> list[list[float]]:
+    centers = sorted(float(word.x_center) for word in words if str(word.text or "").strip())
+    if len(centers) < logical_col_count:
+        return []
+    clusters = [[center] for center in centers[:logical_col_count]]
+    for center in centers[logical_col_count:]:
+        nearest_idx = min(
+            range(len(clusters)),
+            key=lambda idx: abs(center - statistics.median(clusters[idx])),
+        )
+        clusters[nearest_idx].append(center)
+    ordered = sorted(clusters, key=lambda cluster: statistics.median(cluster))
+    if any(not cluster for cluster in ordered):
+        return []
+    return ordered
+
+
+def _cluster_table_words_into_visual_rows(words: list[RawWord]) -> list[list[RawWord]]:
+    valid_words = [word for word in words if str(word.text or "").strip()]
+    if not valid_words:
+        return []
+    heights = [max(1.0, float(word.y1) - float(word.y0)) for word in valid_words]
+    median_height = statistics.median(heights) if heights else 10.0
+    tolerance = max(3.0, median_height * 0.55)
+    rows: list[list[RawWord]] = []
+    for word in sorted(valid_words, key=lambda item: (float(item.y_center), float(item.x0))):
+        center_y = float(word.y_center)
+        if not rows or abs(center_y - _word_row_center_y(rows[-1])) > tolerance:
+            rows.append([word])
+        else:
+            rows[-1].append(word)
+    return [sorted(row, key=lambda item: float(item.x0)) for row in rows]
+
+
+def _word_row_center_y(word_row: list[RawWord]) -> float:
+    if not word_row:
+        return 0.0
+    return float(statistics.median(float(word.y_center) for word in word_row))
+
+
+def _estimate_sparse_table_header_bottom(
+    raw_evidence: RawTableEvidence,
+    grid: list[list[str | None]],
+) -> float:
+    first_raw_row = raw_evidence.rows[0] if raw_evidence.rows else None
+    if first_raw_row and first_raw_row.bbox:
+        return float(first_raw_row.bbox[3])
+    header_text = " ".join(str(cell or "") for cell in (grid[0] if grid else []))
+    header_tokens = {token for token in re.split(r"\s+", header_text) if token}
+    matching_words = [
+        word for word in raw_evidence.words
+        if str(word.text or "").strip() in header_tokens
+    ]
+    if matching_words:
+        return max(float(word.y1) for word in matching_words)
+    return float(raw_evidence.bbox[1])
+
+
+def _project_visual_word_row_to_columns(
+    *,
+    word_row: list[RawWord],
+    column_boundaries: list[float],
+    logical_col_count: int,
+) -> list[str | None]:
+    words_by_col: dict[int, list[RawWord]] = {idx: [] for idx in range(logical_col_count)}
+    for word in word_row:
+        logical_col = _assign_center_to_parent_skeleton(
+            center_x=float(word.x_center),
+            parent_boundaries=column_boundaries,
+            logical_col_count=logical_col_count,
+        )
+        if 0 <= logical_col < logical_col_count:
+            words_by_col[logical_col].append(word)
+    projected: list[str | None] = []
+    for logical_col in range(logical_col_count):
+        text = _merge_words_for_cell(words_by_col[logical_col])
+        projected.append(text if text else None)
+    return projected
+
+
+def _visual_projected_row_is_note(row: list[str | None], logical_col_count: int) -> bool:
+    non_empty = [(idx, str(value or "").strip()) for idx, value in enumerate(row) if str(value or "").strip()]
+    if len(non_empty) != 1:
+        return False
+    idx, text = non_empty[0]
+    if idx != 0:
+        return False
+    return bool(re.match(r"^\s*(?:[*†‡]|\d+\)|注[:：]|note\b)", text, re.IGNORECASE))
+
+
+def _rebuilt_grid_is_better_sparse_projection(
+    current_grid: list[list[str | None]],
+    rebuilt_grid: list[list[str | None]],
+    logical_col_count: int,
+) -> bool:
+    current_bad = _grid_embedded_cross_column_text_count(current_grid)
+    rebuilt_bad = _grid_embedded_cross_column_text_count(rebuilt_grid)
+    current_filled = sum(1 for row in current_grid for value in row if str(value or "").strip())
+    rebuilt_filled = sum(1 for row in rebuilt_grid for value in row if str(value or "").strip())
+    dense_rebuilt_rows = sum(
+        1 for row in rebuilt_grid
+        if sum(1 for value in row if str(value or "").strip()) >= min(2, logical_col_count)
+    )
+    return rebuilt_bad <= current_bad and rebuilt_filled >= current_filled and dense_rebuilt_rows >= 2
+
+
+def _grid_embedded_cross_column_text_count(grid: list[list[str | None]]) -> int:
+    count = 0
+    for row in grid:
+        for value in row:
+            text = str(value or "").strip()
+            if not text:
+                continue
+            if "\n" in text:
+                count += 1
+            if len(re.findall(r"[\u4e00-\u9fff]{2,}", text)) >= 2 and " " in text:
+                count += 1
+    return count
+
+
+def _replace_normalized_rows_with_visual_grid(
+    *,
+    rows: list[NormalizedRow],
+    grid: list[list[str | None]],
+    rebuilt_grid: list[list[str | None]],
+    source_word_rows: list[list[RawWord]],
+    column_boundaries: list[float],
+    logical_col_count: int,
+) -> None:
+    grid[:] = [list(row) for row in rebuilt_grid]
+    rows[:] = []
+    for row_idx, row_values in enumerate(rebuilt_grid):
+        word_row = source_word_rows[row_idx] if row_idx < len(source_word_rows) else []
+        row_cells: list[NormalizedCell] = []
+        row_y0 = min((float(word.y0) for word in word_row), default=0.0)
+        row_y1 = max((float(word.y1) for word in word_row), default=0.0)
+        for logical_col in range(logical_col_count):
+            left = column_boundaries[logical_col] if logical_col < len(column_boundaries) else 0.0
+            right = column_boundaries[logical_col + 1] if logical_col + 1 < len(column_boundaries) else left
+            col_words = [
+                word for word in word_row
+                if _assign_center_to_parent_skeleton(
+                    center_x=float(word.x_center),
+                    parent_boundaries=column_boundaries,
+                    logical_col_count=logical_col_count,
+                ) == logical_col
+            ]
+            bbox = None
+            if col_words:
+                bbox = (
+                    min(float(word.x0) for word in col_words),
+                    min(float(word.y0) for word in col_words),
+                    max(float(word.x1) for word in col_words),
+                    max(float(word.y1) for word in col_words),
+                )
+            elif row_y1 > row_y0 and right > left:
+                bbox = (left, row_y0, right, row_y1)
+            row_cells.append(
+                NormalizedCell(
+                    logical_row=row_idx,
+                    logical_col=logical_col,
+                    physical_row=row_idx,
+                    physical_col_start=logical_col,
+                    physical_col_end=logical_col,
+                    physical_colspan=1,
+                    text=row_values[logical_col] if logical_col < len(row_values) else None,
+                    bbox=bbox,
+                    supplemented=True,
+                    supplement_reason="sparse_ruled_visual_word_row_rebuild",
+                )
+            )
+        rows.append(NormalizedRow(logical_row=row_idx, physical_row=row_idx, cells=row_cells))
+
+
+def _project_dense_leaf_table_header_groups(
+    *,
+    raw_evidence: RawTableEvidence,
+    rows: list[NormalizedRow],
+    grid: list[list[str | None]],
+    logical_col_count: int,
+) -> dict[str, Any] | None:
+    """Repair grouped headers and unit continuations in dense leaf-column tables."""
+    if logical_col_count < 4 or not raw_evidence.words or not rows or not grid:
+        return None
+    if str(raw_evidence.source or "") != "caption_anchored_horizontal_rules":
+        return None
+
+    visual_rows = _cluster_table_words_into_visual_rows(raw_evidence.words)
+    if len(visual_rows) < 4:
+        return None
+
+    dense_rows = [
+        word_row
+        for word_row in visual_rows
+        if _dense_leaf_numeric_word_count(word_row) >= max(3, logical_col_count - 2)
+    ]
+    if len(dense_rows) < 2:
+        return None
+
+    leaf_anchors = _infer_dense_leaf_anchors_from_visual_rows(dense_rows, logical_col_count)
+    if len(leaf_anchors) != logical_col_count:
+        return None
+    boundaries = _boundaries_from_column_anchors(leaf_anchors, raw_evidence.bbox)
+    if len(boundaries) != logical_col_count + 1:
+        return None
+
+    projected_rows: list[list[str | None]] = []
+    source_rows: list[list[RawWord]] = []
+    row_idx = 0
+    merged_unit_rows = 0
+    while row_idx < len(visual_rows):
+        word_row = visual_rows[row_idx]
+        projected = _project_visual_word_row_to_columns(
+            word_row=word_row,
+            column_boundaries=boundaries,
+            logical_col_count=logical_col_count,
+        )
+        if (
+            projected_rows
+            and _is_stub_unit_continuation_row(projected)
+            and _row_has_dense_value_cells(projected_rows[-1])
+        ):
+            projected_rows[-1][0] = _join_stub_unit_text(
+                str(projected_rows[-1][0] or ""),
+                str(projected[0] or ""),
+            )
+            source_rows[-1].extend(word_row)
+            merged_unit_rows += 1
+            row_idx += 1
+            continue
+        if projected_rows and _is_stub_header_unit_continuation_row(projected_rows[-1], projected):
+            projected_rows[-1][0] = _join_stub_unit_text(
+                str(projected_rows[-1][0] or ""),
+                str(projected[0] or ""),
+            )
+            source_rows[-1].extend(word_row)
+            merged_unit_rows += 1
+            row_idx += 1
+            continue
+        projected_rows.append(projected)
+        source_rows.append(list(word_row))
+        row_idx += 1
+
+    if len(projected_rows) >= len(grid):
+        row_count_gain = len(projected_rows) - len(grid)
+    else:
+        row_count_gain = 0
+    if merged_unit_rows <= 0 and row_count_gain <= 0:
+        return None
+
+    non_empty_counts = [sum(1 for cell in row if _clean_cell_text(cell)) for row in projected_rows]
+    if max(non_empty_counts, default=0) < max(3, logical_col_count - 1):
+        return None
+
+    header_groups = _infer_header_column_groups_from_projected_rows(
+        projected_rows,
+        source_rows,
+        leaf_anchors,
+        max_header_rows=_first_dense_value_row_index(projected_rows),
+    )
+    _apply_header_group_projection(projected_rows, header_groups)
+    _replace_normalized_rows_with_visual_grid(
+        rows=rows,
+        grid=grid,
+        rebuilt_grid=projected_rows,
+        source_word_rows=source_rows,
+        column_boundaries=boundaries,
+        logical_col_count=logical_col_count,
+    )
+    return {
+        "source": "dense_numeric_leaf_columns",
+        "column_anchors": [round(value, 2) for value in leaf_anchors],
+        "merged_unit_rows": merged_unit_rows,
+        "header_column_groups": header_groups,
+    }
+
+
+def _dense_leaf_numeric_word_count(word_row: list[RawWord]) -> int:
+    return sum(1 for word in word_row if _looks_like_numeric_cell_text(str(word.text or "")))
+
+
+def _looks_like_numeric_cell_text(text: str) -> bool:
+    cleaned = str(text or "").strip().replace(",", "")
+    if not cleaned:
+        return False
+    if re.fullmatch(r"[<>≤≥~+\-]?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?%?", cleaned):
+        return True
+    if re.fullmatch(r"\d+(?:\.\d+)?\s*[-–]\s*\d+(?:\.\d+)?", cleaned):
+        return True
+    return False
+
+
+def _infer_dense_leaf_anchors_from_visual_rows(
+    dense_rows: list[list[RawWord]],
+    logical_col_count: int,
+) -> list[float]:
+    import statistics
+
+    numeric_count = logical_col_count - 1
+    candidates: list[tuple[float, list[float]]] = []
+    for word_row in dense_rows:
+        ordered = sorted(word_row, key=lambda item: float(item.x0))
+        numeric_words = [word for word in ordered if _looks_like_numeric_cell_text(str(word.text or ""))]
+        if len(numeric_words) < numeric_count:
+            continue
+        numeric_words = numeric_words[:numeric_count]
+        label_words = [word for word in ordered if float(word.x1) <= float(numeric_words[0].x0) + 1.0]
+        label_words = [word for word in label_words if word not in numeric_words]
+        if not label_words:
+            continue
+        candidates.append(
+            (
+                float(statistics.median(float(word.x0) for word in label_words)),
+                [float(word.x0) for word in numeric_words],
+            )
+        )
+    if len(candidates) < 2:
+        return []
+    label_anchor = float(statistics.median(item[0] for item in candidates))
+    value_anchors = [
+        float(statistics.median(item[1][value_idx] for item in candidates))
+        for value_idx in range(numeric_count)
+    ]
+    anchors = [label_anchor] + value_anchors
+    if any(right <= left + 4.0 for left, right in zip(anchors, anchors[1:])):
+        return []
+    return anchors
+
+
+def _boundaries_from_column_anchors(
+    anchors: list[float],
+    bbox: tuple[float, float, float, float],
+) -> list[float]:
+    if not anchors:
+        return []
+    x0, _y0, x1, _y1 = bbox
+    boundaries = [min(float(x0), float(anchors[0]) - 8.0)]
+    for left, right in zip(anchors, anchors[1:]):
+        boundaries.append((float(left) + float(right)) / 2.0)
+    if len(anchors) >= 2:
+        tail_gap = max(8.0, float(anchors[-1]) - float(anchors[-2]))
+    else:
+        tail_gap = 24.0
+    boundaries.append(max(float(x1), float(anchors[-1]) + tail_gap * 0.7))
+    return boundaries
+
+
+def _is_stub_unit_continuation_row(row: list[str | None]) -> bool:
+    non_empty = [(idx, _clean_cell_text(value)) for idx, value in enumerate(row) if _clean_cell_text(value)]
+    if len(non_empty) != 1:
+        return False
+    idx, text = non_empty[0]
+    if idx != 0:
+        return False
+    if len(text) > 32:
+        return False
+    if re.fullmatch(r"\([^)]{1,24}\)", text):
+        return True
+    return bool(re.fullmatch(r"[\[(]?[A-Za-z%μµ·./\-\s]{1,24}[\])]?|[\uff08][^\uff09]{1,24}[\uff09]", text))
+
+
+def _row_has_dense_value_cells(row: list[str | None]) -> bool:
+    return sum(1 for cell in row[1:] if _clean_cell_text(cell)) >= 3
+
+
+def _is_stub_header_unit_continuation_row(
+    previous_row: list[str | None],
+    current_row: list[str | None],
+) -> bool:
+    if not _is_stub_unit_continuation_row(current_row):
+        return False
+    previous_non_empty = [(idx, _clean_cell_text(value)) for idx, value in enumerate(previous_row) if _clean_cell_text(value)]
+    if not previous_non_empty:
+        return False
+    return previous_non_empty[0][0] == 0 and not _row_has_dense_value_cells(previous_row)
+
+
+def _join_stub_unit_text(base: str, continuation: str) -> str:
+    left = _clean_cell_text(base)
+    right = _clean_cell_text(continuation)
+    if not left:
+        return right
+    if not right:
+        return left
+    if right.startswith(("(", "（")):
+        return f"{left}{right}"
+    return f"{left} {right}".strip()
+
+
+def _first_dense_value_row_index(grid: list[list[str | None]]) -> int:
+    for row_idx, row in enumerate(grid):
+        if _row_has_dense_value_cells(row) and sum(
+            1 for cell in row[1:] if _looks_like_numeric_cell_text(_clean_cell_text(cell))
+        ) >= 3:
+            return row_idx
+    return min(len(grid), 3)
+
+
+def _infer_header_column_groups_from_projected_rows(
+    projected_rows: list[list[str | None]],
+    source_rows: list[list[RawWord]],
+    leaf_anchors: list[float],
+    *,
+    max_header_rows: int,
+) -> list[dict[str, Any]]:
+    groups: list[dict[str, Any]] = []
+    _ = source_rows
+    _ = leaf_anchors
+    header_limit = max(0, min(max_header_rows, len(projected_rows)))
+    for row_idx in range(header_limit):
+        row = projected_rows[row_idx]
+        value_label_cols = [
+            col_idx
+            for col_idx, value in enumerate(row)
+            if col_idx >= 1 and _clean_cell_text(value)
+        ]
+        if not value_label_cols:
+            continue
+        for label_idx, col_idx in enumerate(value_label_cols):
+            text = _clean_cell_text(row[col_idx])
+            previous_col = value_label_cols[label_idx - 1] if label_idx > 0 else None
+            next_col = value_label_cols[label_idx + 1] if label_idx + 1 < len(value_label_cols) else None
+            start_col = 1 if previous_col is None else int((previous_col + col_idx) // 2) + 1
+            end_col = len(row) - 1 if next_col is None else int((col_idx + next_col) // 2)
+            if end_col <= start_col:
+                continue
+            groups.append(
+                {
+                    "row": row_idx,
+                    "start_col": start_col,
+                    "end_col": end_col,
+                    "colspan": end_col - start_col + 1,
+                    "text": text,
+                    "source": "dense_leaf_header_geometry",
+                }
+            )
+    return groups
+
+
+def _apply_header_group_projection(
+    projected_rows: list[list[str | None]],
+    header_groups: list[dict[str, Any]],
+) -> None:
+    for group in header_groups:
+        row_idx = int(group.get("row", -1))
+        start_col = int(group.get("start_col", -1))
+        end_col = int(group.get("end_col", -1))
+        text = _clean_cell_text(group.get("text"))
+        if row_idx < 0 or row_idx >= len(projected_rows) or not text:
+            continue
+        row = projected_rows[row_idx]
+        if start_col < 0 or start_col >= len(row):
+            continue
+        row[start_col] = text
+        for col_idx in range(start_col + 1, min(end_col + 1, len(row))):
+            row[col_idx] = None
 
 
 def _build_uniform_column_mapping(
@@ -843,6 +1566,7 @@ def _merge_words_for_cell(words: list[RawWord]) -> str | None:
 
 def _normalize_merged_word_spacing(text: str) -> str:
     """Separate CJK labels from dotted outline numbers glued by PDF word extraction."""
+    text = re.sub(r"([\u4e00-\u9fff])\s+([\u4e00-\u9fff])", r"\1\2", text)
     return re.sub(r"([\u4e00-\u9fff])(\d+(?:\.\d+)+)", r"\1 \2", text)
 
 

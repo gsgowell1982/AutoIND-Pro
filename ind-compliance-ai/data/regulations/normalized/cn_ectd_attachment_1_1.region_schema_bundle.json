@@ -1,0 +1,318 @@
+{
+  "schema_version": "ectd-region-schema-bundle-v1",
+  "bundle_id": "cn_ectd_attachment_1_1",
+  "source_directory": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-1：区域Schema文件",
+  "region_schema": {
+    "filename": "cn-regional-1-0.xsd",
+    "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-1：区域Schema文件\\cn-regional-1-0.xsd",
+    "schema_name": "cn-regional-1-0",
+    "target_namespace": "cn_ectd",
+    "import_count": 2,
+    "imports": [
+      {
+        "namespace": "http://www.w3.org/1999/xlink",
+        "schema_location": "xlink.xsd"
+      },
+      {
+        "namespace": "http://www.w3.org/XML/1998/namespace",
+        "schema_location": "xml.xsd"
+      }
+    ],
+    "element_count": 94,
+    "complex_type_count": 25,
+    "named_elements": [
+      "cn_ectd",
+      "cn-envelope",
+      "cn-content",
+      "application-id",
+      "application-type",
+      "product-type",
+      "product-number",
+      "related-sequence",
+      "regulatory-activity-type",
+      "sequence-number",
+      "sequence-type",
+      "sequence-description",
+      "sequence-contact",
+      "name",
+      "phone",
+      "email",
+      "cn-1-0",
+      "cn-1-1",
+      "cn-1-2",
+      "cn-1-3",
+      "cn-1-3-1",
+      "cn-1-3-1-1",
+      "cn-1-3-1-2",
+      "cn-1-3-2",
+      "cn-1-3-2-1",
+      "cn-1-3-2-2",
+      "cn-1-3-3",
+      "cn-1-3-4",
+      "cn-1-3-4-1",
+      "cn-1-3-4-2",
+      "cn-1-3-4-3",
+      "cn-1-3-5",
+      "cn-1-3-6",
+      "cn-1-3-7",
+      "cn-1-3-8",
+      "cn-1-3-8-1",
+      "cn-1-3-8-2",
+      "cn-1-3-8-3",
+      "cn-1-3-8-4",
+      "cn-1-3-8-5",
+      "cn-1-3-8-6",
+      "cn-1-3-8-7",
+      "cn-1-3-8-8",
+      "cn-1-3-8-9",
+      "cn-1-3-8-10",
+      "cn-1-3-9",
+      "cn-1-4",
+      "cn-1-4-1",
+      "cn-1-4-2",
+      "cn-1-4-3",
+      "cn-1-4-4",
+      "cn-1-4-5",
+      "cn-1-4-6",
+      "cn-1-4-7",
+      "cn-1-5",
+      "cn-1-5-1",
+      "cn-1-5-2",
+      "cn-1-5-3",
+      "cn-1-6",
+      "cn-1-6-1",
+      "cn-1-6-2",
+      "cn-1-6-3",
+      "cn-1-7",
+      "cn-1-7-1",
+      "cn-1-7-2",
+      "cn-1-7-3",
+      "cn-1-8",
+      "cn-1-8-1",
+      "cn-1-8-1-1",
+      "cn-1-8-1-2",
+      "cn-1-8-1-3",
+      "cn-1-8-1-4",
+      "cn-1-8-1-5",
+      "cn-1-8-1-6",
+      "cn-1-8-2",
+      "cn-1-8-3",
+      "cn-1-9",
+      "cn-1-10",
+      "cn-1-10-1",
+      "cn-1-10-2",
+      "cn-1-10-3",
+      "cn-1-11",
+      "cn-1-11-1",
+      "cn-1-11-2",
+      "cn-1-11-3",
+      "cn-1-12",
+      "leaf",
+      "node-extension",
+      "title",
+      "link-text",
+      "xref"
+    ],
+    "schema_primary_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-1：区域Schema文件\\cn-regional-1-0.xsd",
+    "schema_dependency_files": [
+      "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件1-1：区域Schema文件\\cn-regional-1-0.xsd",
+      "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件3-1：w3c标准xlink结构定义文件\\xlink.xsd",
+      "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\附件3-2：w3c标准xml命名规范定义文件\\xml.xsd"
+    ],
+    "schema_missing_dependencies": [],
+    "schema_dependency_status": "ready",
+    "root_element": {
+      "name": "cn_ectd",
+      "children": [
+        {
+          "name": "cn-envelope",
+          "type": "cn-envelope",
+          "min_occurs": "1",
+          "max_occurs": "1"
+        },
+        {
+          "name": "cn-content",
+          "type": "cn-content",
+          "min_occurs": "1",
+          "max_occurs": "1"
+        }
+      ]
+    },
+    "root_attributes": [
+      {
+        "name": "schema-version",
+        "type": "inline-restriction",
+        "use": "required",
+        "allowed_values": [
+          "1.0"
+        ]
+      }
+    ],
+    "envelope_fields": [
+      {
+        "name": "application-id",
+        "type": "xs:string",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "application-type",
+        "type": "cn-type",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "product-type",
+        "type": "cn-type",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "product-number",
+        "type": "xs:string",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "related-sequence",
+        "type": "xs:string",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "regulatory-activity-type",
+        "type": "cn-type",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "sequence-number",
+        "type": "xs:string",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "sequence-type",
+        "type": "cn-type",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "sequence-description",
+        "type": "xs:string",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "sequence-contact",
+        "type": "cn-contact",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      }
+    ],
+    "sequence_contact_fields": [
+      {
+        "name": "name",
+        "type": "xs:string",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "phone",
+        "type": "xs:string",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "email",
+        "type": "xs:string",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      }
+    ],
+    "content_top_level_elements": [
+      {
+        "name": "cn-1-0",
+        "type": "cn-leaf-ext",
+        "min_occurs": "1",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-1",
+        "type": "cn-leaf-ext",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-2",
+        "type": "cn-leaf-ext",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-3",
+        "type": "",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-4",
+        "type": "",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-5",
+        "type": "",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-6",
+        "type": "",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-7",
+        "type": "",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-8",
+        "type": "",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-9",
+        "type": "cn-leaf-ext",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-10",
+        "type": "",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-11",
+        "type": "",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      },
+      {
+        "name": "cn-1-12",
+        "type": "cn-leaf-ext",
+        "min_occurs": "0",
+        "max_occurs": "1"
+      }
+    ]
+  },
+  "schema_status_summary": {
+    "status": "ready",
+    "missing_dependencies": []
+  }
+}

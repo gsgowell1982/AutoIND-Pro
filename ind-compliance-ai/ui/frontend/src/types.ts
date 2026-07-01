@@ -889,6 +889,7 @@ export interface WorkbenchPayload {
   } | null
   markdown: string
   full_markdown_download_url?: string
+  ind_review_markdown_download_url?: string
   structure_audit_download_url?: string
   structure_audit_markdown_download_url?: string
   regulatory_readiness?: RegulatoryReadinessProjection

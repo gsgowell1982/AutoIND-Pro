@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    BSfileC02 cv-regulatory-activity-type.xml
+	注册行为类型的受控词汇文件
+
+	Version 1.0 - 2021年9月1日
+-->
+<controlled-vocabulary name="regulatory-activity-type">
+	<description xml:lang="zh">注册行为类型</description>
+	<description xml:lang="en">Regulatory Activity Type</description>
+	<version number="1.0" valid-from="2021-9-1">
+		<!-- 首次申请是一个申请类型第一次提交申报资料时的注册行为，通常适用于药物第一次提出的临床试验申请或药品第一次提出的上市许可申请 -->
+		<code name="cnrat1">
+			<description xml:lang="zh">首次申请</description>
+			<description xml:lang="en">Original Application</description>
+		</code>
+		<!-- 补充申请适用于药品上市后以补充申请方式申报的变更 -->
+		<code name="cnrat2">
+			<description xml:lang="zh">补充申请</description>
+			<description xml:lang="en">Supplement</description>
+		</code>
+		<!-- 备案适用于药品上市后的备案类变更 -->
+		<code name="cnrat3">
+			<description xml:lang="zh">备案</description>
+			<description xml:lang="en">Record</description>
+		</code>
+		<!-- 报告适用于药品上市后的报告类变更 -->
+		<code name="cnrat4">
+			<description xml:lang="zh">报告</description>
+			<description xml:lang="en">Report</description>
+		</code>
+		<!-- 新适应症和联合用药适用于获准开展药物临床试验的药物拟增加适应症以及增加与其他药物联合用药的申报事项 -->
+		<code name="cnrat5">
+			<description xml:lang="zh">新适应症和联合用药</description>
+			<description xml:lang="en">New Indication and Drug Combination</description>
+		</code>
+		<!-- 新适应症适用于已上市药品增加境内未批准的适应症的注册行为 -->
+		<code name="cnrat6">
+			<description xml:lang="zh">新适应症</description>
+			<description xml:lang="en">New Indication</description>
+		</code>
+		<!-- 研发期间安全性报告适用于获准开展药物临床试验后提交研发期间安全性更新报告和其他潜在的严重安全性风险信息的注册行为 -->
+		<code name="cnrat7">
+			<description xml:lang="zh">研发期间安全性报告</description>
+			<description xml:lang="en">Development Safety Report</description>
+		</code>
+		<!-- 再注册适用于药品注册证书有效期届满前提出的再注册的注册行为 -->
+		<code name="cnrat8">
+			<description xml:lang="zh">再注册</description>
+			<description xml:lang="en">Renewal</description>
+		</code>
+		<!-- 基线适用于将以纸质递交获得上市批准的药品从纸质递交格式转换为eCTD提交的注册行为 -->
+		<code name="cnrat9">
+			<description xml:lang="zh">基线</description>
+			<description xml:lang="en">Baseline</description>
+		</code>
+	</version>
+</controlled-vocabulary>

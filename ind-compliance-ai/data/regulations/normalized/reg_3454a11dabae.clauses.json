@@ -1,0 +1,1441 @@
+{
+  "schema_version": "regulation-library-v1",
+  "regulation_id": "reg_3454a11dabae",
+  "clause_count": 46,
+  "clauses": [
+    {
+      "clause_id": "reg_3454a11dabae:sec_1_1",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "1",
+      "chapter_no": 1,
+      "chapter_title": "概述",
+      "article_no_raw": "1.1",
+      "article_no": 1,
+      "heading": "1.1 目的",
+      "original_text": "1.1 目的 本文档为eCTD 实施指南，用以指导申请人准备符合要 求的eCTD 申报资料并将其按要求提交至国家药品监督管理 局。 本指南规定了申请人制作和提交eCTD 申报资料的一般 性要求，请申请人务必仔细阅读，认真研究。未按照本指南 要求制作和提交的eCTD 申报资料将会导致申报资料的拒收 或对后续的审评审批工作造成影响。 随着相关法律法规调整、业务流程变化以及信息化系统 的不断升级完善，本指南相关内容也将适时进行更新。",
+      "normalized_text": "1.1 目的 本文档为eCTD 实施指南，用以指导申请人准备符合要 求的eCTD 申报资料并将其按要求提交至国家药品监督管理 局。 本指南规定了申请人制作和提交eCTD 申报资料的一般 性要求，请申请人务必仔细阅读，认真研究。未按照本指南 要求制作和提交的eCTD 申报资料将会导致申报资料的拒收 或对后续的审评审批工作造成影响。 随着相关法律法规调整、业务流程变化以及信息化系统 的不断升级完善，本指南相关内容也将适时进行更新。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 20,
+        "citation_anchor": "reg_3454a11dabae#sec_1_1"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_1_2",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "1",
+      "chapter_no": 1,
+      "chapter_title": "概述",
+      "article_no_raw": "1.2",
+      "article_no": 2,
+      "heading": "1.2 适用范围",
+      "original_text": "1.2 适用范围 本指南适用于化学药品、生物制品（按生物制品管理的 体外诊断试剂除外）按照eCTD 格式进行提交的药物临床试 验、药品上市许可、再注册等申请以及补充申请。",
+      "normalized_text": "1.2 适用范围 本指南适用于化学药品、生物制品（按生物制品管理的 体外诊断试剂除外）按照eCTD 格式进行提交的药物临床试 验、药品上市许可、再注册等申请以及补充申请。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 30,
+        "citation_anchor": "reg_3454a11dabae#sec_1_2"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_1_3",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "1",
+      "chapter_no": 1,
+      "chapter_title": "概述",
+      "article_no_raw": "1.3",
+      "article_no": 3,
+      "heading": "1.3 相关指导原则",
+      "original_text": "1.3 相关指导原则 申请人应按照本指南，以及《eCTD 技术规范V1.0》、 《eCTD 验证标准V1.0》、《ICH M8：电子通用技术文档 （eCTD）》相关文件，准备和提交eCTD 申报资料。",
+      "normalized_text": "1.3 相关指导原则 申请人应按照本指南，以及《eCTD 技术规范V1.0》、 《eCTD 验证标准V1.0》、《ICH M8：电子通用技术文档 （eCTD）》相关文件，准备和提交eCTD 申报资料。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 34,
+        "citation_anchor": "reg_3454a11dabae#sec_1_3"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_2_1",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "基本要求",
+      "article_no_raw": "2.1",
+      "article_no": 4,
+      "heading": "2.1 申请人及监管机构的责任",
+      "original_text": "2.1 申请人及监管机构的责任 申请人应保证提交的eCTD 申报资料的真实性。 监管机构有责任保证所接收的eCTD 申报资料的安全性 和保密性，建立相应的保密机制。",
+      "normalized_text": "2.1 申请人及监管机构的责任 申请人应保证提交的eCTD 申报资料的真实性。 监管机构有责任保证所接收的eCTD 申报资料的安全性 和保密性，建立相应的保密机制。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 39,
+        "citation_anchor": "reg_3454a11dabae#sec_2_1"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_2_2",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "基本要求",
+      "article_no_raw": "2.2",
+      "article_no": 5,
+      "heading": "2.2 从纸质递交向eCTD 电子提交过渡的考虑",
+      "original_text": "2.2 从纸质递交向eCTD 电子提交过渡的考虑 在eCTD 实施初期，原纸质递交和电子提交将并行，申 请人根据实际情况选择合适的方式，后续将全面实施eCTD。 对于从未提交过申报资料的药品，申请人可从临床试验 申请、新药申请或仿制药申请的首次申请开始提交eCTD 申 报资料。 对于已以纸质递交获批上市许可的药品，首次使用 eCTD 提交补充申请、再注册等注册行为之前，建议首先提 交一个基线，从而使监管机构可以在eCTD 生命周期内参阅 所有以前递交的文档或至少部分以前递交的文档。已经提交 了全套eCTD 资料的申请，无需再进行基线提交。 申请人使用eCTD 提交申报资料后，针对此药品的所有 后续提交，包括补正回复、发补回复、补充申请等，都应使 用eCTD 进行提交，不得再使用原纸质方式进行递交。",
+      "normalized_text": "2.2 从纸质递交向eCTD 电子提交过渡的考虑 在eCTD 实施初期，原纸质递交和电子提交将并行，申 请人根据实际情况选择合适的方式，后续将全面实施eCTD。 对于从未提交过申报资料的药品，申请人可从临床试验 申请、新药申请或仿制药申请的首次申请开始提交eCTD 申 报资料。 对于已以纸质递交获批上市许可的药品，首次使用 eCTD 提交补充申请、再注册等注册行为之前，建议首先提 交一个基线，从而使监管机构可以在eCTD 生命周期内参阅 所有以前递交的文档或至少部分以前递交的文档。已经提交 了全套eCTD 资料的申请，无需再进行基线提交。 申请人使用eCTD 提交申报资料后，针对此药品的所有 后续提交，包括补正回复、发补回复、补充申请等，都应使 用eCTD 进行提交，不得再使用原纸质方式进行递交。",
+      "clause_type": "prohibition",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 43,
+        "citation_anchor": "reg_3454a11dabae#sec_2_2"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "hard",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_2_3",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "基本要求",
+      "article_no_raw": "2.3",
+      "article_no": 6,
+      "heading": "2.3 存储介质的选择及刻录光盘的要求",
+      "original_text": "2.3 存储介质的选择及刻录光盘的要求 申请人应根据《eCTD 技术规范V1.0》第3.11 章节中的 要求选择eCTD 申报资料的存储介质。 为降低存储介质在交付运输过程中带来的安全性风险， 提交至监管机构的存储介质将不会归还给申请人。无法读取、 验证不通过等情况下，对应的存储介质将由监管机构执行销 毁操作。 申报资料内容较多，容量需求较大时，申请人应使用一 张DVD 光盘而不是多张CD 光盘进行提交。如果无法只提 供一张光盘，或者大型提交不得不使用多张光盘，可按照模 块进行拆分，除非单个模块大小超过光盘容量限制，否则不 建议将单个模块的提交文档拆分到多张光盘上。在使用多张 光盘提交申报资料时，为便于识别光盘内容，申请人须将模 块一文件夹与index.xml、index-md5.txt 文件放置于第一张光 盘中提交。 申请人提交的存储介质中的内容应以申请编号命名的 申请文件夹作为根目录，并仅包含当前需要提交的一个序列， 不应包含已经提交至监管机构的前序序列。 建议申请人使用读写速度较快的存储介质，以提升申报 资料的读取速度，例如16x 的DVD 光盘等。 申请人应对提交的存储介质承担全部责任，直至该存储 介质交付至监管机构。在运输过程中，承载申报资料的存储 介质的安全性和完整性由申请人负责。申报资料存储介质交 付至监管机构之后，其安全性和完整性由监管机构负责。 后续随eCTD 全面实施，将加快推进电子提交网关建设， 实现申报资料的网上提交。",
+      "normalized_text": "2.3 存储介质的选择及刻录光盘的要求 申请人应根据《eCTD 技术规范V1.0》第3.11 章节中的 要求选择eCTD 申报资料的存储介质。 为降低存储介质在交付运输过程中带来的安全性风险， 提交至监管机构的存储介质将不会归还给申请人。无法读取、 验证不通过等情况下，对应的存储介质将由监管机构执行销 毁操作。 申报资料内容较多，容量需求较大时，申请人应使用一 张DVD 光盘而不是多张CD 光盘进行提交。如果无法只提 供一张光盘，或者大型提交不得不使用多张光盘，可按照模 块进行拆分，除非单个模块大小超过光盘容量限制，否则不 建议将单个模块的提交文档拆分到多张光盘上。在使用多张 光盘提交申报资料时，为便于识别光盘内容，申请人须将模 块一文件夹与index.xml、index-md5.txt 文件放置于第一张光 盘中提交。 申请人提交的存储介质中的内容应以申请编号命名的 申请文件夹作为根目录，并仅包含当前需要提交的一个序列， 不应包含已经提交至监管机构的前序序列。 建议申请人使用读写速度较快的存储介质，以提升申报 资料的读取速度，例如16x 的DVD 光盘等。 申请人应对提交的存储介质承担全部责任，直至该存储 介质交付至监管机构。在运输过程中，承载申报资料的存储 介质的安全性和完整性由申请人负责。申报资料存储介质交 付至监管机构之后，其安全性和完整性由监管机构负责。 后续随eCTD 全面实施，将加快推进电子提交网关建设， 实现申报资料的网上提交。",
+      "clause_type": "prohibition",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 57,
+        "citation_anchor": "reg_3454a11dabae#sec_2_3"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "hard",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_2_4",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "基本要求",
+      "article_no_raw": "2.4",
+      "article_no": 7,
+      "heading": "2.4 光盘封面信息",
+      "original_text": "2.4 光盘封面信息 申请人应从国家药品监督管理局网上办事大厅药品业 务应用系统（以下简称药品业务应用系统）填写和打印光盘 封面信息，并粘贴于光盘盒表面，随申报资料光盘一起提交。",
+      "normalized_text": "2.4 光盘封面信息 申请人应从国家药品监督管理局网上办事大厅药品业 务应用系统（以下简称药品业务应用系统）填写和打印光盘 封面信息，并粘贴于光盘盒表面，随申报资料光盘一起提交。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 83,
+        "citation_anchor": "reg_3454a11dabae#sec_2_4"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_2_5",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "基本要求",
+      "article_no_raw": "2.5",
+      "article_no": 8,
+      "heading": "2.5 病毒检查",
+      "original_text": "2.5 病毒检查 申请人需对提交的eCTD 申报资料提前进行病毒检查， 并在说明函中提供病毒检查声明。监管机构接收到申报资料 后将进行病毒检查，如发现病毒将导致申报资料的拒收。",
+      "normalized_text": "2.5 病毒检查 申请人需对提交的eCTD 申报资料提前进行病毒检查， 并在说明函中提供病毒检查声明。监管机构接收到申报资料 后将进行病毒检查，如发现病毒将导致申报资料的拒收。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 87,
+        "citation_anchor": "reg_3454a11dabae#sec_2_5"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_2_6",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "基本要求",
+      "article_no_raw": "2.6",
+      "article_no": 9,
+      "heading": "2.6 技术验证",
+      "original_text": "2.6 技术验证 在eCTD 申报资料制作完成后，应采用专业的验证软件 （申请人可在药审中心网站下载免费版本的验证软件）对该 申报资料进行验证。验证软件验证完成后将生成对应的验证 报告，验证报告中会指出当前申报资料是否存在错误和警告。 如果验证报告中对应的验证标准条目显示“错误”，说明 此标准为必须遵守的关键验证标准。任何“错误”均会导致申 报资料的拒收。 如果验证报告中对应的验证标准条目显示“警告”，说明 此标准为建议遵守的验证标准。建议申请人在将eCTD 申报 资料提交给监管机构前解决这些问题，并重新验证生成新的 验证报告。针对未解决的“警告”，申请人应在说明函中进行 解释。",
+      "normalized_text": "2.6 技术验证 在eCTD 申报资料制作完成后，应采用专业的验证软件 （申请人可在药审中心网站下载免费版本的验证软件）对该 申报资料进行验证。验证软件验证完成后将生成对应的验证 报告，验证报告中会指出当前申报资料是否存在错误和警告。 如果验证报告中对应的验证标准条目显示“错误”，说明 此标准为必须遵守的关键验证标准。任何“错误”均会导致申 报资料的拒收。 如果验证报告中对应的验证标准条目显示“警告”，说明 此标准为建议遵守的验证标准。建议申请人在将eCTD 申报 资料提交给监管机构前解决这些问题，并重新验证生成新的 验证报告。针对未解决的“警告”，申请人应在说明函中进行 解释。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 91,
+        "citation_anchor": "reg_3454a11dabae#sec_2_6"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_2_7",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "基本要求",
+      "article_no_raw": "2.7",
+      "article_no": 10,
+      "heading": "2.7 提交要求",
+      "original_text": "2.7 提交要求 申请人需要提交一套eCTD 申报资料光盘至监管机构。 申请人提交eCTD 申报资料时，应按要求将申报资料光 盘封装在档案袋内，并在药品业务应用系统填写和打印档案 袋封面信息，粘贴于档案袋表面。",
+      "normalized_text": "2.7 提交要求 申请人需要提交一套eCTD 申报资料光盘至监管机构。 申请人提交eCTD 申报资料时，应按要求将申报资料光 盘封装在档案袋内，并在药品业务应用系统填写和打印档案 袋封面信息，粘贴于档案袋表面。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 104,
+        "citation_anchor": "reg_3454a11dabae#sec_2_7"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_2_8",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "2",
+      "chapter_no": 2,
+      "chapter_title": "基本要求",
+      "article_no_raw": "2.8",
+      "article_no": 11,
+      "heading": "2.8 纸质资料的递交及要求",
+      "original_text": "2.8 纸质资料的递交及要求 申请人应在eCTD 注册申请新报资料受理后5个工作日 内，提交一套对应的纸质资料至国家药品监督管理局药品审 评中心，如发生书面发补，还应在补充资料正式接收后5 个 工作日内，提交纸质资料，其他审评过程中提交的eCTD 申 报资料，申请人可将对应的纸质资料随电子资料一起提交。 纸质资料应参照现有《药品注册申报资料格式体例与整理规 范》进行整理。 申请人需提交一套纸质资料，并保证所提交的纸质资料 与eCTD 申报资料内容完全一致，如因资料一致性产生的任 何问题由申请人自行承担。申请人如未按照规定时间提交纸 质资料，按终止药品注册程序处理。 3. eCTD 申报资料中的编号管理 根据《eCTD 技术规范V1.0》的规定，eCTD 申报资料中 的编号包括原始编号、申请编号和序列号。申请人应注意正 确使用相关编号。",
+      "normalized_text": "2.8 纸质资料的递交及要求 申请人应在eCTD 注册申请新报资料受理后5个工作日 内，提交一套对应的纸质资料至国家药品监督管理局药品审 评中心，如发生书面发补，还应在补充资料正式接收后5 个 工作日内，提交纸质资料，其他审评过程中提交的eCTD 申 报资料，申请人可将对应的纸质资料随电子资料一起提交。 纸质资料应参照现有《药品注册申报资料格式体例与整理规 范》进行整理。 申请人需提交一套纸质资料，并保证所提交的纸质资料 与eCTD 申报资料内容完全一致，如因资料一致性产生的任 何问题由申请人自行承担。申请人如未按照规定时间提交纸 质资料，按终止药品注册程序处理。 3. eCTD 申报资料中的编号管理 根据《eCTD 技术规范V1.0》的规定，eCTD 申报资料中 的编号包括原始编号、申请编号和序列号。申请人应注意正 确使用相关编号。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 109,
+        "citation_anchor": "reg_3454a11dabae#sec_2_8"
+      },
+      "classification": {
+        "ind_relevance": "high",
+        "material_checkability": "direct",
+        "recommended_rule_mode": "soft",
+        "automation_ready": true,
+        "candidate_reason": "Direct dossier-facing requirement or evidence-bearing registration condition.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_3_1",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "",
+      "article_no_raw": "3.1",
+      "article_no": 12,
+      "heading": "3.1 原始编号的应用",
+      "original_text": "3.1 原始编号的应用 原始编号是对一个进入注册审批程序的药品所给予的 基本的和永久的资料代号，是用于标识申请人、活性成分和 剂型的唯一识别码，由监管机构分配。 申请人应从药品业务应用系统获取原始编号，并在 eCTD 信封信息中填写正确的原始编号。 对于已以纸质递交获批上市许可的药品，如需转换为 eCTD 提交，则在首次提交eCTD 申报资料时获取新的原始 编号，后续提交补充申请、再注册等注册行为时均使用首次 提交时得到的原始编号。 如因品种转让、通用名核定等原因，导致原始编号中对 应的申请人、药品名称等信息变更时，申请人应在药品业务 应用系统进行原始编号对应信息的变更操作。",
+      "normalized_text": "3.1 原始编号的应用 原始编号是对一个进入注册审批程序的药品所给予的 基本的和永久的资料代号，是用于标识申请人、活性成分和 剂型的唯一识别码，由监管机构分配。 申请人应从药品业务应用系统获取原始编号，并在 eCTD 信封信息中填写正确的原始编号。 对于已以纸质递交获批上市许可的药品，如需转换为 eCTD 提交，则在首次提交eCTD 申报资料时获取新的原始 编号，后续提交补充申请、再注册等注册行为时均使用首次 提交时得到的原始编号。 如因品种转让、通用名核定等原因，导致原始编号中对 应的申请人、药品名称等信息变更时，申请人应在药品业务 应用系统进行原始编号对应信息的变更操作。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 125,
+        "citation_anchor": "reg_3454a11dabae#sec_3_1"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_3_2",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "",
+      "article_no_raw": "3.2",
+      "article_no": 13,
+      "heading": "3.2 申请编号的应用",
+      "original_text": "3.2 申请编号的应用 申请编号是一个申请在其全生命周期内的唯一识别编 号，由监管机构分配给申请人。 申请人应从药品业务应用系统获取申请编号，并在 eCTD 信封信息中填写正确的申请编号。 申请人应注意，一般情况下，只有临床试验申请、新药 申请或仿制药申请的首次申请时需要获得新的申请编号，在 同一申请类型内提交补充申请、新适应症、再注册等注册行 为时均使用首次申请时得到的申请编号，以保证药品的全生 命周期管理。 对于已以纸质递交获批上市许可的药品，如需转换为 eCTD 提交，则在首次提交eCTD 申报资料时获取新的申请 编号，后续提交补充申请、再注册等注册行为时均使用首次 提交时得到的申请编号。",
+      "normalized_text": "3.2 申请编号的应用 申请编号是一个申请在其全生命周期内的唯一识别编 号，由监管机构分配给申请人。 申请人应从药品业务应用系统获取申请编号，并在 eCTD 信封信息中填写正确的申请编号。 申请人应注意，一般情况下，只有临床试验申请、新药 申请或仿制药申请的首次申请时需要获得新的申请编号，在 同一申请类型内提交补充申请、新适应症、再注册等注册行 为时均使用首次申请时得到的申请编号，以保证药品的全生 命周期管理。 对于已以纸质递交获批上市许可的药品，如需转换为 eCTD 提交，则在首次提交eCTD 申报资料时获取新的申请 编号，后续提交补充申请、再注册等注册行为时均使用首次 提交时得到的申请编号。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 138,
+        "citation_anchor": "reg_3454a11dabae#sec_3_2"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_3_3",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "",
+      "article_no_raw": "3.3",
+      "article_no": 14,
+      "heading": "3.3 序列号的应用",
+      "original_text": "3.3 序列号的应用 申请人每次提交的有效的eCTD 申报资料都会产生一个 新的序列号，用于区分同一个申请编号下提交的不同的 eCTD 序列。 申请人应在eCTD 信封信息中填写正确的序列号，序列 号的使用要求请参考《eCTD 技术规范V1.0》第2.3.1 章节。",
+      "normalized_text": "3.3 序列号的应用 申请人每次提交的有效的eCTD 申报资料都会产生一个 新的序列号，用于区分同一个申请编号下提交的不同的 eCTD 序列。 申请人应在eCTD 信封信息中填写正确的序列号，序列 号的使用要求请参考《eCTD 技术规范V1.0》第2.3.1 章节。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 152,
+        "citation_anchor": "reg_3454a11dabae#sec_3_3"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_3_4",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "",
+      "article_no_raw": "3.4",
+      "article_no": 15,
+      "heading": "3.4 各编号之间的关联性",
+      "original_text": "3.4 各编号之间的关联性 通常在一个新药的原始编号下会存在两个申请编号，分 别对应该药品的临床试验申请和新药申请。在每个申请编号 下包含多个序列号，分别对应单独提交的每份申报资料。 一个典型的新药的编号管理示例如下表1 所示： 表1.新药的编号管理示例",
+      "normalized_text": "3.4 各编号之间的关联性 通常在一个新药的原始编号下会存在两个申请编号，分 别对应该药品的临床试验申请和新药申请。在每个申请编号 下包含多个序列号，分别对应单独提交的每份申报资料。 一个典型的新药的编号管理示例如下表1 所示： 表1.新药的编号管理示例",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 158,
+        "citation_anchor": "reg_3454a11dabae#sec_3_4"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_3_5",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "3",
+      "chapter_no": 3,
+      "chapter_title": "",
+      "article_no_raw": "3.5",
+      "article_no": 16,
+      "heading": "3.5 其他编号",
+      "original_text": "3.5 其他编号 药品研发和注册过程中产生的临床试验登记号、药品注 册受理号等其他编号的要求按现行管理规定执行。",
+      "normalized_text": "3.5 其他编号 药品研发和注册过程中产生的临床试验登记号、药品注 册受理号等其他编号的要求按现行管理规定执行。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 164,
+        "citation_anchor": "reg_3454a11dabae#sec_3_5"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_4_1",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块信息的特殊说明",
+      "article_no_raw": "4.1",
+      "article_no": 17,
+      "heading": "4.1 模块一：行政文件和药品信息",
+      "original_text": "4.1 模块一：行政文件和药品信息",
+      "normalized_text": "4.1 模块一：行政文件和药品信息",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 174,
+        "citation_anchor": "reg_3454a11dabae#sec_4_1"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_4_1_1",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块信息的特殊说明",
+      "article_no_raw": "4.1.1",
+      "article_no": 18,
+      "heading": "4.1.1 申请表的准备",
+      "original_text": "4.1.1 申请表的准备 申请表的填报在药品业务应用系统在线完成，并导出成 PDF 文件放置于eCTD 申报资料对应的目录结构中。",
+      "normalized_text": "4.1.1 申请表的准备 申请表的填报在药品业务应用系统在线完成，并导出成 PDF 文件放置于eCTD 申报资料对应的目录结构中。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 175,
+        "citation_anchor": "reg_3454a11dabae#sec_4_1_1"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_4_1_2",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块信息的特殊说明",
+      "article_no_raw": "4.1.2",
+      "article_no": 19,
+      "heading": "4.1.2 说明函的准备",
+      "original_text": "4.1.2 说明函的准备 申请人提交的每个序列都应包含说明函，即CTD 模块 一1.0 章节。 eCTD 申报资料说明函包括以下内容： 1. CTD 模块一说明函所要求的内容 2. 负责本次提交序列注册事务的联络人信息 3. 本次提交序列不适用的文档清单或说明1（如适用） 1 不适用的文档指本次提交序列中缺失的章节内容（参考CTD 模块一至模块五目录结构）。 4. 本次提交序列验证的相关信息 5. 关于纸质资料与eCTD 申报资料内容一致的承诺 6. 关于按规定时限一次性提交全部纸质申报资料的 承诺 7. 病毒检查声明",
+      "normalized_text": "4.1.2 说明函的准备 申请人提交的每个序列都应包含说明函，即CTD 模块 一1.0 章节。 eCTD 申报资料说明函包括以下内容： 1. CTD 模块一说明函所要求的内容 2. 负责本次提交序列注册事务的联络人信息 3. 本次提交序列不适用的文档清单或说明1（如适用） 1 不适用的文档指本次提交序列中缺失的章节内容（参考CTD 模块一至模块五目录结构）。 4. 本次提交序列验证的相关信息 5. 关于纸质资料与eCTD 申报资料内容一致的承诺 6. 关于按规定时限一次性提交全部纸质申报资料的 承诺 7. 病毒检查声明",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 178,
+        "citation_anchor": "reg_3454a11dabae#sec_4_1_2"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_4_1_3",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块信息的特殊说明",
+      "article_no_raw": "4.1.3",
+      "article_no": 20,
+      "heading": "4.1.3 信封信息的准备",
+      "original_text": "4.1.3 信封信息的准备 申请人提交的每个序列都应包含信封信息，对于信封信 息管理的要求请参考《eCTD 技术规范V1.0》第4.3 章节。",
+      "normalized_text": "4.1.3 信封信息的准备 申请人提交的每个序列都应包含信封信息，对于信封信 息管理的要求请参考《eCTD 技术规范V1.0》第4.3 章节。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 191,
+        "citation_anchor": "reg_3454a11dabae#sec_4_1_3"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_4_2",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块信息的特殊说明",
+      "article_no_raw": "4.2",
+      "article_no": 21,
+      "heading": "4.2 模块二：通用技术文档总结",
+      "original_text": "4.2 模块二：通用技术文档总结 对于复方制剂中的多个原料药，申请人应在模块二中针 对每种原料药提供独立的2.3.S 章节，并提供对应的申报资 料文件。",
+      "normalized_text": "4.2 模块二：通用技术文档总结 对于复方制剂中的多个原料药，申请人应在模块二中针 对每种原料药提供独立的2.3.S 章节，并提供对应的申报资 料文件。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 194,
+        "citation_anchor": "reg_3454a11dabae#sec_4_2"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "review_only",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "api_supporting_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_4_3",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块信息的特殊说明",
+      "article_no_raw": "4.3",
+      "article_no": 22,
+      "heading": "4.3 模块三：质量",
+      "original_text": "4.3 模块三：质量 按现行申报资料要求，需要单独提交3.2.S 章节的情形， 申请人应在模块三中提供独立的3.2.S 章节，并提供对应的 申报资料文件。 当3.2.R 章节使用扩展节点时，在3.2.R.2 章节中，除文 件大小超出限制，必须进行拆分的情况以外，每一批的批记 录应以单个文件的方式提交。",
+      "normalized_text": "4.3 模块三：质量 按现行申报资料要求，需要单独提交3.2.S 章节的情形， 申请人应在模块三中提供独立的3.2.S 章节，并提供对应的 申报资料文件。 当3.2.R 章节使用扩展节点时，在3.2.R.2 章节中，除文 件大小超出限制，必须进行拆分的情况以外，每一批的批记 录应以单个文件的方式提交。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 198,
+        "citation_anchor": "reg_3454a11dabae#sec_4_3"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_4_4",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块信息的特殊说明",
+      "article_no_raw": "4.4",
+      "article_no": 23,
+      "heading": "4.4 模块四：非临床试验报告",
+      "original_text": "4.4 模块四：非临床试验报告 对于模块四中的4.2.X 章节，申请人应使用研究标签文 件（STF）的方式进行组织和呈现。",
+      "normalized_text": "4.4 模块四：非临床试验报告 对于模块四中的4.2.X 章节，申请人应使用研究标签文 件（STF）的方式进行组织和呈现。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 205,
+        "citation_anchor": "reg_3454a11dabae#sec_4_4"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials",
+          "nonclinical_study_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_4_5",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "4",
+      "chapter_no": 4,
+      "chapter_title": "模块信息的特殊说明",
+      "article_no_raw": "4.5",
+      "article_no": 24,
+      "heading": "4.5 模块五：临床研究报告",
+      "original_text": "4.5 模块五：临床研究报告 对于模块五中的5.3.1.X 至5.3.5.X 章节，申请人应使用 STF 的方式进行组织和呈现，对于STF 的要求请参考《eCTD 技术规范V1.0》第3.8 章节。 如果申报资料涵盖多个适应症，应针对每个适应症提供 独立的5.3.5 章节并提供对应的申报资料文件。 在此情况下，如果有效性研究仅针对其中某个适应症， 那么相关文件应被置于模块五的对应位置（例如：m5/53-clin- stud-rep/535-rep-effic-safety-stud/anxiety/5351-stud-rep-contr）。 如果有效性研究针对多个适应症，此研究报告应被放置于 5.3.5 中最合适的章节，并在其他适应症下相应的章节进行复 用。有关文件复用的要求请参考《eCTD 技术规范V1.0》第 3.3.4 章节。 5. 特定类型提交的建议2 制作eCTD 申报资料时，申请人应明确该申报资料在申 请、注册行为、序列各层级的类型，并参考《eCTD 技术规范 V1.0》第2.4 章节在信封信息中填写正确的类型。 “临床试验申请”适用于药物临床试验申请及药物临床试 验期间所提出的申请事项。制作上述类型申报资料时，应选 择申请类型“临床试验申请”，并根据申请事项选择相应注册 行为类型（首次申请、补充申请、新适应症和联合用药、研 发期间安全性报告）。根据提交资料对某一注册行为的提交 目的，序列类型可以选择为该注册行为的首次提交，或对补 正、发补的回复，或对某一注册行为提交资料的撤回。 “新药申请”适用于化学药品1 类、2 类、5.1 类以及预防 用生物制品、治疗用生物制品的上市许可申请及上市后变更、 再注册等申请事项。制作上述类型申报资料时，应选择申请 类型“新药申请”。并根据申请事项选择相应注册行为类型（首 次申请、补充申请、备案、报告、新适应症、再注册、基线）。 根据提交资料对某一注册行为的提交目的，序列类型可以选 择为该注册行为的首次提交，或格式转换，或对补正、发补 的回复，或对某一注册行为提交资料的撤回。 2 本章所提供示例仅为举例，不包含所有情况。 “仿制药申请”适用于化学药品3 类、4 类、5.2 类的上市 许可申请及上市后变更、再注册等申请事项。制作上述类型 申报资料时，应选择申请类型“仿制药申请”，并根据申请事 项选择相应注册行为类型（首次申请、补充申请、备案、报 告、新适应症、再注册、基线）。根据提交资料对某一注册 行为的提交目的，序列类型选择为该注册行为的首次提交， 或格式转换，或对补正、发补的回复，或对某一注册行为提 交资料的撤回。",
+      "normalized_text": "4.5 模块五：临床研究报告 对于模块五中的5.3.1.X 至5.3.5.X 章节，申请人应使用 STF 的方式进行组织和呈现，对于STF 的要求请参考《eCTD 技术规范V1.0》第3.8 章节。 如果申报资料涵盖多个适应症，应针对每个适应症提供 独立的5.3.5 章节并提供对应的申报资料文件。 在此情况下，如果有效性研究仅针对其中某个适应症， 那么相关文件应被置于模块五的对应位置（例如：m5/53-clin- stud-rep/535-rep-effic-safety-stud/anxiety/5351-stud-rep-contr）。 如果有效性研究针对多个适应症，此研究报告应被放置于 5.3.5 中最合适的章节，并在其他适应症下相应的章节进行复 用。有关文件复用的要求请参考《eCTD 技术规范V1.0》第 3.3.4 章节。 5. 特定类型提交的建议2 制作eCTD 申报资料时，申请人应明确该申报资料在申 请、注册行为、序列各层级的类型，并参考《eCTD 技术规范 V1.0》第2.4 章节在信封信息中填写正确的类型。 “临床试验申请”适用于药物临床试验申请及药物临床试 验期间所提出的申请事项。制作上述类型申报资料时，应选 择申请类型“临床试验申请”，并根据申请事项选择相应注册 行为类型（首次申请、补充申请、新适应症和联合用药、研 发期间安全性报告）。根据提交资料对某一注册行为的提交 目的，序列类型可以选择为该注册行为的首次提交，或对补 正、发补的回复，或对某一注册行为提交资料的撤回。 “新药申请”适用于化学药品1 类、2 类、5.1 类以及预防 用生物制品、治疗用生物制品的上市许可申请及上市后变更、 再注册等申请事项。制作上述类型申报资料时，应选择申请 类型“新药申请”。并根据申请事项选择相应注册行为类型（首 次申请、补充申请、备案、报告、新适应症、再注册、基线）。 根据提交资料对某一注册行为的提交目的，序列类型可以选 择为该注册行为的首次提交，或格式转换，或对补正、发补 的回复，或对某一注册行为提交资料的撤回。 2 本章所提供示例仅为举例，不包含所有情况。 “仿制药申请”适用于化学药品3 类、4 类、5.2 类的上市 许可申请及上市后变更、再注册等申请事项。制作上述类型 申报资料时，应选择申请类型“仿制药申请”，并根据申请事 项选择相应注册行为类型（首次申请、补充申请、备案、报 告、新适应症、再注册、基线）。根据提交资料对某一注册 行为的提交目的，序列类型选择为该注册行为的首次提交， 或格式转换，或对补正、发补的回复，或对某一注册行为提 交资料的撤回。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 208,
+        "citation_anchor": "reg_3454a11dabae#sec_4_5"
+      },
+      "classification": {
+        "ind_relevance": "medium",
+        "material_checkability": "partial",
+        "recommended_rule_mode": "soft",
+        "automation_ready": false,
+        "candidate_reason": "Partially automatable from dossier structure/evidence, but likely needs reviewer interpretation or external context.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_5_1",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "5",
+      "chapter_no": 5,
+      "chapter_title": "",
+      "article_no_raw": "5.1",
+      "article_no": 25,
+      "heading": "5.1 临床试验申请的新适应症和联合用药",
+      "original_text": "5.1 临床试验申请的新适应症和联合用药 获准开展药物临床试验的药物拟增加适应症以及增加 与其他药物联合用药的，根据现行法规提交药物临床试验申 请时，使用临床试验申请首次申请的申请编号，申请类型选 择“临床试验申请”，注册行为类型选择“新适应症和联合用 药”，与已获准的临床试验申请中重复的eCTD 申报资料无需 再次提交。具体示例如下表2 所示： 表2. 新适应症和联合用药示例",
+      "normalized_text": "5.1 临床试验申请的新适应症和联合用药 获准开展药物临床试验的药物拟增加适应症以及增加 与其他药物联合用药的，根据现行法规提交药物临床试验申 请时，使用临床试验申请首次申请的申请编号，申请类型选 择“临床试验申请”，注册行为类型选择“新适应症和联合用 药”，与已获准的临床试验申请中重复的eCTD 申报资料无需 再次提交。具体示例如下表2 所示： 表2. 新适应症和联合用药示例",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 249,
+        "citation_anchor": "reg_3454a11dabae#sec_5_1"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_5_2",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "5",
+      "chapter_no": 5,
+      "chapter_title": "",
+      "article_no_raw": "5.2",
+      "article_no": 26,
+      "heading": "5.2 新药申请和仿制药申请的新适应症",
+      "original_text": "5.2 新药申请和仿制药申请的新适应症 对于已上市药品增加境内未批准的新适应症、改变给药 途径等，使用首次申请的申请编号和申请类型，注册行为类 型选择“新适应症”，与已获准的新药申请中重复的eCTD 申 报资料无需再次提交。具体示例如下表3 所示： 表3. 新适应症示例一 对于已以纸质递交获批上市许可的药品，首次使用 eCTD 提交增加境内未批准的新适应症、改变给药途径等， 从申请人之窗获取新的申请编号，申请类型选择“新药申请”， 注册行为类型选择“新适应症”，并提交全套资料。具体示例 如下表4 所示： 表4. 新适应症示例二 增加境内同品种已批准适应症，使用首次申请的申请编 号和申请类型，注册行为类型选择“补充申请”。具体示例如 下表5 所示： 表5. 增加适应症示例",
+      "normalized_text": "5.2 新药申请和仿制药申请的新适应症 对于已上市药品增加境内未批准的新适应症、改变给药 途径等，使用首次申请的申请编号和申请类型，注册行为类 型选择“新适应症”，与已获准的新药申请中重复的eCTD 申 报资料无需再次提交。具体示例如下表3 所示： 表3. 新适应症示例一 对于已以纸质递交获批上市许可的药品，首次使用 eCTD 提交增加境内未批准的新适应症、改变给药途径等， 从申请人之窗获取新的申请编号，申请类型选择“新药申请”， 注册行为类型选择“新适应症”，并提交全套资料。具体示例 如下表4 所示： 表4. 新适应症示例二 增加境内同品种已批准适应症，使用首次申请的申请编 号和申请类型，注册行为类型选择“补充申请”。具体示例如 下表5 所示： 表5. 增加适应症示例",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 257,
+        "citation_anchor": "reg_3454a11dabae#sec_5_2"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_5_3",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "5",
+      "chapter_no": 5,
+      "chapter_title": "",
+      "article_no_raw": "5.3",
+      "article_no": 27,
+      "heading": "5.3 基线",
+      "original_text": "5.3 基线 基线指申请人将已以纸质递交获批上市许可的药品从 纸质递交格式转换为eCTD 提交的注册行为。基线提交的目 的仅为格式转换，不应涉及任何已批准内容的变更。 申请人提交的基线应至少包括模块一、模块二和模块三 的全部最新已被批准的、合法有效的资料，并在说明函中承 诺本次提交的申报资料与已批准并正在生效的申报资料没 有任何内容上的改变，只有格式转化。 提交基线时，从申请人之窗获取新的原始编号和申请编 号，并选择与原纸质方式递交申报资料时对应的申请类型， 注册行为类型选择“基线”。具体示例如下表6 所示： 表6. 基线示例",
+      "normalized_text": "5.3 基线 基线指申请人将已以纸质递交获批上市许可的药品从 纸质递交格式转换为eCTD 提交的注册行为。基线提交的目 的仅为格式转换，不应涉及任何已批准内容的变更。 申请人提交的基线应至少包括模块一、模块二和模块三 的全部最新已被批准的、合法有效的资料，并在说明函中承 诺本次提交的申报资料与已批准并正在生效的申报资料没 有任何内容上的改变，只有格式转化。 提交基线时，从申请人之窗获取新的原始编号和申请编 号，并选择与原纸质方式递交申报资料时对应的申请类型， 注册行为类型选择“基线”。具体示例如下表6 所示： 表6. 基线示例",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 273,
+        "citation_anchor": "reg_3454a11dabae#sec_5_3"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_5_4",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "5",
+      "chapter_no": 5,
+      "chapter_title": "",
+      "article_no_raw": "5.4",
+      "article_no": 28,
+      "heading": "5.4 再注册",
+      "original_text": "5.4 再注册 药品再注册时，使用首次申请的申请编号和申请类型， 注册行为类型选择“再注册”，并提交相关资料。具体示例如 下表7 所示： 表7. 再注册示例",
+      "normalized_text": "5.4 再注册 药品再注册时，使用首次申请的申请编号和申请类型， 注册行为类型选择“再注册”，并提交相关资料。具体示例如 下表7 所示： 表7. 再注册示例",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 285,
+        "citation_anchor": "reg_3454a11dabae#sec_5_4"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_5_5",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "5",
+      "chapter_no": 5,
+      "chapter_title": "",
+      "article_no_raw": "5.5",
+      "article_no": 29,
+      "heading": "5.5 研发期间安全性报告",
+      "original_text": "5.5 研发期间安全性报告 开展临床试验期间，申请人应按照相关规定提交研发期 间安全性更新报告及附件，或其他潜在的严重安全性风险信 息。 提交此类申报资料时，使用首次申请的申请编号和申请 类型，注册行为类型选择 “研发期间安全性报告”。具体示例 如下表8 所示： 表8. 研发期间安全性报告示例",
+      "normalized_text": "5.5 研发期间安全性报告 开展临床试验期间，申请人应按照相关规定提交研发期 间安全性更新报告及附件，或其他潜在的严重安全性风险信 息。 提交此类申报资料时，使用首次申请的申请编号和申请 类型，注册行为类型选择 “研发期间安全性报告”。具体示例 如下表8 所示： 表8. 研发期间安全性报告示例",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 290,
+        "citation_anchor": "reg_3454a11dabae#sec_5_5"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_5_6",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "5",
+      "chapter_no": 5,
+      "chapter_title": "",
+      "article_no_raw": "5.6",
+      "article_no": 30,
+      "heading": "5.6 审评期间提交的申报资料",
+      "original_text": "5.6 审评期间提交的申报资料 按eCTD 提交的申请，在其审评过程中，申请人需要提 交的申报资料均应按eCTD 提交，例如补充资料等允许审评 期间提交的其他资料。 提交此类文件时，其申请编号、申请类型、注册行为类 型应与当前正在审评的注册行为保持一致，序列类型选择“回 复”。",
+      "normalized_text": "5.6 审评期间提交的申报资料 按eCTD 提交的申请，在其审评过程中，申请人需要提 交的申报资料均应按eCTD 提交，例如补充资料等允许审评 期间提交的其他资料。 提交此类文件时，其申请编号、申请类型、注册行为类 型应与当前正在审评的注册行为保持一致，序列类型选择“回 复”。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 298,
+        "citation_anchor": "reg_3454a11dabae#sec_5_6"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_5_7",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "5",
+      "chapter_no": 5,
+      "chapter_title": "",
+      "article_no_raw": "5.7",
+      "article_no": 31,
+      "heading": "5.7 首次申请的撤回",
+      "original_text": "5.7 首次申请的撤回 对于临床试验申请、新药申请、仿制药申请的首次申请： 申请人如需撤回该注册行为，应提交一个新的序列用于 关闭当前注册行为及申请编号。 针对该注册行为不予受理、不予批准或终止药品注册审 评审批的情况，申请人如对结果无异议，也需提交一个新的 序列，用于关闭当前注册行为及申请编号。 提交此类序列时，其申请编号、申请类型、注册行为类 型应与当前注册行为保持一致，序列类型选择“回复”。序列 内容包括说明函以及相关证明性文件。 关闭的申请编号将不能继续使用，申请人如需再次提交 上述申请，应从监管机构获取新的申请编号。",
+      "normalized_text": "5.7 首次申请的撤回 对于临床试验申请、新药申请、仿制药申请的首次申请： 申请人如需撤回该注册行为，应提交一个新的序列用于 关闭当前注册行为及申请编号。 针对该注册行为不予受理、不予批准或终止药品注册审 评审批的情况，申请人如对结果无异议，也需提交一个新的 序列，用于关闭当前注册行为及申请编号。 提交此类序列时，其申请编号、申请类型、注册行为类 型应与当前注册行为保持一致，序列类型选择“回复”。序列 内容包括说明函以及相关证明性文件。 关闭的申请编号将不能继续使用，申请人如需再次提交 上述申请，应从监管机构获取新的申请编号。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 305,
+        "citation_anchor": "reg_3454a11dabae#sec_5_7"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_5_8",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "5",
+      "chapter_no": 5,
+      "chapter_title": "",
+      "article_no_raw": "5.8",
+      "article_no": 32,
+      "heading": "5.8 首次申请后其他注册行为的撤回",
+      "original_text": "5.8 首次申请后其他注册行为的撤回 对于首次申请后进行的补充申请、再注册等其他后续注 册行为： 申请人如需撤回某个正在受理或审评过程中的注册行 为，应提交一个新的序列用于撤回该注册行为中提交的所有 申报资料，使有效的eCTD 申报资料与该注册行为提交前保 持一致。 针对某个注册行为不予受理、不予批准或终止药品注册 审评审批的情况，申请人如对结果无异议，也需提交一个新 的序列，用于撤回该注册行为中提交的所有申报资料。 如申请人未提交撤回序列，会影响整套申报资料的生命 周期管理，从而导致后续提交申报资料的拒收。 提交此类序列时，其申请编号、申请类型、注册行为类 型应与当前注册行为保持一致，序列类型选择“撤回”。有关 撤回序列的生命周期操作要求请参见本文第6.3 章节。",
+      "normalized_text": "5.8 首次申请后其他注册行为的撤回 对于首次申请后进行的补充申请、再注册等其他后续注 册行为： 申请人如需撤回某个正在受理或审评过程中的注册行 为，应提交一个新的序列用于撤回该注册行为中提交的所有 申报资料，使有效的eCTD 申报资料与该注册行为提交前保 持一致。 针对某个注册行为不予受理、不予批准或终止药品注册 审评审批的情况，申请人如对结果无异议，也需提交一个新 的序列，用于撤回该注册行为中提交的所有申报资料。 如申请人未提交撤回序列，会影响整套申报资料的生命 周期管理，从而导致后续提交申报资料的拒收。 提交此类序列时，其申请编号、申请类型、注册行为类 型应与当前注册行为保持一致，序列类型选择“撤回”。有关 撤回序列的生命周期操作要求请参见本文第6.3 章节。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 317,
+        "citation_anchor": "reg_3454a11dabae#sec_5_8"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_6_1",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "6",
+      "chapter_no": 6,
+      "chapter_title": "文件生命周期的管理",
+      "article_no_raw": "6.1",
+      "article_no": 33,
+      "heading": "6.1 生命周期操作的基本要求",
+      "original_text": "6.1 生命周期操作的基本要求 执行“新建”操作时，其对应的文件必须包含在当前申请 中。 执行“替换”操作时，被替换文件必须在当前申请前序序 列中存在，替换后的文件必须在当前申请中存在。 执行“删除”操作时，被删除的文件必须在当前申请前序 序列中存在。 “增补”操作通常仅适用于对STF 的操作，对STF 进行增 补操作时，其被增补的对象必须是同一个研究的当前最新版 本的STF，更多有关STF 的操作要求请参考《ICH 研究标签 文件的eCTD 骨架文件技术规范V2.6.1》。不建议申请人对 申请中除STF 以外的其他文件进行“增补”操作。 针对同一个叶元素不能进行多次生命周期操作以避免 产生版本上的分支。例如，一个序列0000 中的叶元素不能在 序列0001 和0002 中同时被替换也不能在序列0001 中先被 替换再被删除等。",
+      "normalized_text": "6.1 生命周期操作的基本要求 执行“新建”操作时，其对应的文件必须包含在当前申请 中。 执行“替换”操作时，被替换文件必须在当前申请前序序 列中存在，替换后的文件必须在当前申请中存在。 执行“删除”操作时，被删除的文件必须在当前申请前序 序列中存在。 “增补”操作通常仅适用于对STF 的操作，对STF 进行增 补操作时，其被增补的对象必须是同一个研究的当前最新版 本的STF，更多有关STF 的操作要求请参考《ICH 研究标签 文件的eCTD 骨架文件技术规范V2.6.1》。不建议申请人对 申请中除STF 以外的其他文件进行“增补”操作。 针对同一个叶元素不能进行多次生命周期操作以避免 产生版本上的分支。例如，一个序列0000 中的叶元素不能在 序列0001 和0002 中同时被替换也不能在序列0001 中先被 替换再被删除等。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 336,
+        "citation_anchor": "reg_3454a11dabae#sec_6_1"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_6_2",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "6",
+      "chapter_no": 6,
+      "chapter_title": "文件生命周期的管理",
+      "article_no_raw": "6.2",
+      "article_no": 34,
+      "heading": "6.2 首次申请",
+      "original_text": "6.2 首次申请 针对一个申请的首次申请的首次提交，其序列号应为 0000，所有申报资料的生命周期操作类型均为“新建”。",
+      "normalized_text": "6.2 首次申请 针对一个申请的首次申请的首次提交，其序列号应为 0000，所有申报资料的生命周期操作类型均为“新建”。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 352,
+        "citation_anchor": "reg_3454a11dabae#sec_6_2"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_6_3",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "6",
+      "chapter_no": 6,
+      "chapter_title": "文件生命周期的管理",
+      "article_no_raw": "6.3",
+      "article_no": 35,
+      "heading": "6.3 撤回操作",
+      "original_text": "6.3 撤回操作 申请人在序列类型为“撤回”的序列中需进行以下操作： 1. 针对当前注册行为前序序列中新建的叶元素，需在 本次序列的骨架文件中进行删除操作。其中，说明 函、申请表除外，申请人应保留前序序列中的说明 函、申请表，并在本次序列中创建新的说明函。 2. 针对当前注册行为前序序列中替换的文件，需替换 回前序序列中被替换的文件，申请人应在对应叶元 素中引用前序序列已经提交的文件路径，不应上传 新的文件。 3. 针对当前注册行为前序序列中删除的叶元素，需在 原位置新建叶元素，并引用前序序列中对应的文件 路径，并保持叶元素标题等属性的一致性。 4. 在撤回序列中，对模块四中的4.2.X 章节或模块五中 的5.3.1.X 至5.3.5.X 章节的文件进行新建和替换操 作，均需生成对应的STF；进行删除操作，无需生 成对应的STF。",
+      "normalized_text": "6.3 撤回操作 申请人在序列类型为“撤回”的序列中需进行以下操作： 1. 针对当前注册行为前序序列中新建的叶元素，需在 本次序列的骨架文件中进行删除操作。其中，说明 函、申请表除外，申请人应保留前序序列中的说明 函、申请表，并在本次序列中创建新的说明函。 2. 针对当前注册行为前序序列中替换的文件，需替换 回前序序列中被替换的文件，申请人应在对应叶元 素中引用前序序列已经提交的文件路径，不应上传 新的文件。 3. 针对当前注册行为前序序列中删除的叶元素，需在 原位置新建叶元素，并引用前序序列中对应的文件 路径，并保持叶元素标题等属性的一致性。 4. 在撤回序列中，对模块四中的4.2.X 章节或模块五中 的5.3.1.X 至5.3.5.X 章节的文件进行新建和替换操 作，均需生成对应的STF；进行删除操作，无需生 成对应的STF。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 355,
+        "citation_anchor": "reg_3454a11dabae#sec_6_3"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_6_4",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "6",
+      "chapter_no": 6,
+      "chapter_title": "文件生命周期的管理",
+      "article_no_raw": "6.4",
+      "article_no": 36,
+      "heading": "6.4 特定文件的生命周期定义",
+      "original_text": "6.4 特定文件的生命周期定义 针对模块一1.0 章节中的说明函文件，其生命周期操作 类型应始终为“新建”。 针对模块一1.2 章节中的申请表文件，在补正资料时要 求修改申请表的情况下，其生命周期操作类型可为“替换”； 其他情况下，其生命周期操作类型应始终为“新建”。",
+      "normalized_text": "6.4 特定文件的生命周期定义 针对模块一1.0 章节中的说明函文件，其生命周期操作 类型应始终为“新建”。 针对模块一1.2 章节中的申请表文件，在补正资料时要 求修改申请表的情况下，其生命周期操作类型可为“替换”； 其他情况下，其生命周期操作类型应始终为“新建”。",
+      "clause_type": "definition",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 372,
+        "citation_anchor": "reg_3454a11dabae#sec_6_4"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_6_5",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "6",
+      "chapter_no": 6,
+      "chapter_title": "文件生命周期的管理",
+      "article_no_raw": "6.5",
+      "article_no": 37,
+      "heading": "6.5 并行变更的要求",
+      "original_text": "6.5 并行变更的要求 在多个注册行为同时提交进行审评的情况下，申请人应 注意在对申报资料中的文件进行生命周期操作或复用时，不 得引用未被监管机构批准的内容。",
+      "normalized_text": "6.5 并行变更的要求 在多个注册行为同时提交进行审评的情况下，申请人应 注意在对申报资料中的文件进行生命周期操作或复用时，不 得引用未被监管机构批准的内容。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 378,
+        "citation_anchor": "reg_3454a11dabae#sec_6_5"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_6_6",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "6",
+      "chapter_no": 6,
+      "chapter_title": "文件生命周期的管理",
+      "article_no_raw": "6.6",
+      "article_no": 38,
+      "heading": "6.6 eCTD 骨架属性的变更管理",
+      "original_text": "6.6 eCTD 骨架属性的变更管理 ICH eCTD DTD 中定义了模块二至模块五部分章节的选 填属性和必填属性（例如2.3.S 及3.2.S 中的活性成分及生产 商为必填属性，2.3.P 及3.2.P 中的产品名称、剂型、生产商 为选填属性）。这些属性是为了对该特定章节的内容进行简 单有用的描述，以便于对内容进行区分和分组。如需更新属 性值，必须删除已有的2.3.S 和3.2.S 章节内容，并在新的 2.3.S 和3.2.S 章节中提交全部相关资料。 根据《ICH eCTD IWG 问题解答和规范变更要求文件 V1.31》第66 条，“活性成分”属性主要是为了区分复方制剂 中不同的原料药，建议使用通用名称。“生产商”属性是为了 在原料药有不同生产商的情况下利于对生命周期进行管理， 如果申请人认为不需要对各生产商区分不同的3.2.S 章节， 可使用“所有”或“申请人”或“未指定”的属性值，后续变更生 产商时，可以在不变更属性值的情况下对申报资料内容进行 更新。 7. 对eCTD 申报资料文件的要求",
+      "normalized_text": "6.6 eCTD 骨架属性的变更管理 ICH eCTD DTD 中定义了模块二至模块五部分章节的选 填属性和必填属性（例如2.3.S 及3.2.S 中的活性成分及生产 商为必填属性，2.3.P 及3.2.P 中的产品名称、剂型、生产商 为选填属性）。这些属性是为了对该特定章节的内容进行简 单有用的描述，以便于对内容进行区分和分组。如需更新属 性值，必须删除已有的2.3.S 和3.2.S 章节内容，并在新的 2.3.S 和3.2.S 章节中提交全部相关资料。 根据《ICH eCTD IWG 问题解答和规范变更要求文件 V1.31》第66 条，“活性成分”属性主要是为了区分复方制剂 中不同的原料药，建议使用通用名称。“生产商”属性是为了 在原料药有不同生产商的情况下利于对生命周期进行管理， 如果申请人认为不需要对各生产商区分不同的3.2.S 章节， 可使用“所有”或“申请人”或“未指定”的属性值，后续变更生 产商时，可以在不变更属性值的情况下对申报资料内容进行 更新。 7. 对eCTD 申报资料文件的要求",
+      "clause_type": "scope",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 382,
+        "citation_anchor": "reg_3454a11dabae#sec_6_6"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "api_supporting_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_7_1",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "7",
+      "chapter_no": 7,
+      "chapter_title": "",
+      "article_no_raw": "7.1",
+      "article_no": 39,
+      "heading": "7.1 外文在提交资料中的要求",
+      "original_text": "7.1 外文在提交资料中的要求 申请人提交的全部申报资料应当使用中文并附原文，其 他文种的资料可附后作为参考，中文译文应当与原文内容一 致。临床试验数据递交要求请参见《药物临床试验数据递交 指导原则（试行）》。语言属性设置为外文的参考资料将不 受某些eCTD 验证标准的约束，详见《eCTD 验证标准V1.0》 章节6-PDF 分析。 更多有关外文资料提交的技术要求请参见《eCTD 技术 规范V1.0》第3.5 章节。",
+      "normalized_text": "7.1 外文在提交资料中的要求 申请人提交的全部申报资料应当使用中文并附原文，其 他文种的资料可附后作为参考，中文译文应当与原文内容一 致。临床试验数据递交要求请参见《药物临床试验数据递交 指导原则（试行）》。语言属性设置为外文的参考资料将不 受某些eCTD 验证标准的约束，详见《eCTD 验证标准V1.0》 章节6-PDF 分析。 更多有关外文资料提交的技术要求请参见《eCTD 技术 规范V1.0》第3.5 章节。",
+      "clause_type": "obligation",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 399,
+        "citation_anchor": "reg_3454a11dabae#sec_7_1"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier",
+          "clinical_trial_materials"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_7_2",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "7",
+      "chapter_no": 7,
+      "chapter_title": "",
+      "article_no_raw": "7.2",
+      "article_no": 40,
+      "heading": "7.2 文件格式、版本及OCR 的要求",
+      "original_text": "7.2 文件格式、版本及OCR 的要求 制作eCTD 申报资料时，申请人应根据《eCTD 技术规 范V1.0》第3.3.1 章节的要求选择正确的文件格式。针对PDF 格式的文件，其版本应为1.4、1.5、1.6、1.7 或PDF/A-1、 PDF/A-2。 PDF 文件中的内容需要符合可复制、可搜索的要求，建 议申请人使用由源文件（如WORD 文件）转化形成的PDF 文件，而不是扫描后创建的PDF 文件。 如申报资料包含无法访问电子来源的文件或需要第三 方签章的文件，该部分资料可以是扫描后创建的PDF 文件。 扫描后创建的PDF 文件属于纸质文件的数字转化，建议参考 中华人民共和国档案行业标准《纸质档案数字化规范》 （DA/T 31—2017）有关要求。对于上述需要扫描后创建的PDF 文件， 应启动光学字符识别（OCR）功能，确保内容可复制、可搜 索。 申请人可通过以下操作检查确认内容已正确转换：一是 突出显示某一文本区域；二是检索某个词或短语。若未能突 出显示文本区域或检索结果中未能显示词或短语，则证明 OCR 并未识别该文本。",
+      "normalized_text": "7.2 文件格式、版本及OCR 的要求 制作eCTD 申报资料时，申请人应根据《eCTD 技术规 范V1.0》第3.3.1 章节的要求选择正确的文件格式。针对PDF 格式的文件，其版本应为1.4、1.5、1.6、1.7 或PDF/A-1、 PDF/A-2。 PDF 文件中的内容需要符合可复制、可搜索的要求，建 议申请人使用由源文件（如WORD 文件）转化形成的PDF 文件，而不是扫描后创建的PDF 文件。 如申报资料包含无法访问电子来源的文件或需要第三 方签章的文件，该部分资料可以是扫描后创建的PDF 文件。 扫描后创建的PDF 文件属于纸质文件的数字转化，建议参考 中华人民共和国档案行业标准《纸质档案数字化规范》 （DA/T 31—2017）有关要求。对于上述需要扫描后创建的PDF 文件， 应启动光学字符识别（OCR）功能，确保内容可复制、可搜 索。 申请人可通过以下操作检查确认内容已正确转换：一是 突出显示某一文本区域；二是检索某个词或短语。若未能突 出显示文本区域或检索结果中未能显示词或短语，则证明 OCR 并未识别该文本。",
+      "clause_type": "scope",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 408,
+        "citation_anchor": "reg_3454a11dabae#sec_7_2"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_7_3",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "7",
+      "chapter_no": 7,
+      "chapter_title": "",
+      "article_no_raw": "7.3",
+      "article_no": 41,
+      "heading": "7.3 页码编制的要求",
+      "original_text": "7.3 页码编制的要求 页码编制要求请参考《ICH eCTD 文件格式规范V1.2》。",
+      "normalized_text": "7.3 页码编制的要求 页码编制要求请参考《ICH eCTD 文件格式规范V1.2》。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 428,
+        "citation_anchor": "reg_3454a11dabae#sec_7_3"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": []
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_7_4",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "7",
+      "chapter_no": 7,
+      "chapter_title": "",
+      "article_no_raw": "7.4",
+      "article_no": 42,
+      "heading": "7.4 书签与超文本链接的要求",
+      "original_text": "7.4 书签与超文本链接的要求 申请人应对中文申报资料在文件内部和文件之间建立 书签和适当的超文本链接。基线类型的注册行为对书签和超 文本链接不做要求。其他有关书签与超文本链接的具体要求 请参考《eCTD 技术规范V1.0》第3.4 章节。",
+      "normalized_text": "7.4 书签与超文本链接的要求 申请人应对中文申报资料在文件内部和文件之间建立 书签和适当的超文本链接。基线类型的注册行为对书签和超 文本链接不做要求。其他有关书签与超文本链接的具体要求 请参考《eCTD 技术规范V1.0》第3.4 章节。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 430,
+        "citation_anchor": "reg_3454a11dabae#sec_7_4"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_7_5",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "7",
+      "chapter_no": 7,
+      "chapter_title": "",
+      "article_no_raw": "7.5",
+      "article_no": 43,
+      "heading": "7.5 对文件压缩、加密的要求",
+      "original_text": "7.5 对文件压缩、加密的要求 申请人不得对提交的申报资料中的文件进行任何压缩 处理。 申请人不得对提交的媒体介质以及申报资料中任何级 别的单个文件/文件夹进行安全设置或密码保护。文件设置应 允许打印及文本和图形选择，第2.7.5、3.3、4.3、5.4 章节除 外。 申请人提交的eCTD 申报资料需按照《ICH eCTD 技术 规范V3.2.2》要求，使用MD5 加密算法生成校验和并记录 在骨架文件和文本文件中，以便监管机构确认申报资料的完 整性和合法性。",
+      "normalized_text": "7.5 对文件压缩、加密的要求 申请人不得对提交的申报资料中的文件进行任何压缩 处理。 申请人不得对提交的媒体介质以及申报资料中任何级 别的单个文件/文件夹进行安全设置或密码保护。文件设置应 允许打印及文本和图形选择，第2.7.5、3.3、4.3、5.4 章节除 外。 申请人提交的eCTD 申报资料需按照《ICH eCTD 技术 规范V3.2.2》要求，使用MD5 加密算法生成校验和并记录 在骨架文件和文本文件中，以便监管机构确认申报资料的完 整性和合法性。",
+      "clause_type": "prohibition",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 435,
+        "citation_anchor": "reg_3454a11dabae#sec_7_5"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_7_6",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "7",
+      "chapter_no": 7,
+      "chapter_title": "",
+      "article_no_raw": "7.6",
+      "article_no": 44,
+      "heading": "7.6 文件大小的要求",
+      "original_text": "7.6 文件大小的要求 申请人需控制申报资料中单个PDF文件在500MB 以内。 针对大于500MB 的文件，建议申请人按照内容进行拆分，并 通过标题名称来反映原文件被拆分，例如：文件标题-1、文 件标题-2 等。 单个临床数据集文件（xpt 格式）最大可允许4GB。",
+      "normalized_text": "7.6 文件大小的要求 申请人需控制申报资料中单个PDF文件在500MB 以内。 针对大于500MB 的文件，建议申请人按照内容进行拆分，并 通过标题名称来反映原文件被拆分，例如：文件标题-1、文 件标题-2 等。 单个临床数据集文件（xpt 格式）最大可允许4GB。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 446,
+        "citation_anchor": "reg_3454a11dabae#sec_7_6"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_7_7",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "7",
+      "chapter_no": 7,
+      "chapter_title": "",
+      "article_no_raw": "7.7",
+      "article_no": 45,
+      "heading": "7.7 电子签名的要求",
+      "original_text": "7.7 电子签名的要求 申请人需对eCTD 申报资料中的所有PDF 文件使用申 请人或注册代理机构的电子签名，对申请表还需使用法定代 表人的电子签名。电子签名的申领和使用详见药审中心网站 CA 直通车。 药审中心将对eCTD 申报资料中“1.0 说明函（含自查表）、",
+      "normalized_text": "7.7 电子签名的要求 申请人需对eCTD 申报资料中的所有PDF 文件使用申 请人或注册代理机构的电子签名，对申请表还需使用法定代 表人的电子签名。电子签名的申领和使用详见药审中心网站 CA 直通车。 药审中心将对eCTD 申报资料中“1.0 说明函（含自查表）、",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 452,
+        "citation_anchor": "reg_3454a11dabae#sec_7_7"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    },
+    {
+      "clause_id": "reg_3454a11dabae:sec_1_2",
+      "regulation_id": "reg_3454a11dabae",
+      "regulation_title": "eCTD实施指南",
+      "version_label": "unknown",
+      "chapter_no_raw": "1",
+      "chapter_no": 1,
+      "chapter_title": "概述",
+      "article_no_raw": "1.2",
+      "article_no": 46,
+      "heading": "1.2 适用范围",
+      "original_text": "1.2 申请表、1.3.8 产品相关证明性文件（如适用）、1.10 上 市后变更（如适用）、1.11 申请人/生产企业证明性文件、1.12 小微企业证明文件（如适用）”章节内的所有PDF 文件进行 电子签名校验，校验不通过的eCTD 申报资料将会被拒收。",
+      "normalized_text": "1.2 申请表、1.3.8 产品相关证明性文件（如适用）、1.10 上 市后变更（如适用）、1.11 申请人/生产企业证明性文件、1.12 小微企业证明文件（如适用）”章节内的所有PDF 文件进行 电子签名校验，校验不通过的eCTD 申报资料将会被拒收。",
+      "clause_type": "procedure",
+      "source_path": "D:\\AutoIND-Pro\\ind-compliance-ai\\data\\regulations\\eCTD实施指南.pdf",
+      "source_filename": "eCTD实施指南.pdf",
+      "source_locator": {
+        "line_index": 458,
+        "citation_anchor": "reg_3454a11dabae#sec_1_2"
+      },
+      "classification": {
+        "ind_relevance": "low",
+        "material_checkability": "external_only",
+        "recommended_rule_mode": "citation_only",
+        "automation_ready": false,
+        "candidate_reason": "Regulation clause is better used as citation/background because it is not reliably decidable from dossier content alone.",
+        "expected_material_evidence": [
+          "general_registration_dossier"
+        ]
+      }
+    }
+  ]
+}

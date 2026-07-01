@@ -286,12 +286,18 @@ class PdfPipelineCounters:
     toc_block_count: int = 0
     semantic_merge_count: int = 0
     image_text_recovered_count: int = 0
+    full_page_ocr_recovered_count: int = 0
+    image_text_ocr_skipped_count: int = 0
+    embedded_image_table_ocr_skipped_count: int = 0
     rejected_table_candidates: int = 0
     table_fragment_merge_count: int = 0
     duplicate_image_blocks_removed: int = 0
     header_footer_filtered_count: int = 0
     table_text_suppressed_count: int = 0
     cross_page_table_links: int = 0
+    region_candidate_count: int = 0
+    region_ownership_decision_count: int = 0
+    region_node_count: int = 0
 
 
 @dataclass(slots=True)
@@ -300,6 +306,10 @@ class PdfPipelineState:
     table_asts: list[dict[str, Any]] = field(default_factory=list)
     toc_nodes: list[dict[str, Any]] = field(default_factory=list)
     figure_nodes: list[dict[str, Any]] = field(default_factory=list)
+    external_region_candidates: list[Any] = field(default_factory=list)
+    region_candidates: list[dict[str, Any]] = field(default_factory=list)
+    ownership_decisions: list[dict[str, Any]] = field(default_factory=list)
+    region_nodes: list[dict[str, Any]] = field(default_factory=list)
     page_heights: dict[int, float] = field(default_factory=dict)
     embedded_outline_count: int = 0
     embedded_outline_depth: int = 0
@@ -315,4 +325,5 @@ class PdfPipelineState:
     non_link_annotation_count: int = 0
     non_link_annotation_types: list[str] = field(default_factory=list)
     counters: PdfPipelineCounters = field(default_factory=PdfPipelineCounters)
+    stage_timings: dict[str, float] = field(default_factory=dict)
 

@@ -24,6 +24,183 @@ from parsers.pdf_parser import parse_pdf
 from parsers.pdf.table_contracts import summarize_document_tables
 
 
+def _format_reason_counts(reason_counts: dict[str, Any]) -> str:
+    if not isinstance(reason_counts, dict) or not reason_counts:
+        return ""
+    items = []
+    for reason in sorted(reason_counts):
+        value = reason_counts.get(reason)
+        try:
+            count = int(value or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count > 0:
+            items.append(f"{reason}={count}")
+    return ", ".join(items)
+
+
+def _int_metric(payload: dict[str, Any], key: str) -> int:
+    try:
+        return int(payload.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _document_key(record: dict[str, Any]) -> str:
+    return str(record.get("file") or record.get("filename") or record.get("file_id") or "").strip()
+
+
+def _markdown_audit_summary(record: dict[str, Any]) -> dict[str, Any]:
+    summary = record.get("markdown_rendering_audit_summary") or {}
+    return summary if isinstance(summary, dict) else {}
+
+
+def _markdown_rendering_audit_failure_meta(metric: str) -> dict[str, str]:
+    metric = str(metric or "").strip()
+    if metric == "total_markdown_suppressed_blocks":
+        return {"category": "global_total_drop", "severity": "high"}
+    if metric.startswith("markdown_suppression_reason_counts."):
+        return {"category": "global_reason_drop", "severity": "medium"}
+    if metric == "documents.markdown_suppressed_blocks":
+        return {"category": "document_total_drop", "severity": "high"}
+    if metric.startswith("documents.markdown_suppression_reason_counts."):
+        return {"category": "document_reason_drop", "severity": "medium"}
+    return {"category": "unknown", "severity": "low"}
+
+
+def _failure_field_counts(failures: list[Any], field: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for failure in failures or []:
+        if not isinstance(failure, dict):
+            continue
+        value = str(failure.get(field) or "").strip()
+        if not value:
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    return {value: counts[value] for value in sorted(counts)}
+
+
+def _failure_sort_key(failure: dict[str, Any]) -> tuple[int, str, str, str]:
+    severity_rank = {
+        "high": 0,
+        "medium": 1,
+        "low": 2,
+        "unknown": 3,
+    }
+    severity = str(failure.get("severity") or "").strip() or "unknown"
+    category = str(failure.get("category") or "").strip()
+    file_key = str(failure.get("file") or "").strip()
+    metric = str(failure.get("metric") or "").strip()
+    return (severity_rank.get(severity, 4), category, file_key, metric)
+
+
+def _compare_markdown_rendering_audit_baseline(
+    current_report: dict[str, Any],
+    baseline_report: dict[str, Any],
+) -> dict[str, Any]:
+    current_summary = current_report.get("summary") or {}
+    baseline_summary = baseline_report.get("summary") or {}
+    current_summary = current_summary if isinstance(current_summary, dict) else {}
+    baseline_summary = baseline_summary if isinstance(baseline_summary, dict) else {}
+    failures: list[dict[str, int | str]] = []
+
+    baseline_total = _int_metric(baseline_summary, "total_markdown_suppressed_blocks")
+    current_total = _int_metric(current_summary, "total_markdown_suppressed_blocks")
+    if current_total < baseline_total:
+        meta = _markdown_rendering_audit_failure_meta("total_markdown_suppressed_blocks")
+        failures.append(
+            {
+                "metric": "total_markdown_suppressed_blocks",
+                **meta,
+                "baseline": baseline_total,
+                "current": current_total,
+                "delta": current_total - baseline_total,
+            }
+        )
+
+    current_reasons = current_summary.get("markdown_suppression_reason_counts") or {}
+    baseline_reasons = baseline_summary.get("markdown_suppression_reason_counts") or {}
+    current_reasons = current_reasons if isinstance(current_reasons, dict) else {}
+    baseline_reasons = baseline_reasons if isinstance(baseline_reasons, dict) else {}
+    for reason in sorted(str(item).strip() for item in baseline_reasons if str(item).strip()):
+        baseline_count = _int_metric(baseline_reasons, reason)
+        current_count = _int_metric(current_reasons, reason)
+        if current_count < baseline_count:
+            meta = _markdown_rendering_audit_failure_meta(f"markdown_suppression_reason_counts.{reason}")
+            failures.append(
+                {
+                    "metric": f"markdown_suppression_reason_counts.{reason}",
+                    **meta,
+                    "baseline": baseline_count,
+                    "current": current_count,
+                    "delta": current_count - baseline_count,
+                }
+            )
+
+    current_documents = {
+        _document_key(record): record
+        for record in current_report.get("documents", []) or []
+        if isinstance(record, dict) and _document_key(record)
+    }
+    baseline_documents = [
+        record
+        for record in baseline_report.get("documents", []) or []
+        if isinstance(record, dict) and _document_key(record)
+    ]
+    for baseline_document in baseline_documents:
+        file_key = _document_key(baseline_document)
+        current_document = current_documents.get(file_key, {})
+        baseline_audit = _markdown_audit_summary(baseline_document)
+        current_audit = _markdown_audit_summary(current_document) if isinstance(current_document, dict) else {}
+
+        baseline_doc_total = _int_metric(baseline_audit, "suppressed_block_count")
+        current_doc_total = _int_metric(current_audit, "suppressed_block_count")
+        if current_doc_total < baseline_doc_total:
+            meta = _markdown_rendering_audit_failure_meta("documents.markdown_suppressed_blocks")
+            failures.append(
+                {
+                    "metric": "documents.markdown_suppressed_blocks",
+                    **meta,
+                    "file": file_key,
+                    "baseline": baseline_doc_total,
+                    "current": current_doc_total,
+                    "delta": current_doc_total - baseline_doc_total,
+                }
+            )
+
+        baseline_doc_reasons = baseline_audit.get("reason_counts") or {}
+        current_doc_reasons = current_audit.get("reason_counts") or {}
+        baseline_doc_reasons = baseline_doc_reasons if isinstance(baseline_doc_reasons, dict) else {}
+        current_doc_reasons = current_doc_reasons if isinstance(current_doc_reasons, dict) else {}
+        for reason in sorted(str(item).strip() for item in baseline_doc_reasons if str(item).strip()):
+            baseline_count = _int_metric(baseline_doc_reasons, reason)
+            current_count = _int_metric(current_doc_reasons, reason)
+            if current_count < baseline_count:
+                meta = _markdown_rendering_audit_failure_meta(
+                    f"documents.markdown_suppression_reason_counts.{reason}"
+                )
+                failures.append(
+                    {
+                        "metric": f"documents.markdown_suppression_reason_counts.{reason}",
+                        **meta,
+                        "file": file_key,
+                        "baseline": baseline_count,
+                        "current": current_count,
+                        "delta": current_count - baseline_count,
+                    }
+                )
+
+    failures.sort(key=_failure_sort_key)
+    return {
+        "baseline_id": str(baseline_report.get("baseline_id") or "markdown_rendering_audit_baseline"),
+        "passed": not failures,
+        "category_counts": _failure_field_counts(failures, "category"),
+        "severity_counts": _failure_field_counts(failures, "severity"),
+        "top_failures": failures[:5],
+        "failures": failures,
+    }
+
+
 def _discover_pdfs(input_path: Path, glob_pattern: str) -> list[Path]:
     if input_path.is_file():
         return [input_path] if input_path.suffix.lower() == ".pdf" else []
@@ -48,6 +225,7 @@ def _doc_record(pdf_path: Path) -> dict[str, Any]:
     metadata = result.get("metadata", {})
     table_asts = result.get("table_asts", []) or []
     table_contract = summarize_document_tables(result)
+    from api.main import _build_markdown_rendering_audit_summary
 
     return {
         "file": str(pdf_path),
@@ -67,6 +245,7 @@ def _doc_record(pdf_path: Path) -> dict[str, Any]:
         "continuation_similarity_max": metadata.get("continuation_similarity_max"),
         "table_confidence_stats": _table_conf_stats(table_asts),
         "table_contract": table_contract,
+        "markdown_rendering_audit_summary": _build_markdown_rendering_audit_summary([result]),
     }
 
 
@@ -82,11 +261,27 @@ def _aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
             "total_cross_page_links": 0,
             "total_review_required_tables": 0,
             "total_low_confidence_tables": 0,
+            "total_possible_missing_content_tables": 0,
+            "total_possible_missing_content_candidates": 0,
+            "total_markdown_suppressed_blocks": 0,
+            "markdown_suppression_reason_counts": {},
             "acceptance_rate": None,
         }
 
     total_raw = sum(r["raw_table_candidates"] for r in records)
     total_accepted = sum(r["accepted_table_candidates"] for r in records)
+    markdown_reason_counts: dict[str, int] = {}
+    total_markdown_suppressed_blocks = 0
+    for record in records:
+        audit_summary = record.get("markdown_rendering_audit_summary") or {}
+        if not isinstance(audit_summary, dict):
+            continue
+        total_markdown_suppressed_blocks += int(audit_summary.get("suppressed_block_count") or 0)
+        for reason, count in (audit_summary.get("reason_counts") or {}).items():
+            reason = str(reason).strip()
+            if not reason:
+                continue
+            markdown_reason_counts[reason] = markdown_reason_counts.get(reason, 0) + int(count or 0)
     return {
         "documents": len(records),
         "total_pages": sum(r["page_count"] for r in records),
@@ -99,6 +294,12 @@ def _aggregate(records: list[dict[str, Any]]) -> dict[str, Any]:
         "total_low_confidence_tables": sum(r["low_confidence_table_count"] for r in records),
         "total_possible_missing_content_tables": sum(r["possible_missing_content_table_count"] for r in records),
         "total_possible_missing_content_candidates": sum(r["possible_missing_content_candidate_count"] for r in records),
+        "total_markdown_suppressed_blocks": total_markdown_suppressed_blocks,
+        "markdown_suppression_reason_counts": {
+            reason: markdown_reason_counts[reason]
+            for reason in sorted(markdown_reason_counts)
+            if markdown_reason_counts[reason] > 0
+        },
         "acceptance_rate": round(total_accepted / total_raw, 4) if total_raw else None,
     }
 
@@ -125,6 +326,10 @@ def _render_markdown(report: dict[str, Any]) -> str:
     lines.append(f"- Low-Confidence Tables: `{summary.get('total_low_confidence_tables')}`")
     lines.append(f"- Possible Missing Content Tables: `{summary.get('total_possible_missing_content_tables')}`")
     lines.append(f"- Missing Content Candidates: `{summary.get('total_possible_missing_content_candidates')}`")
+    lines.append(f"- Markdown Suppressed Blocks: `{summary.get('total_markdown_suppressed_blocks')}`")
+    lines.append(
+        f"- Markdown Suppression Reasons: `{_format_reason_counts(summary.get('markdown_suppression_reason_counts') or {})}`"
+    )
     lines.append(f"- Acceptance Rate: `{summary.get('acceptance_rate')}`")
     lines.append("")
     lines.append("## Documents")
@@ -162,6 +367,65 @@ def _render_markdown(report: dict[str, Any]) -> str:
             f"{fingerprints} |"
         )
 
+    lines.append("")
+    lines.append("## Markdown Rendering Audit Summary")
+    lines.append("")
+    lines.append("| File | Suppressed Blocks | Reason Counts |")
+    lines.append("| --- | ---: | --- |")
+    for item in docs:
+        audit_summary = item.get("markdown_rendering_audit_summary") or {}
+        reason_counts = audit_summary.get("reason_counts") if isinstance(audit_summary, dict) else {}
+        suppressed_blocks = audit_summary.get("suppressed_block_count") if isinstance(audit_summary, dict) else 0
+        lines.append(
+            f"| {item.get('file')} | {int(suppressed_blocks or 0)} | "
+            f"{_format_reason_counts(reason_counts or {})} |"
+        )
+
+    regression = report.get("markdown_rendering_audit_regression")
+    if isinstance(regression, dict):
+        lines.append("")
+        lines.append("## Markdown Rendering Audit Regression Guard")
+        lines.append("")
+        lines.append(f"- Baseline: `{regression.get('baseline_id')}`")
+        lines.append(f"- Passed: `{regression.get('passed')}`")
+        failures = regression.get("failures") or []
+        category_counts = regression.get("category_counts")
+        if not isinstance(category_counts, dict):
+            category_counts = _failure_field_counts(failures, "category")
+        severity_counts = regression.get("severity_counts")
+        if not isinstance(severity_counts, dict):
+            severity_counts = _failure_field_counts(failures, "severity")
+        lines.append(f"- Failure Categories: `{_format_reason_counts(category_counts)}`")
+        lines.append(f"- Failure Severities: `{_format_reason_counts(severity_counts)}`")
+        top_failures = regression.get("top_failures")
+        if not isinstance(top_failures, list):
+            top_failures = failures[:5] if isinstance(failures, list) else []
+        if top_failures:
+            lines.append("")
+            lines.append("### Top Failures")
+            lines.append("")
+            lines.append("| File | Category | Severity | Metric | Delta |")
+            lines.append("| --- | --- | --- | --- | ---: |")
+            for failure in top_failures:
+                if not isinstance(failure, dict):
+                    continue
+                lines.append(
+                    f"| {failure.get('file') or ''} | {failure.get('category') or ''} | "
+                    f"{failure.get('severity') or ''} | {failure.get('metric')} | {failure.get('delta')} |"
+                )
+        if failures:
+            lines.append("")
+            lines.append("| File | Category | Severity | Metric | Baseline | Current | Delta |")
+            lines.append("| --- | --- | --- | --- | ---: | ---: | ---: |")
+            for failure in failures:
+                if not isinstance(failure, dict):
+                    continue
+                lines.append(
+                    f"| {failure.get('file') or ''} | {failure.get('category') or ''} | "
+                    f"{failure.get('severity') or ''} | {failure.get('metric')} | {failure.get('baseline')} | "
+                    f"{failure.get('current')} | {failure.get('delta')} |"
+                )
+
     errors = report.get("errors", [])
     if errors:
         lines.append("")
@@ -178,6 +442,11 @@ def main() -> int:
     parser.add_argument("--glob", default="*.pdf", help="Glob pattern used when input is a directory.")
     parser.add_argument("--output", default="", help="Output JSON path. Default writes to output/reports.")
     parser.add_argument("--markdown-output", default="", help="Optional output Markdown path.")
+    parser.add_argument(
+        "--markdown-rendering-audit-baseline-json",
+        default="",
+        help="Optional baseline report JSON for markdown rendering audit suppression drift guard.",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input).resolve()
@@ -204,6 +473,13 @@ def main() -> int:
         "documents": records,
         "errors": errors,
     }
+    if args.markdown_rendering_audit_baseline_json:
+        baseline_path = Path(args.markdown_rendering_audit_baseline_json).resolve()
+        baseline_report = json.loads(baseline_path.read_text(encoding="utf-8"))
+        report["markdown_rendering_audit_regression"] = _compare_markdown_rendering_audit_baseline(
+            report,
+            baseline_report,
+        )
 
     if args.output:
         out_path = Path(args.output).resolve()
@@ -221,6 +497,13 @@ def main() -> int:
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(_render_markdown(report), encoding="utf-8")
     print(f"Markdown summary written to: {md_path}")
+    regression = report.get("markdown_rendering_audit_regression")
+    if isinstance(regression, dict) and not regression.get("passed", True):
+        print(
+            "Markdown rendering audit regression guard failed: "
+            + json.dumps(regression.get("failures") or [], ensure_ascii=False)
+        )
+        return 2
     return 0
 
 
