@@ -589,6 +589,8 @@ def _build_document_summary(
         "source_type": document.get("source_type"),
         "source_path": document.get("source_path"),
         "classification": classification,
+        "submission_scope_kind": document.get("submission_scope_kind"),
+        "document_scope_kind": document.get("document_scope_kind"),
         "ectd_submission_metadata": ectd_submission_metadata,
         "summary": {
             "page_count": int(metadata.get("page_count", 0) or 0),

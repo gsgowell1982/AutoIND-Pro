@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ectd:ectd xmlns:ectd="http://www.ich.org/ectd" xmlns:xlink="http://www.w3c.org/1999/xlink" dtd-version="3.2" xlink:xlink="http://www.w3c.org/1999/xlink">
+  <ectd:m2-common-technical-document-summaries>
+    <ectd:m2-3-s-drug-substance substance="API-A" manufacturer="MFR-X" />
+    <ectd:m2-3-s-drug-substance substance="API-A" manufacturer="MFR-Y2">
+      <ectd:leaf ID="s002" operation="delete" checksum="abc123" checksum-type="md5" modified-file="s002">
+        <ectd:title>API-A-Y.pdf</ectd:title>
+      </ectd:leaf>
+      <ectd:leaf ID="s004" operation="new" checksum="abc123" checksum-type="md5" xlink:href="m2/23s/a-y2.pdf">
+        <ectd:title>API-A-Y2.pdf</ectd:title>
+      </ectd:leaf>
+    </ectd:m2-3-s-drug-substance>
+    <ectd:m2-3-s-drug-substance substance="API-C" manufacturer="MFR-W">
+      <ectd:leaf ID="s005" operation="new" checksum="abc123" checksum-type="md5" xlink:href="m2/23s/c-w.pdf">
+        <ectd:title>API-C-W.pdf</ectd:title>
+      </ectd:leaf>
+    </ectd:m2-3-s-drug-substance>
+  </ectd:m2-common-technical-document-summaries>
+</ectd:ectd>

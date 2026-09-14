@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autoind.local/schemas/ectd/ectd_file_reuse_contract.schema.json",
+  "title": "eCTD file reuse and lifecycle contract",
+  "type": "object",
+  "required": ["schema_version", "policy_precedence", "china_regional_policy", "reuse_modes", "lifecycle_operations", "operation_constraints", "source_references"],
+  "properties": {
+    "schema_version": {"const": "ectd-file-reuse-contract-v1"},
+    "policy_precedence": {"type": "string"},
+    "china_regional_policy": {"type": "object"},
+    "reuse_modes": {"type": "object"},
+    "lifecycle_operations": {"type": "array", "items": {"enum": ["new", "replace", "append", "delete"]}, "minItems": 4, "uniqueItems": true},
+    "operation_constraints": {"type": "object"},
+    "source_references": {"type": "object"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ind-compliance-ai.local/schemas/ectd/ectd-sequence-semantic-contract.schema.json",
+  "title": "eCTD Sequence Semantic Contract",
+  "type": "object",
+  "required": ["schema_version", "source", "sequence_number_policy", "scenarios", "relationship_policy", "sequence_quality_policy", "compatibility_matrix"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "ectd-sequence-semantic-contract-v1" },
+    "source": {
+      "type": "object",
+      "required": ["regulation_id", "source_clause_id", "table"],
+      "properties": {
+        "regulation_id": { "type": "string" },
+        "source_clause_id": { "type": "string" },
+        "table": { "type": "string" },
+        "source_locator": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "sequence_number_policy": {
+      "type": "object",
+      "required": ["format", "starts_at", "requires_contiguous_history", "example_range", "example_range_not_exhaustive"],
+      "properties": {
+        "format": { "type": "string" },
+        "starts_at": { "type": "string", "pattern": "^\\d{4}$" },
+        "requires_contiguous_history": { "type": "boolean" },
+        "example_range": { "type": "array", "minItems": 2, "items": { "type": "string", "pattern": "^\\d{4}$" } },
+        "example_range_not_exhaustive": { "type": "boolean", "const": true }
+      },
+      "additionalProperties": false
+    },
+    "scenarios": {
+      "type": "object",
+      "required": ["clinical_trial_application", "new_drug_application"],
+      "additionalProperties": {
+        "type": "object",
+        "required": ["application_type_code", "application_category", "source_table", "rows", "description_policy"],
+        "properties": {
+          "application_type_code": { "type": "string" },
+          "application_category": { "type": "string" },
+          "source_table": { "type": "string" },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["sequence_number", "related_sequence", "regulatory_activity_type_code", "sequence_type_code", "description_intent"],
+              "properties": {
+                "sequence_number": { "type": "string", "pattern": "^\\d{4}$" },
+                "related_sequence": { "type": "string", "pattern": "^\\d{4}$" },
+                "regulatory_activity_type_code": { "type": "string", "pattern": "^cnrat[1-9]$" },
+                "sequence_type_code": { "type": "string", "pattern": "^cnsqt[1-4]$" },
+                "description_intent": { "type": "string" },
+                "description_target_sequence": { "type": "string", "pattern": "^\\d{4}$" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "description_policy": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "relationship_policy": {
+      "type": "object",
+      "required": ["source_clause_id", "source_table", "authoritative_matrix", "examples_are_non_exhaustive"],
+      "properties": {
+        "source_clause_id": { "type": "string" },
+        "source_table": { "type": "string" },
+        "authoritative_matrix": { "type": "string" },
+        "examples_are_non_exhaustive": { "type": "boolean", "const": true },
+        "unlisted_but_matrix_compatible_is_allowed": { "type": "boolean" },
+        "incompatible_triplet_requires_manual_review": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "sequence_quality_policy": {
+      "type": "object",
+      "required": ["description_max_characters", "required_contact_fields", "prohibited_description_substitution_review"],
+      "properties": {
+        "description_max_characters": { "type": "integer", "const": 120 },
+        "required_contact_fields": { "type": "array", "const": ["name", "phone", "email"] },
+        "prohibited_description_substitution_review": { "type": "boolean", "const": true },
+        "prohibited_description_terms": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "controlled_vocabulary_refs": { "type": "object" },
+    "compatibility_matrix": {
+      "type": "object",
+      "required": ["matrix_name", "row_count", "rows"],
+      "properties": {
+        "matrix_name": { "type": "string" },
+        "version": { "type": "string" },
+        "row_count": { "type": "integer", "minimum": 0 },
+        "source_path": { "type": "string" },
+        "rows": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

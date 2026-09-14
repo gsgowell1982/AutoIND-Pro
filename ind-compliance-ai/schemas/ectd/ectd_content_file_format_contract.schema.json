@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ind-compliance-ai.local/schemas/ectd/ectd-content-file-format-contract.schema.json",
+  "title": "eCTD Content File Format Contract",
+  "type": "object",
+  "required": ["schema_version", "source", "allowed_content_extensions", "util_support_extensions", "metadata_files", "unknown_extension_action", "scope"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "ectd-content-file-format-contract-v1" },
+    "source": {
+      "type": "object",
+      "required": ["regulation_id", "clause", "source_path"],
+      "properties": {
+        "regulation_id": { "type": "string", "const": "cn_ectd_technical_specification" },
+        "clause": { "type": "string", "const": "3.3.1" },
+        "source_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "allowed_content_extensions": {
+      "type": "array",
+      "const": [".pdf", ".xml", ".xpt", ".txt", ".xsl"]
+    },
+    "util_support_extensions": {
+      "type": "array",
+      "const": [".dtd", ".xsd", ".xml", ".xsl", ".txt"]
+    },
+    "metadata_files": {
+      "type": "array",
+      "const": ["index.xml", "index-md5.txt"]
+    },
+    "unknown_extension_action": { "type": "string", "const": "fail" },
+    "scope": { "type": "string", "const": "project_inventory_and_declared_leaf_href" }
+  },
+  "additionalProperties": false
+}

@@ -27,6 +27,67 @@ export interface DemoSampleMetadata {
   evidence_boundary: string
 }
 
+export interface PackageInventory {
+  source_kind?: string
+  source_archive_sha256?: string
+  application_roots?: Array<{
+    name: string
+    relative_path: string
+    application_category?: string | null
+    application_year?: number | null
+    application_serial?: string | null
+    application_number_format_valid?: boolean
+    sequences?: Array<{ name: string; relative_path: string }>
+  }>
+  file_paths?: string[]
+  directory_paths?: string[]
+  files?: Array<Record<string, unknown>>
+  directories?: Array<Record<string, unknown>>
+}
+
+export interface ApplicationIdentityAssessment {
+  application_root_name: string
+  relative_path?: string
+  application_category?: string | null
+  application_number_format_valid?: boolean
+  status: 'supported' | 'conflict' | 'insufficient_evidence' | string
+  review_required: boolean
+  issue_codes: string[]
+  evidence: Array<Record<string, unknown>>
+  evidence_summary: {
+    strong_count: number
+    medium_count: number
+    weak_count: number
+    strong_categories: string[]
+  }
+  policy?: Record<string, unknown>
+  sequence_count?: number
+  controlled_vocabulary_checks?: Array<{
+    sequence_package_id?: string
+    sequence_number?: string
+    relative_path?: string
+    validation: Record<string, unknown>
+  }>
+  sequence_semantic_validation?: Record<string, unknown>
+}
+
+export interface ApplicationIdentityProjection {
+  enabled: boolean
+  rule_id: string
+  basis?: Record<string, unknown>
+  applications: ApplicationIdentityAssessment[]
+  summary: {
+    supported_count: number
+    conflict_count: number
+    insufficient_evidence_count: number
+    review_required_count: number
+    controlled_vocabulary_failure_count?: number
+  }
+  controlled_vocabulary_contract?: Record<string, unknown>
+  sequence_semantic_contract?: Record<string, unknown>
+  findings?: Array<Record<string, unknown>>
+}
+
 export interface UploadJobResponse {
   job_id: string
   status: string
@@ -35,6 +96,8 @@ export interface UploadJobResponse {
   updated_at: string
   files: FileStatus[]
   upload_scope_overview?: UploadScopeOverview
+  package_inventory?: PackageInventory | null
+  application_identity?: ApplicationIdentityProjection
   demo_sample?: DemoSampleMetadata | null
 }
 
@@ -46,6 +109,7 @@ export interface JobStatusResponse {
   updated_at: string
   files: FileStatus[]
   upload_scope_overview?: UploadScopeOverview
+  package_inventory?: PackageInventory | null
   demo_sample?: DemoSampleMetadata | null
 }
 
@@ -471,6 +535,7 @@ export interface RuleCheckDetails {
   expected_leaf_href_note?: string
   extension_issue_bundles?: RuleExtensionIssueBundle[]
   remediation_guidance?: RuleRemediationGuidanceItem[]
+  pdf_presentation_contract?: Record<string, unknown>
 }
 
 export interface RuleCheckItem {
@@ -873,6 +938,42 @@ export interface DemoRunProjection {
 
 export interface WorkbenchPayload {
   demo_sample?: DemoSampleMetadata | null
+  review_scope?: 'document' | 'sequence' | 'application' | string
+  selected_file_id?: string | null
+  documents?: Array<{
+    file_id: string
+    filename: string
+    relative_path?: string
+    source_type?: string
+    status?: string
+    page_count?: number
+    character_count?: number
+    table_count?: number
+    image_count?: number
+    parse_available?: boolean
+    text_preview?: string
+    file_url?: string
+  }>
+  files?: Array<{
+    file_id: string
+    filename: string
+    relative_path?: string
+    status?: string
+    message?: string
+    progress?: number
+    document_parse?: boolean
+    file_url?: string
+  }>
+  package_inventory?: PackageInventory | null
+  package_findings?: Array<{
+    rule_id: string
+    status: string
+    severity?: string
+    relative_path?: string
+    message: string
+    blocking?: boolean
+    details?: Record<string, unknown>
+  }>
   pdf_document: {
     file_id: string
     filename: string

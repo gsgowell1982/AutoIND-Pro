@@ -69,12 +69,12 @@ function App() {
     }
   }, [])
 
-  const handleUpload = async (files: File[]) => {
+  const handleUpload = async (files: File[], directoryPaths: string[] = []) => {
     try {
       setWorkbench(null)
       setConsistencyRows([])
       setJobStatus(null)
-      const result = await uploadFiles(files)
+      const result = await uploadFiles(files, directoryPaths)
       setJobId(result.job_id)
       setJobStatus(result)
       setPolling(true)
@@ -134,7 +134,6 @@ function App() {
     if (!jobId || !polling) {
       return
     }
-    let timer: number | undefined
     let requesting = false
 
     const loadWorkbench = async (targetJobId: string, demoSample: JobStatusResponse['demo_sample'] = null) => {
@@ -199,10 +198,11 @@ function App() {
       }
     }
 
-    void poll()
-    timer = window.setInterval(() => {
+    const timer = window.setInterval(() => {
       void poll()
     }, 1500)
+
+    void poll()
 
     return () => {
       if (timer !== undefined) {
@@ -287,7 +287,10 @@ function App() {
             </ProCard>
           ) : (
             <>
-              <AuditWorkbench workbench={workbench} />
+              <AuditWorkbench
+                key={`${jobId ?? 'empty'}:${workbench ? 'ready' : 'empty'}`}
+                workbench={workbench}
+              />
               <ConsistencyBoard rows={consistencyRows} />
             </>
           )}

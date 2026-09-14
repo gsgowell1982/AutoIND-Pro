@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal China regional module-1 skeleton placeholder. Populate regional metadata and leaf references as required. -->
+<cn-regional xmlns="http://www.cde.org.cn/cn-regional" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <application-number>x202112345</application-number>
+  <sequence>0000</sequence>
+</cn-regional>

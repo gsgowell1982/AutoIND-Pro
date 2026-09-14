@@ -7,8 +7,226 @@ body,
   background: #f5f7fa;
 }
 
+.workbench-columns {
+  align-items: stretch;
+}
+
 .workbench-col {
-  min-height: 700px;
+  --workbench-panel-height: clamp(560px, calc(100vh - 300px), 760px);
+  height: var(--workbench-panel-height);
+  min-height: var(--workbench-panel-height);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workbench-col > .ant-pro-card-body {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workbench-scroll-surface {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.workbench-scroll-surface > .markdown-panel,
+.workbench-scroll-surface > .rule-check-panel {
+  max-height: none;
+  overflow: visible;
+}
+
+.workbench-scroll-surface .workbench-control-select,
+.workbench-scroll-surface .ant-select {
+  max-width: 100%;
+}
+
+.project-finding-layer {
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.project-finding-layer-reserved {
+  background: #f7fbff;
+  border-color: #d6e4ff;
+}
+
+.project-package-tree {
+  margin-bottom: 16px;
+  min-width: 0;
+}
+
+.project-package-tree-scroll {
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}
+
+.project-package-tree-fill {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.project-package-tree-fill .project-package-tree-scroll {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.project-package-tree-fill > .ant-space {
+  flex: 0 0 auto;
+}
+
+.project-navigator-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.project-navigator-description {
+  flex: 0 0 auto;
+  margin-top: 8px;
+}
+
+.project-navigator-surface {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.selected-file-evidence-preview {
+  margin: 0;
+  max-height: 132px;
+  overflow: auto;
+  white-space: pre-wrap;
+  padding: 10px 12px;
+  border: 1px solid #d9e2ec;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.upload-columns {
+  --upload-panel-height: clamp(420px, 58vh, 620px);
+}
+
+.upload-column {
+  display: flex;
+  min-width: 0;
+}
+
+.upload-column-content {
+  width: 100%;
+  height: var(--upload-panel-height);
+  min-height: var(--upload-panel-height);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.upload-intake-controls {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.upload-selection-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.upload-selection-summary > .ant-space {
+  min-width: 0;
+}
+
+.upload-selection-summary .ant-btn {
+  flex: 0 0 auto;
+  padding-inline: 0;
+}
+
+.upload-submit-row {
+  flex: 0 0 auto;
+  padding-top: 12px;
+}
+
+.upload-status-header {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.upload-status-results {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.upload-status-results .project-package-tree {
+  flex: 0 0 auto;
+}
+
+.upload-status-results .project-package-tree-scroll {
+  max-height: 220px;
+}
+
+.upload-file-list {
+  flex: 1;
+  min-height: 96px;
+  min-width: 0;
+  overflow: auto;
+  border-radius: 6px;
+}
+
+.upload-selection-file-list {
+  max-height: calc(100vh - 220px);
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}
+
+.upload-selection-file-path {
+  min-width: 0;
+  flex: 1;
+}
+
+.upload-selection-drawer .ant-drawer-content-wrapper {
+  max-width: 92vw;
+}
+
+@media (max-width: 991px) {
+  .upload-columns {
+    --upload-panel-height: 520px;
+  }
+}
+
+@media (max-width: 991px) {
+  .workbench-col {
+    --workbench-panel-height: 620px;
+  }
 }
 
 .pdf-viewer-shell {

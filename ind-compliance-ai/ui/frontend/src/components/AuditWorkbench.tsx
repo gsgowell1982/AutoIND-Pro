@@ -11,7 +11,6 @@ import 'katex/dist/katex.min.css'
 
 import { buildAssetUrl } from '../api'
 import {
-  buildStructureAuditRecordSignature,
   buildStructureAuditPathFocusKey,
   buildStructureAuditPathFocusLabel,
   buildStructureAuditNavigationTargets,
@@ -56,7 +55,13 @@ import {
   resolveStructuralSelection,
 } from '../ruleNavigation.js'
 import { buildRegulatoryReadinessMatrixRows } from '../regulatoryReadiness.js'
+import {
+  resolveCurrentPage,
+  resolveRequestedStructuralId,
+  resolveSelectedTocSequenceId,
+} from '../reviewStateResolution.js'
 import { buildSingleFileReviewSummary, getReviewPanelVisibility } from '../workbenchReviewScope.js'
+import { buildSelectedFileEvidence } from '../selectedFileEvidence.js'
 import type {
   PdfAlgorithmBlock,
   BoundingBox,
@@ -72,6 +77,9 @@ import type {
   RuleStructureAuditRecord,
   WorkbenchPayload,
 } from '../types'
+import { ProjectPackageTree } from './ProjectPackageTree'
+import { ProjectFindingLayersPanel } from './ProjectFindingLayersPanel'
+import { PdfPresentationContract } from './PdfPresentationContract'
 
 interface AuditWorkbenchProps {
   workbench: WorkbenchPayload | null
@@ -666,6 +674,7 @@ function renderRuleDetails(
           ) : null}
         </div>
       ) : null}
+      <PdfPresentationContract contract={details.pdf_presentation_contract ?? null} />
       {(details.matched_documents ?? []).length > 0 ? (
         <div className="rule-detail-block">
           <Typography.Text strong>原文件定位</Typography.Text>
@@ -1274,6 +1283,104 @@ function renderRuleDetails(
   )
 }
 
+interface ProjectOverviewPanelProps {
+  workbench: WorkbenchPayload
+  selectedPath: string | null
+}
+
+function ProjectOverviewPanel({ workbench, selectedPath }: ProjectOverviewPanelProps) {
+  const inventory = workbench.package_inventory
+  const fileCount = inventory?.file_paths?.length ?? workbench.documents?.length ?? 0
+  const directoryCount = inventory?.directory_paths?.length ?? 0
+  const packageFindingCount = workbench.package_findings?.length ?? 0
+  const ruleFindingCount = workbench.rule_checks.items.filter((item) => item.status === 'fail' || item.status === 'warn').length
+  const totalFindingCount = packageFindingCount + ruleFindingCount
+  const applicationRoot = inventory?.application_roots?.[0]
+  const selectedEvidence = useMemo(
+    () =>
+      buildSelectedFileEvidence({
+        selectedPath,
+        documents: workbench.documents,
+        files: workbench.files,
+        directoryPaths: inventory?.directory_paths,
+      }),
+    [inventory?.directory_paths, selectedPath, workbench.documents, workbench.files],
+  )
+
+  return (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Alert
+        type={totalFindingCount > 0 ? 'warning' : 'success'}
+        showIcon
+        message={totalFindingCount > 0 ? '项目审核发现需要处理的项目' : '项目审核暂未发现需要优先处理的问题'}
+        description="当前区域展示申请项目级别的审核边界和汇总。选择左侧文件后，再进入该文件的格式、解析和内容证据。"
+      />
+      <Space wrap size={[8, 8]}>
+        <Tag color="blue">审核范围 {workbench.review_scope ?? 'project'}</Tag>
+        <Tag color="cyan">文件 {fileCount}</Tag>
+        <Tag color="geekblue">目录 {directoryCount}</Tag>
+        <Tag color={packageFindingCount > 0 ? 'warning' : 'success'}>结构/命名问题 {packageFindingCount}</Tag>
+        <Tag color={ruleFindingCount > 0 ? 'warning' : 'success'}>规则提示 {ruleFindingCount}</Tag>
+      </Space>
+      {applicationRoot ? (
+        <Space wrap size={[8, 8]}>
+          <Tag color={applicationRoot.application_number_format_valid === false ? 'error' : 'blue'}>
+            申请编号 {applicationRoot.name}
+          </Tag>
+          {applicationRoot.application_category ? <Tag>申请类型 {applicationRoot.application_category}</Tag> : null}
+          {applicationRoot.application_year ? <Tag>编号年份 {applicationRoot.application_year}</Tag> : null}
+          {applicationRoot.application_serial ? <Tag>流水号 {applicationRoot.application_serial}</Tag> : null}
+        </Space>
+      ) : null}
+      {selectedPath ? (
+        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          <Alert
+            type={selectedEvidence.kind === 'parsed' ? 'success' : selectedEvidence.kind === 'support' ? 'warning' : 'info'}
+            showIcon
+            message={selectedEvidence.kind === 'parsed' ? '已选择文件，可查看文件级证据' : '已选择项目节点'}
+            description={selectedEvidence.message}
+          />
+          <Typography.Text strong>{selectedPath}</Typography.Text>
+          {selectedEvidence.kind === 'parsed' ? (
+            <>
+              <Space wrap size={[8, 8]}>
+                <Tag color="blue">类型 {String(selectedEvidence.document?.source_type ?? 'document').toUpperCase()}</Tag>
+                <Tag>页数 {selectedEvidence.metrics.pageCount}</Tag>
+                <Tag>字符 {selectedEvidence.metrics.characterCount}</Tag>
+                <Tag>表格 {selectedEvidence.metrics.tableCount}</Tag>
+                <Tag>图片 {selectedEvidence.metrics.imageCount}</Tag>
+              </Space>
+              {selectedEvidence.preview ? (
+                <Typography.Paragraph className="selected-file-evidence-preview">
+                  {selectedEvidence.preview}
+                </Typography.Paragraph>
+              ) : null}
+              {selectedEvidence.fileUrl ? (
+                <Button
+                  size="small"
+                  icon={<DownloadOutlined />}
+                  href={buildAssetUrl(selectedEvidence.fileUrl)}
+                  target="_blank"
+                >
+                  打开原文件
+                </Button>
+              ) : null}
+            </>
+          ) : null}
+        </Space>
+      ) : (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="尚未选择文件。左侧目录树用于定位审核对象，项目级问题请查看右侧结论。"
+        />
+      )}
+      <Typography.Text type="secondary">
+        项目级完整证据可通过右侧问题定位和 Markdown 证据下载查看；单个 PDF 的页面框选功能只在单文件审核模式中默认展开。
+      </Typography.Text>
+    </Space>
+  )
+}
+
 export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
   const [currentPage, setCurrentPage] = useState<number>(1)
   const [selectedStructuralId, setSelectedStructuralId] = useState<string | null>(null)
@@ -1292,6 +1399,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
   const [activeRuleGroupStatusFilter, setActiveRuleGroupStatusFilter] =
     useState<ActiveRuleGroupStatusFilter | null>(null)
   const [activeStructureAuditPathFocus, setActiveStructureAuditPathFocus] = useState<ActiveStructureAuditPathFocus | null>(null)
+  const [selectedPackagePath, setSelectedPackagePath] = useState<string | null>(null)
 
   const pdfDocument = workbench?.pdf_document
   const reviewPanelVisibility = useMemo(() => getReviewPanelVisibility(workbench), [workbench])
@@ -1302,6 +1410,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
   const showDemoPanels = reviewPanelVisibility.showDemoPanels
   const showSingleFileSummary = reviewPanelVisibility.showSingleFileSummary
   const showProjectReadinessPanels = reviewPanelVisibility.showProjectReadinessPanels
+  const isProjectReview = reviewPanelVisibility.scope.isProjectReview
   const navigationAuditRecords = useMemo(
     () => workbench?.rule_checks.navigation_audit_records ?? [],
     [workbench?.rule_checks.navigation_audit_records],
@@ -1309,10 +1418,6 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
   const structureAuditRecords = useMemo(
     () => workbench?.rule_checks.structure_audit_records ?? [],
     [workbench?.rule_checks.structure_audit_records],
-  )
-  const structureAuditRecordSignature = useMemo(
-    () => buildStructureAuditRecordSignature(structureAuditRecords, { pdfFileId: pdfDocument?.file_id ?? null }),
-    [pdfDocument?.file_id, structureAuditRecords],
   )
   const structureAuditIssueOptions = useMemo(() => getStructureAuditIssueOptions(), [])
   const structureAuditFilenameOptions = useMemo(
@@ -1346,22 +1451,11 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
     () => structureAuditGroups.reduce((total, group) => total + group.records.length, 0),
     [structureAuditGroups],
   )
-  useEffect(() => {
-    setStructureAuditSeverityFilter('all')
-    setStructureAuditIssueFilter('all')
-    setStructureAuditFilenameFilter('all')
-    setActiveStructureAuditPathFocus(null)
-  }, [structureAuditRecordSignature])
   const ruleGroupSummaries = useMemo(
     () => workbench?.rule_checks.group_summaries ?? [],
     [workbench?.rule_checks.group_summaries],
   )
   const rawRuleCheckItems = useMemo(() => workbench?.rule_checks.items ?? [], [workbench?.rule_checks.items])
-  useEffect(() => {
-    setRuleCheckStatusFilter(DEFAULT_RULE_CHECK_STATUS_FILTER)
-    setFocusedRuleId(null)
-    setActiveRuleGroupStatusFilter(null)
-  }, [rawRuleCheckItems])
   const activeRuleGroupSummary = useMemo(
     () =>
       activeRuleGroupStatusFilter
@@ -1405,6 +1499,11 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
         value: page.page_number,
       })),
     [pdfDocument?.pages],
+  )
+
+  const resolvedCurrentPage = useMemo(
+    () => resolveCurrentPage(pageOptions.map((page) => page.value), currentPage),
+    [currentPage, pageOptions],
   )
 
   const scrollToRuleCheckList = () => {
@@ -1988,16 +2087,6 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
   }
 
   useEffect(() => {
-    if (pageOptions.length === 0) {
-      return
-    }
-    if (pageOptions.some((page) => page.value === currentPage)) {
-      return
-    }
-    setCurrentPage(pageOptions[0].value)
-  }, [currentPage, pageOptions])
-
-  useEffect(() => {
     if (!focusedRuleId) {
       return
     }
@@ -2006,13 +2095,13 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
   }, [focusedRuleId, ruleCheckItems])
 
   const activePage = useMemo(
-    () => pdfDocument?.pages.find((page) => page.page_number === currentPage) ?? null,
-    [pdfDocument?.pages, currentPage],
+    () => pdfDocument?.pages.find((page) => page.page_number === resolvedCurrentPage) ?? null,
+    [pdfDocument?.pages, resolvedCurrentPage],
   )
 
   const activePageBoundingBoxes = useMemo(
-    () => (pdfDocument?.bounding_boxes ?? []).filter((item) => item.page_number === currentPage),
-    [pdfDocument?.bounding_boxes, currentPage],
+    () => (pdfDocument?.bounding_boxes ?? []).filter((item) => item.page_number === resolvedCurrentPage),
+    [pdfDocument?.bounding_boxes, resolvedCurrentPage],
   )
 
   const activePageStructuralBoxes = useMemo(
@@ -2021,35 +2110,28 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
   )
 
   const activePageTables = useMemo(
-    () => (pdfDocument?.table_asts ?? []).filter((table) => table.page === currentPage),
-    [pdfDocument?.table_asts, currentPage],
+    () => (pdfDocument?.table_asts ?? []).filter((table) => table.page === resolvedCurrentPage),
+    [pdfDocument?.table_asts, resolvedCurrentPage],
   )
 
   const activePageImages = useMemo(
-    () => (pdfDocument?.image_blocks ?? []).filter((image) => image.page === currentPage),
-    [pdfDocument?.image_blocks, currentPage],
+    () => (pdfDocument?.image_blocks ?? []).filter((image) => image.page === resolvedCurrentPage),
+    [pdfDocument?.image_blocks, resolvedCurrentPage],
   )
 
   const activePageAlgorithms = useMemo(
-    () => (pdfDocument?.algorithm_blocks ?? []).filter((algorithm) => algorithm.page === currentPage),
-    [pdfDocument?.algorithm_blocks, currentPage],
+    () => (pdfDocument?.algorithm_blocks ?? []).filter((algorithm) => algorithm.page === resolvedCurrentPage),
+    [pdfDocument?.algorithm_blocks, resolvedCurrentPage],
   )
 
   const activePageEquations = useMemo(
-    () => (pdfDocument?.equation_blocks ?? []).filter((equation) => equation.page === currentPage),
-    [pdfDocument?.equation_blocks, currentPage],
+    () => (pdfDocument?.equation_blocks ?? []).filter((equation) => equation.page === resolvedCurrentPage),
+    [pdfDocument?.equation_blocks, resolvedCurrentPage],
   )
 
   const activePageTocBlocks = useMemo(
-    () => (pdfDocument?.toc_blocks ?? []).filter((toc) => toc.page === currentPage),
-    [pdfDocument?.toc_blocks, currentPage],
-  )
-
-  const selectedAlgorithm = useMemo(
-    () =>
-      activePageAlgorithms.find((algorithm) => algorithm.algorithm_id === selectedStructuralId) ??
-      null,
-    [activePageAlgorithms, selectedStructuralId],
+    () => (pdfDocument?.toc_blocks ?? []).filter((toc) => toc.page === resolvedCurrentPage),
+    [pdfDocument?.toc_blocks, resolvedCurrentPage],
   )
 
   const activePageCompactedTables = useMemo(
@@ -2073,12 +2155,12 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
       }
     })
     documentTocSequences.forEach((sequence) => {
-      if ((sequence.pages ?? []).includes(currentPage)) {
+      if ((sequence.pages ?? []).includes(resolvedCurrentPage)) {
         ids.add(sequence.toc_sequence_id)
       }
     })
     return Array.from(ids)
-  }, [activePageTocBlocks, currentPage, documentTocSequences])
+  }, [activePageTocBlocks, documentTocSequences, resolvedCurrentPage])
 
   const activePageTocSequences = useMemo(
     () =>
@@ -2088,30 +2170,21 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
     [activePageTocSequenceIds, documentTocSequences],
   )
 
-  useEffect(() => {
-    const sequenceIds = documentTocSequences.map((sequence) => sequence.toc_sequence_id)
-    if (sequenceIds.length === 0) {
-      setSelectedTocSequenceId(null)
-      return
-    }
-
-    if (selectedTocSequenceId && sequenceIds.includes(selectedTocSequenceId)) {
-      return
-    }
-
-    if (activePageTocSequenceIds.length > 0) {
-      setSelectedTocSequenceId(activePageTocSequenceIds[0])
-      return
-    }
-
-    setSelectedTocSequenceId(sequenceIds[0])
-  }, [activePageTocSequenceIds, documentTocSequences, selectedTocSequenceId])
+  const resolvedSelectedTocSequenceId = useMemo(
+    () =>
+      resolveSelectedTocSequenceId({
+        sequenceIds: documentTocSequences.map((sequence) => sequence.toc_sequence_id),
+        activePageSequenceIds: activePageTocSequenceIds,
+        selectedId: selectedTocSequenceId,
+      }),
+    [activePageTocSequenceIds, documentTocSequences, selectedTocSequenceId],
+  )
 
   const selectedTocSequence = useMemo(
     () =>
-      documentTocSequences.find((sequence) => sequence.toc_sequence_id === selectedTocSequenceId) ??
+      documentTocSequences.find((sequence) => sequence.toc_sequence_id === resolvedSelectedTocSequenceId) ??
       null,
-    [documentTocSequences, selectedTocSequenceId],
+    [documentTocSequences, resolvedSelectedTocSequenceId],
   )
 
   const activePageStructuralLookup = useMemo(() => {
@@ -2163,26 +2236,29 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
     return orderedIds
   }, [activePageAlgorithms, activePageEquations, activePageImages, activePageStructuralBoxes, activePageTables, activePageTocBlocks])
 
-  useEffect(() => {
-    const resolution = resolveStructuralSelection({
-      activePageStructuralSelectionOrder,
-      selectedStructuralId,
-      pendingStructuralId: pendingRuleStructuralId,
-    })
+  const resolvedStructuralSelection = useMemo(
+    () =>
+      resolveStructuralSelection({
+        activePageStructuralSelectionOrder,
+        selectedStructuralId,
+        pendingStructuralId: selectedStructuralId ? null : pendingRuleStructuralId,
+      }),
+    [activePageStructuralSelectionOrder, pendingRuleStructuralId, selectedStructuralId],
+  )
+  const resolvedSelectedStructuralId = resolvedStructuralSelection.selectedStructuralId
 
-    if (resolution.selectedStructuralId !== selectedStructuralId) {
-      setSelectedStructuralId(resolution.selectedStructuralId)
-    }
-    if (resolution.pendingStructuralId !== pendingRuleStructuralId) {
-      setPendingRuleStructuralId(resolution.pendingStructuralId)
-    }
-  }, [activePageStructuralSelectionOrder, pendingRuleStructuralId, selectedStructuralId])
+  const selectedAlgorithm = useMemo(
+    () =>
+      activePageAlgorithms.find((algorithm) => algorithm.algorithm_id === resolvedSelectedStructuralId) ??
+      null,
+    [activePageAlgorithms, resolvedSelectedStructuralId],
+  )
 
   const activePageBoundingBoxesOrdered = useMemo(() => {
-    const nonSelected = activePageBoundingBoxes.filter((item) => item.id !== selectedStructuralId)
-    const selected = activePageBoundingBoxes.filter((item) => item.id === selectedStructuralId)
+    const nonSelected = activePageBoundingBoxes.filter((item) => item.id !== resolvedSelectedStructuralId)
+    const selected = activePageBoundingBoxes.filter((item) => item.id === resolvedSelectedStructuralId)
     return [...nonSelected, ...selected]
-  }, [activePageBoundingBoxes, selectedStructuralId])
+  }, [activePageBoundingBoxes, resolvedSelectedStructuralId])
 
   const activeBoundingBoxListItems = useMemo(() => {
     const structuralBoxes = activePageBoundingBoxes.filter(isStructuralBoundingBox)
@@ -2193,14 +2269,20 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
   const ruleNavigationLanding = useMemo(
     () =>
       resolveRuleNavigationLanding({
-        currentPage,
+        currentPage: resolvedCurrentPage,
         activePageStructuralSelectionOrder,
         activePageStructuralBoundingBoxIds: activePageStructuralBoxes.map((item) => item.id),
-        selectedStructuralId,
+        selectedStructuralId: resolvedSelectedStructuralId,
         targetPage: activeRuleNavigationAttempt?.targetPage ?? null,
         targetStructuralId: activeRuleNavigationAttempt?.targetStructuralId ?? null,
       }),
-    [activePageStructuralBoxes, activePageStructuralSelectionOrder, activeRuleNavigationAttempt, currentPage, selectedStructuralId],
+    [
+      activePageStructuralBoxes,
+      activePageStructuralSelectionOrder,
+      activeRuleNavigationAttempt,
+      resolvedCurrentPage,
+      resolvedSelectedStructuralId,
+    ],
   )
 
   const endToEndRuleNavigationVerification = useMemo(
@@ -2236,7 +2318,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
     backendNavigationReason?: string,
     backendAuditRecord?: RuleNavigationAuditRecord | null,
   ) {
-    const normalizedStructuralId = structuralId?.trim() || null
+    const normalizedStructuralId = resolveRequestedStructuralId(structuralId)
     const normalizedPage = typeof page === 'number' && page > 0 ? page : null
     setActiveRuleNavigationAttempt({
       label: label?.trim() || 'rule-navigation',
@@ -2253,7 +2335,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
       if (
         typeof page === 'number' &&
         page > 0 &&
-        page !== currentPage
+        page !== resolvedCurrentPage
       ) {
         setPendingRuleStructuralId(normalizedStructuralId)
         setSelectedStructuralId(null)
@@ -2263,6 +2345,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
       }
     } else {
       setPendingRuleStructuralId(null)
+      setSelectedStructuralId(null)
     }
   }
 
@@ -2276,17 +2359,67 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
       bordered
       headerBordered
     >
-      <ProCard split="vertical">
-        <ProCard title="PDF 阅读与结构框高亮" colSpan="36%" className="workbench-col">
+      <ProCard split="vertical" className="workbench-columns">
+      <ProCard
+        title={isProjectReview ? '提交导航器' : 'PDF 阅读与结构框高亮'}
+        colSpan="36%"
+        className="workbench-col"
+      >
+        <div className={isProjectReview ? 'workbench-scroll-surface project-navigator-surface' : 'workbench-scroll-surface'}>
+        {isProjectReview ? (
+          <div className="project-navigator-content">
+            {workbench?.package_inventory ? (
+              <ProjectPackageTree
+                  inventory={workbench.package_inventory}
+                  title="项目文件树"
+                  selectedPath={selectedPackagePath}
+                  onPathSelect={(path) => setSelectedPackagePath(path)}
+                  fillHeight
+                />
+            ) : (
+              <Empty description="当前审核没有可用的项目清单" />
+            )}
+            <Typography.Text type="secondary" className="project-navigator-description">
+              目录树只负责审核对象定位；项目级结论、结构/命名问题和人工复核提示集中显示在右侧。
+            </Typography.Text>
+          </div>
+        ) : (
+          <>
+          <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+            <Tag color="blue">审核范围: {workbench?.review_scope ?? 'document'}</Tag>
+            {(workbench?.package_findings?.length ?? 0) > 0 ? (
+              <Tag color="warning">包级问题 {workbench?.package_findings?.length}</Tag>
+            ) : null}
+            {(workbench?.documents?.length ?? 0) > 1 ? (
+              <Tag color="cyan">文件 {workbench?.documents?.length}</Tag>
+            ) : null}
+          </Space>
+          {(workbench?.documents?.length ?? 0) > 1 ? (
+            <List
+              size="small"
+              bordered
+              style={{ marginBottom: 12, maxHeight: 180, overflow: 'auto' }}
+              dataSource={workbench?.documents}
+              renderItem={(document) => (
+                <List.Item>
+                  <Typography.Text ellipsis={{ tooltip: document.relative_path ?? document.filename }}>
+                    {document.relative_path ?? document.filename}
+                  </Typography.Text>
+                  <Tag>{document.status ?? 'parsed'}</Tag>
+                </List.Item>
+              )}
+            />
+          ) : null}
           {!pdfDocument ? (
             <Empty description="本次上传未包含 PDF，无法显示 PDF 阅读器" />
           ) : (
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               <Typography.Text strong>{pdfDocument.filename}</Typography.Text>
               <Select
-                value={currentPage}
+                value={resolvedCurrentPage}
                 options={pageOptions}
-                style={{ width: 180 }}
+                className="workbench-control-select"
+                style={{ width: '100%' }}
                 onChange={setCurrentPage}
               />
               <Space size={[8, 8]} wrap>
@@ -2312,7 +2445,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                     style={{ width: PDF_RENDER_WIDTH, height: overlayHeight || undefined }}
                   >
                     <Page
-                      pageNumber={currentPage}
+                      pageNumber={resolvedCurrentPage}
                       width={PDF_RENDER_WIDTH}
                       renderAnnotationLayer={false}
                       renderTextLayer={false}
@@ -2325,7 +2458,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                         {activePageBoundingBoxesOrdered.map((item) => {
                           const kind = getBoundingBoxKind(item)
                           const structural = kind !== 'text'
-                          const selected = structural && item.id === selectedStructuralId
+                          const selected = structural && item.id === resolvedSelectedStructuralId
                           const boxWidth = (item.bbox.x1 - item.bbox.x0) * ratio
                           const boxHeight = (item.bbox.y1 - item.bbox.y0) * ratio
                           return (
@@ -2368,7 +2501,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                   description={
                     <Space direction="vertical" size={2}>
                       <Typography.Text>
-                        {buildTocSequenceSummary(selectedTocSequence, currentPage)}
+                        {buildTocSequenceSummary(selectedTocSequence, resolvedCurrentPage)}
                       </Typography.Text>
                       {buildTocSequenceDetail(selectedTocSequence) ? (
                         <Typography.Text type="secondary">
@@ -2471,8 +2604,8 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                   renderItem={(sequence) => {
                     const pageLabel = buildTocSequencePageLabel(sequence)
                     const detail = buildTocSequenceDetail(sequence)
-                    const isSelected = sequence.toc_sequence_id === selectedTocSequenceId
-                    const includesCurrentPage = (sequence.pages ?? []).includes(currentPage)
+                    const isSelected = sequence.toc_sequence_id === resolvedSelectedTocSequenceId
+                    const includesCurrentPage = (sequence.pages ?? []).includes(resolvedCurrentPage)
                     const jumpTarget = sequence.pages?.[0]
                     return (
                       <List.Item
@@ -2485,7 +2618,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                           setSelectedTocSequenceId(sequence.toc_sequence_id)
                           if (
                             typeof jumpTarget === 'number' &&
-                            !(sequence.pages ?? []).includes(currentPage)
+                            !(sequence.pages ?? []).includes(resolvedCurrentPage)
                           ) {
                             setCurrentPage(jumpTarget)
                           }
@@ -2503,9 +2636,9 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                               <Tag color="geekblue">{sequence.root_entry_count} 根节点</Tag>
                             ) : null}
                           </Space>
-                          {buildTocSequenceSummary(sequence, currentPage) ? (
+                          {buildTocSequenceSummary(sequence, resolvedCurrentPage) ? (
                             <Typography.Text type="secondary">
-                              {buildTocSequenceSummary(sequence, currentPage)}
+                              {buildTocSequenceSummary(sequence, resolvedCurrentPage)}
                             </Typography.Text>
                           ) : null}
                           {detail ? (
@@ -2533,7 +2666,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                   renderItem={(table) => (
                     <List.Item
                       className={
-                        table.table_id === selectedStructuralId
+                        table.table_id === resolvedSelectedStructuralId
                           ? 'structural-summary-item structural-summary-item-selected'
                           : 'structural-summary-item'
                       }
@@ -2543,7 +2676,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                         <Typography.Text strong>{table.title || table.table_id}</Typography.Text>
                         <Space size={[8, 8]} wrap>
                           <Tag color="purple">{table.table_id}</Tag>
-                          {table.table_id === selectedStructuralId ? (
+                          {table.table_id === resolvedSelectedStructuralId ? (
                             <Tag color="magenta">已选中</Tag>
                           ) : null}
                           {table.detection_method ? (
@@ -2590,7 +2723,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                   renderItem={(image) => (
                     <List.Item
                       className={
-                        image.image_id === selectedStructuralId
+                        image.image_id === resolvedSelectedStructuralId
                           ? 'structural-summary-item structural-summary-item-selected'
                           : 'structural-summary-item'
                       }
@@ -2600,7 +2733,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                         <Typography.Text strong>{buildImageTitle(image)}</Typography.Text>
                         <Space size={[8, 8]} wrap>
                           <Tag color="gold">{image.image_id}</Tag>
-                          {image.image_id === selectedStructuralId ? (
+                          {image.image_id === resolvedSelectedStructuralId ? (
                             <Tag color="magenta">已选中</Tag>
                           ) : null}
                           {image.figure_ref ? <Tag color="blue">{image.figure_ref}</Tag> : null}
@@ -2627,7 +2760,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                   renderItem={(algorithm) => (
                     <List.Item
                       className={
-                        algorithm.algorithm_id === selectedStructuralId
+                        algorithm.algorithm_id === resolvedSelectedStructuralId
                           ? 'structural-summary-item structural-summary-item-selected'
                           : 'structural-summary-item'
                       }
@@ -2637,7 +2770,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                         <Typography.Text strong>{buildAlgorithmTitle(algorithm)}</Typography.Text>
                         <Space size={[8, 8]} wrap>
                           <Tag color="orange">{algorithm.algorithm_id}</Tag>
-                          {algorithm.algorithm_id === selectedStructuralId ? (
+                          {algorithm.algorithm_id === resolvedSelectedStructuralId ? (
                             <Tag color="magenta">已选中</Tag>
                           ) : null}
                           {algorithm.algorithm_ref ? (
@@ -2670,7 +2803,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                   renderItem={(equation) => (
                     <List.Item
                       className={
-                        equation.equation_id === selectedStructuralId
+                        equation.equation_id === resolvedSelectedStructuralId
                           ? 'structural-summary-item structural-summary-item-selected'
                           : 'structural-summary-item'
                       }
@@ -2680,7 +2813,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                         <Typography.Text strong>{buildEquationTitle(equation)}</Typography.Text>
                         <Space size={[8, 8]} wrap>
                           <Tag color="lime">{equation.equation_id}</Tag>
-                          {equation.equation_id === selectedStructuralId ? (
+                          {equation.equation_id === resolvedSelectedStructuralId ? (
                             <Tag color="magenta">宸查€変腑</Tag>
                           ) : null}
                           {equation.equation_label ? (
@@ -2706,7 +2839,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                   renderItem={(toc) => (
                     <List.Item
                       className={
-                        toc.toc_id === selectedStructuralId
+                        toc.toc_id === resolvedSelectedStructuralId
                           ? 'structural-summary-item structural-summary-item-selected'
                           : 'structural-summary-item'
                       }
@@ -2721,7 +2854,7 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                         <Typography.Text strong>{buildTocTitle(toc)}</Typography.Text>
                         <Space size={[8, 8]} wrap>
                           <Tag color="cyan">{toc.toc_id}</Tag>
-                          {toc.toc_id === selectedStructuralId ? (
+                          {toc.toc_id === resolvedSelectedStructuralId ? (
                             <Tag color="magenta">已选中</Tag>
                           ) : null}
                           {toc.entry_count ? (
@@ -2778,9 +2911,21 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
               />
             </Space>
           )}
+          </>
+        )}
+        </div>
         </ProCard>
 
-        <ProCard title="结构化 Markdown 视图" colSpan="34%" className="workbench-col">
+        <ProCard
+          title={isProjectReview ? '项目审核概览' : '结构化 Markdown 视图'}
+          colSpan="34%"
+          className="workbench-col"
+        >
+          <div className="workbench-scroll-surface">
+          {isProjectReview ? (
+            workbench ? <ProjectOverviewPanel workbench={workbench} selectedPath={selectedPackagePath} /> : null
+          ) : (
+            <>
           <Space direction="vertical" size={10} style={{ width: '100%' }}>
             <Alert
               type="info"
@@ -2821,9 +2966,26 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
           ) : (
             <Empty description="等待解析结果" />
           )}
+            </>
+          )}
+          </div>
         </ProCard>
 
-        <ProCard title="审阅结论与提示" colSpan="30%" className="workbench-col">
+        <ProCard title={isProjectReview ? '项目结论与提示' : '审阅结论与提示'} colSpan="30%" className="workbench-col">
+          <div className="workbench-scroll-surface">
+          {isProjectReview ? (
+            workbench ? (
+              <ProjectFindingLayersPanel
+                workbench={workbench}
+                selectedPath={selectedPackagePath}
+                onPathSelect={(path) => setSelectedPackagePath(path)}
+                onRuleFocus={focusRule}
+                onClearPathFocus={() => setSelectedPackagePath(null)}
+              />
+            ) : (
+              <Empty description="等待项目审核结果" />
+            )
+          ) : (
           <div className="rule-check-panel">
             <Space direction="vertical" style={{ width: '100%' }}>
               <Alert
@@ -3235,65 +3397,6 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                         当前预览 6/{workbench.dossier_checklist.items.length} 条；完整清单保留在 workbench payload 中。
                       </Typography.Text>
                     ) : null}
-                  </Space>
-                </div>
-              ) : null}
-              {showProjectReadinessPanels && workbench?.content_consistency ? (
-                <div className="content-consistency-panel">
-                  <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                    <Space wrap>
-                      <Typography.Text strong>内容一致性</Typography.Text>
-                      <Tag color="blue">检查项 {workbench.content_consistency.summary.check_count}</Tag>
-                      <Tag color={workbench.content_consistency.summary.issue_count > 0 ? 'orange' : 'green'}>
-                        复核项 {workbench.content_consistency.summary.issue_count}
-                      </Tag>
-                      <Tag color="default">
-                        硬判定 {workbench.content_consistency.summary.deterministic_rule_verdict_count}
-                      </Tag>
-                    </Space>
-                    <Typography.Text type="secondary" className="rule-detail-line">
-                      {workbench.content_consistency.evidence_boundary}
-                    </Typography.Text>
-                    <div className="content-consistency-list">
-                      {workbench.content_consistency.checks.map((check) => (
-                        <div key={check.check_id} className="content-consistency-item">
-                          <Space direction="vertical" size={5} style={{ width: '100%' }}>
-                            <Space wrap>
-                              <Tag color={check.status === 'review_required' ? 'orange' : check.status === 'consistent' ? 'green' : 'gold'}>
-                                {getReviewProjectionStatusLabel(check.status)}
-                              </Tag>
-                              <Tag>{check.field_name}</Tag>
-                              <Tag>可比资料 {check.comparable_package_count}</Tag>
-                              <Tag>复核项 {check.issue_count}</Tag>
-                            </Space>
-                            <Typography.Text strong className="rule-detail-line">
-                              {check.title}
-                            </Typography.Text>
-                            <Typography.Text type="secondary" className="rule-detail-line">
-                              {check.description}
-                            </Typography.Text>
-                            {check.issues.map((issue) => (
-                              <div key={`${check.check_id}-${issue.sequence_package_id}-${issue.field_name}`} className="content-consistency-issue">
-                                <Typography.Text className="rule-detail-line">
-                                  {issue.message}
-                                </Typography.Text>
-                                <Space wrap>
-                                  <Tag color="gold">{issue.sequence_package_id}</Tag>
-                                  <Tag>{issue.expected_source}: {issue.expected_value}</Tag>
-                                  <Tag>{issue.observed_source}: {issue.observed_value}</Tag>
-                                </Space>
-                                <Typography.Text type="secondary" className="rule-detail-line">
-                                  {issue.review_recommendation}
-                                </Typography.Text>
-                              </div>
-                            ))}
-                            <Typography.Text type="secondary" className="rule-detail-line">
-                              {check.automation_boundary}
-                            </Typography.Text>
-                          </Space>
-                        </div>
-                      ))}
-                    </div>
                   </Space>
                 </div>
               ) : null}
@@ -3710,6 +3813,8 @@ export function AuditWorkbench({ workbench }: AuditWorkbenchProps) {
                 <Empty description="暂无可展示的规则检查条目" />
               )}
             </Space>
+          </div>
+          )}
           </div>
         </ProCard>
       </ProCard>

@@ -348,6 +348,8 @@ def _local_note_marker_anchor_refs(
                     text,
                 )
             )
+            if marker.isdigit():
+                has_anchor = bool(re.search(rf"(?:\({escaped}\)|\uff08{escaped}\uff09)", text))
             if not has_anchor:
                 continue
             key = (marker, text, str(note.get("text") or ""))

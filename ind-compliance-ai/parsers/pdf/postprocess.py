@@ -34,6 +34,7 @@ from .settings import get_pdf_parser_settings
 from .layout import classify_text_block_layout_lane
 from .shared import _Word, _bbox_to_list, _clean_text, _compact_text, _horizontal_overlap_ratio, _text_contains_text
 from .table_modules.postprocess import (
+    _attach_display_row_provenance,
     _align_header_row,
     _refresh_row_texts_from_grid,
     compact_leading_key_carry_forward_rows,
@@ -1698,6 +1699,23 @@ def _mark_structure_template_owned_text_evidence(
 def _build_structure_template_content_evidence(template: dict[str, Any]) -> dict[str, Any]:
     template_id = str(template.get("structure_template_id", "")).strip()
     segments: list[dict[str, Any]] = []
+    for prelude_index, prelude in enumerate(template.get("prelude_blocks", []) or [], start=1):
+        if not isinstance(prelude, dict):
+            continue
+        prelude_text = str(prelude.get("text") or "").strip()
+        if not prelude_text:
+            continue
+        segments.append(
+            {
+                "role": "prelude",
+                "prelude_index": prelude_index,
+                "text": prelude_text,
+                "page": prelude.get("page"),
+                "bbox": list(prelude.get("bbox", []) or []),
+                "source_table_id": prelude.get("source_table_id"),
+                "source_row_ref": prelude.get("source_row_ref"),
+            }
+        )
     title = str(template.get("title") or "").strip()
     if title:
         segments.append({"role": "title", "text": title})
@@ -1713,6 +1731,8 @@ def _build_structure_template_content_evidence(template: dict[str, Any]) -> dict
                 "label": field.get("label"),
                 "value": field.get("value"),
                 "data_population": field.get("data_population"),
+                "source_block_ids": list(field.get("source_block_ids", []) or []),
+                "bbox": list(field.get("bbox", []) or []),
             }
         )
     for section_index, section in enumerate(template.get("sections", []) or [], start=1):
@@ -1748,13 +1768,11 @@ def _build_structure_template_content_evidence(template: dict[str, Any]) -> dict
         note_text = str(note.get("text") or "").strip()
         if not note_text:
             continue
-        segments.append(
-            {
-                "role": "note",
-                "note_index": int(note.get("note_index", note_index) or note_index),
-                "text": note_text,
-            }
-        )
+        note_segment = dict(note)
+        note_segment["role"] = "note"
+        note_segment["note_index"] = int(note.get("note_index", note_index) or note_index)
+        note_segment["text"] = note_text
+        segments.append(note_segment)
     for ref_index, ref in enumerate(template.get("local_note_refs", []) or [], start=1):
         marker = str(ref.get("marker") or "").strip()
         anchor_text = str(ref.get("anchor_text") or "").strip()
@@ -1769,6 +1787,22 @@ def _build_structure_template_content_evidence(template: dict[str, Any]) -> dict
                 "text": f"{anchor_text} -> {marker}: {note_text}",
                 "anchor_text": anchor_text,
                 "note_text": note_text,
+            }
+        )
+    for ref_index, ref in enumerate(template.get("cross_component_note_refs", []) or [], start=1):
+        if not isinstance(ref, dict):
+            continue
+        marker = str(ref.get("marker") or "").strip()
+        anchor_text = str(ref.get("anchor_text") or "").strip()
+        note_text = str(ref.get("note_text") or "").strip()
+        if not marker or not anchor_text or not note_text:
+            continue
+        segments.append(
+            {
+                **dict(ref),
+                "role": "cross_component_note_ref",
+                "ref_index": ref_index,
+                "text": f"{anchor_text} -> {marker}: {note_text}",
             }
         )
     evidence = {
@@ -1788,6 +1822,11 @@ def _build_structure_template_content_evidence(template: dict[str, Any]) -> dict
         "page_target_policy": template.get("page_target_policy"),
         "entry_count": int(template.get("entry_count", 0) or 0),
         "local_note_refs": [dict(ref) for ref in template.get("local_note_refs", []) or []],
+        "row_sources": [dict(record) for record in template.get("row_sources", []) or [] if isinstance(record, dict)],
+        "cross_component_note_refs": [
+            dict(ref) for ref in template.get("cross_component_note_refs", []) or [] if isinstance(ref, dict)
+        ],
+        "study_panel_id": template.get("study_panel_id"),
         "composite_object": deepcopy(template.get("composite_object", {}) or {}),
     }
     _copy_metadata_reference_edges_to_evidence(evidence, template)
@@ -2446,6 +2485,559 @@ def _blank_study_summary_visual_rows_from_owned_text(
     return row_texts
 
 
+def _apply_inline_multifield_form_row_projection(
+    template: dict[str, Any],
+    text_page_nodes: list[dict[str, Any]],
+) -> None:
+    if str(template.get("template_kind") or "") != "tabular_form":
+        return
+    existing_projection = dict(template.get("semantic_projection_v2") or {})
+    if any(
+        key in existing_projection
+        for key in (
+            "blank_template_header_grid_projection",
+            "ruled_multilevel_template_header_projection",
+            "ruled_slot_template_header_projection",
+        )
+    ):
+        return
+    fields = [dict(field) for field in template.get("fields", []) or [] if isinstance(field, dict)]
+    if len(fields) < 2:
+        return
+    owned_ids = {
+        str(block_id or "").strip()
+        for block_id in template.get("owned_text_block_ids", []) or []
+        if str(block_id or "").strip()
+    }
+    if not owned_ids:
+        return
+
+    title_signature = _compact_text(str(template.get("title") or ""))
+    title_source_id = str(template.get("title_source_block_id") or "").strip()
+    field_indexes_by_signature: dict[str, list[int]] = {}
+    for field_index, field in enumerate(fields):
+        text = _clean_text(str(field.get("text") or ""))
+        signature = _compact_text(text)
+        if (
+            not signature
+            or signature == title_signature
+            or not re.search(r"[:\uff1a]", text)
+            or _blank_template_matrix_short_label_token(text)
+        ):
+            continue
+        field_indexes_by_signature.setdefault(signature, []).append(field_index)
+    if not field_indexes_by_signature:
+        return
+
+    matched_counts: Counter[str] = Counter()
+    candidates: list[dict[str, Any]] = []
+    for node in sorted(text_page_nodes or [], key=_node_physical_order_key):
+        block_id = str(node.get("block_id") or "").strip()
+        text = _clean_text(str(node.get("text") or ""))
+        signature = _compact_text(text)
+        bbox = _coerce_bbox(node.get("bbox"))
+        field_indexes = field_indexes_by_signature.get(signature, [])
+        occurrence_index = int(matched_counts.get(signature, 0) or 0)
+        if (
+            not block_id
+            or block_id not in owned_ids
+            or block_id == title_source_id
+            or not text
+            or bbox is None
+            or occurrence_index >= len(field_indexes)
+        ):
+            continue
+        field_index = field_indexes[occurrence_index]
+        matched_counts[signature] += 1
+        candidates.append(
+            {
+                "node": node,
+                "field_index": field_index,
+                "text": text,
+                "signature": signature,
+                "bbox": bbox,
+            }
+        )
+    if len(candidates) < 2:
+        return
+
+    heights = sorted(max(float(item["bbox"][3]) - float(item["bbox"][1]), 1.0) for item in candidates)
+    median_height = heights[len(heights) // 2]
+    row_tolerance = max(2.0, min(5.0, median_height * 0.38))
+    visual_rows: list[list[dict[str, Any]]] = []
+    for candidate in sorted(candidates, key=lambda item: (float(item["bbox"][1]), float(item["bbox"][0]))):
+        bbox = candidate["bbox"]
+        center_y = (float(bbox[1]) + float(bbox[3])) / 2.0
+        target: list[dict[str, Any]] | None = None
+        for row in visual_rows:
+            row_bbox = _bbox_union_loose([item["bbox"] for item in row])
+            row_center_y = (float(row_bbox[1]) + float(row_bbox[3])) / 2.0
+            overlap = max(0.0, min(float(bbox[3]), float(row_bbox[3])) - max(float(bbox[1]), float(row_bbox[1])))
+            overlap_floor = min(float(bbox[3]) - float(bbox[1]), float(row_bbox[3]) - float(row_bbox[1])) * 0.45
+            if abs(center_y - row_center_y) <= row_tolerance or overlap >= overlap_floor:
+                target = row
+                break
+        if target is None:
+            visual_rows.append([candidate])
+        else:
+            target.append(candidate)
+    visual_rows = [sorted(row, key=lambda item: float(item["bbox"][0])) for row in visual_rows]
+    visual_rows = [row for row in visual_rows if len(row) >= 2]
+    if not visual_rows:
+        return
+
+    x_positions = sorted(float(item["bbox"][0]) for row in visual_rows for item in row)
+    anchor_tolerance = max(10.0, median_height * 1.5)
+    anchor_clusters: list[list[float]] = []
+    for x_position in x_positions:
+        if not anchor_clusters or abs(x_position - (sum(anchor_clusters[-1]) / len(anchor_clusters[-1]))) > anchor_tolerance:
+            anchor_clusters.append([x_position])
+        else:
+            anchor_clusters[-1].append(x_position)
+    column_anchors = [sum(cluster) / len(cluster) for cluster in anchor_clusters]
+    fragment_column_anchors = [
+        float(value)
+        for value in (template.get("semantic_signals") or {}).get("page_bottom_header_column_anchors", []) or []
+        if isinstance(value, (int, float))
+    ]
+    if fragment_column_anchors:
+        column_anchors = sorted(fragment_column_anchors)
+
+    field_source_ids = {
+        str(item["node"].get("block_id") or "").strip()
+        for row in visual_rows
+        for item in row
+        if str(item["node"].get("block_id") or "").strip()
+    }
+    row_text_signatures = {
+        _compact_text(str(row_text or ""))
+        for row_text in template.get("row_texts", []) or []
+        if _compact_text(str(row_text or ""))
+    }
+    excluded_companion_roles = {
+        "page_header",
+        "page_footer",
+        "page_number",
+        "section_heading",
+        "structure_template_title",
+        "structure_template_note",
+        "template_instruction_note",
+    }
+    companion_candidates: list[dict[str, Any]] = []
+    for node in sorted(text_page_nodes or [], key=_node_physical_order_key):
+        block_id = str(node.get("block_id") or "").strip()
+        text = _clean_text(str(node.get("text") or ""))
+        signature = _compact_text(text)
+        bbox = _coerce_bbox(node.get("bbox"))
+        if (
+            not block_id
+            or block_id not in owned_ids
+            or block_id in field_source_ids
+            or block_id == title_source_id
+            or str(node.get("semantic_role") or "").strip() in excluded_companion_roles
+            or not text
+            or not signature
+            or signature not in row_text_signatures
+            or signature == title_signature
+            or bbox is None
+            or re.search(r"[:\uff1a]", text)
+            or _blank_template_matrix_short_label_token(text)
+        ):
+            continue
+        companion_candidates.append(
+            {
+                "node": node,
+                "field_index": None,
+                "semantic_cell_role": "row_companion",
+                "text": text,
+                "signature": signature,
+                "bbox": bbox,
+            }
+        )
+
+    for companion in companion_candidates:
+        bbox = companion["bbox"]
+        center_y = (float(bbox[1]) + float(bbox[3])) / 2.0
+        for row in visual_rows:
+            row_bbox = _bbox_union_loose([item["bbox"] for item in row])
+            row_center_y = (float(row_bbox[1]) + float(row_bbox[3])) / 2.0
+            vertical_overlap = max(
+                0.0,
+                min(float(bbox[3]), float(row_bbox[3])) - max(float(bbox[1]), float(row_bbox[1])),
+            )
+            overlap_floor = min(
+                float(bbox[3]) - float(bbox[1]),
+                float(row_bbox[3]) - float(row_bbox[1]),
+            ) * 0.45
+            if abs(center_y - row_center_y) > row_tolerance and vertical_overlap < overlap_floor:
+                continue
+            column_index = min(
+                range(len(column_anchors)),
+                key=lambda index: abs(float(bbox[0]) - float(column_anchors[index])),
+            )
+            if abs(float(bbox[0]) - float(column_anchors[column_index])) > anchor_tolerance:
+                continue
+            occupied_columns = {
+                min(
+                    range(len(column_anchors)),
+                    key=lambda index: abs(float(item["bbox"][0]) - float(column_anchors[index])),
+                )
+                for item in row
+            }
+            if column_index in occupied_columns:
+                continue
+            if any(_horizontal_overlap_ratio(bbox, item["bbox"]) >= 0.05 for item in row):
+                continue
+            companion["column_index"] = column_index
+            row.append(companion)
+            row.sort(key=lambda item: float(item["bbox"][0]))
+            break
+
+    projected_rows: list[dict[str, Any]] = []
+    consumed_source_ids: list[str] = []
+    consumed_row_signatures: list[str] = []
+    for visual_row_index, row in enumerate(visual_rows, start=1):
+        projected_cells: list[dict[str, Any]] = []
+        for item in row:
+            field_index = item.get("field_index")
+            semantic_cell_role = str(item.get("semantic_cell_role") or "field")
+            field = fields[int(field_index)] if field_index is not None else {}
+            bbox = item["bbox"]
+            block_id = str(item["node"].get("block_id") or "").strip()
+            column_index = int(
+                item.get("column_index")
+                if item.get("column_index") is not None
+                else min(
+                    range(len(column_anchors)),
+                    key=lambda index: abs(float(bbox[0]) - float(column_anchors[index])),
+                )
+            )
+            cell = {
+                "text": item["text"],
+                "label": field.get("label"),
+                "value": field.get("value"),
+                "source_block_id": block_id,
+                "bbox": list(bbox),
+                "column_index": column_index,
+                "visual_row_index": visual_row_index,
+                "data_population": field.get("data_population") or "blank",
+                "semantic_cell_role": semantic_cell_role,
+                "source_semantic_role": str(item["node"].get("semantic_role") or "").strip(),
+            }
+            projected_cells.append(cell)
+            consumed_source_ids.append(block_id)
+            consumed_row_signatures.append(item["text"])
+            if field_index is not None:
+                fields[int(field_index)].update(
+                    {
+                        "source_block_id": block_id,
+                        "bbox": list(bbox),
+                        "column_index": column_index,
+                        "visual_row_index": visual_row_index,
+                    }
+                )
+        row_bbox = _bbox_union_loose([cell.get("bbox") for cell in projected_cells])
+        has_companion = any(cell.get("semantic_cell_role") == "row_companion" for cell in projected_cells)
+        projected_rows.append(
+            {
+                "visual_row_index": visual_row_index,
+                "page": int(template.get("page", 0) or 0),
+                "bbox": list(row_bbox),
+                "row_kind": "inline_mixed_form_row" if has_companion else "inline_multifield_row",
+                "display_text": _clean_text(" ".join(str(cell.get("text") or "") for cell in projected_cells)),
+                "source_block_ids": [str(cell.get("source_block_id") or "") for cell in projected_cells],
+                "cells": projected_cells,
+            }
+        )
+
+    semantic_projection = dict(template.get("semantic_projection_v2") or {})
+    semantic_projection["inline_form_row_projection"] = {
+        "source": "owned_field_visual_row_geometry",
+        "semantic_profile": "inline_multifield_form_rows",
+        "column_count": len(column_anchors),
+        "column_anchors": [round(float(value), 2) for value in column_anchors],
+        "rows": projected_rows,
+        "grouped_row_count": sum(1 for row in projected_rows if len(row.get("cells", []) or []) >= 2),
+        "row_companion_count": sum(
+            1
+            for row in projected_rows
+            for cell in row.get("cells", []) or []
+            if cell.get("semantic_cell_role") == "row_companion"
+        ),
+        "consumed_source_block_ids": consumed_source_ids,
+        "consumed_row_signatures": consumed_row_signatures,
+    }
+    template["semantic_projection_v2"] = semantic_projection
+    template["fields"] = fields
+    signals = dict(template.get("semantic_signals") or {})
+    signals["inline_multifield_form_row_count"] = len(projected_rows)
+    signals["inline_multifield_grouped_row_count"] = semantic_projection["inline_form_row_projection"]["grouped_row_count"]
+    signals["inline_form_row_companion_count"] = semantic_projection["inline_form_row_projection"]["row_companion_count"]
+    template["semantic_signals"] = signals
+
+
+def _apply_inline_multifield_form_row_projections(
+    templates: list[dict[str, Any]],
+    text_page_nodes: list[dict[str, Any]],
+) -> None:
+    for template in templates or []:
+        if isinstance(template, dict):
+            _apply_inline_multifield_form_row_projection(template, text_page_nodes)
+            _apply_inline_matrix_header_row_projection(template, text_page_nodes)
+
+
+def _apply_inline_matrix_header_row_projection(
+    template: dict[str, Any],
+    text_page_nodes: list[dict[str, Any]],
+) -> None:
+    if str(template.get("template_kind") or "") != "tabular_form":
+        return
+    if str(template.get("ownership_domain") or "") not in {"", "template_form"}:
+        return
+    if str(template.get("data_population") or "").strip() not in {"", "blank"}:
+        return
+
+    owned_ids = {
+        str(block_id or "").strip()
+        for block_id in template.get("owned_text_block_ids", []) or []
+        if str(block_id or "").strip()
+    }
+    if len(owned_ids) < 2:
+        return
+    title_source_id = str(template.get("title_source_block_id") or "").strip()
+    note_source_ids = {
+        str(note.get("source_block_id") or "").strip()
+        for note in template.get("note_blocks", []) or []
+        if isinstance(note, dict) and str(note.get("source_block_id") or "").strip()
+    }
+    row_signature_counts = Counter(
+        _compact_text(str(row or ""))
+        for row in template.get("row_texts", []) or []
+        if _compact_text(str(row or ""))
+    )
+    excluded_roles = {
+        "page_header",
+        "page_footer",
+        "page_number",
+        "section_heading",
+        "structure_template_title",
+        "structure_template_note",
+        "template_instruction_note",
+    }
+    matched_counts: Counter[str] = Counter()
+    candidates: list[dict[str, Any]] = []
+    for node in sorted(text_page_nodes or [], key=_node_physical_order_key):
+        block_id = str(node.get("block_id") or "").strip()
+        text = _clean_text(str(node.get("text") or ""))
+        signature = _compact_text(text)
+        bbox = _coerce_bbox(node.get("bbox"))
+        if (
+            not block_id
+            or block_id not in owned_ids
+            or block_id == title_source_id
+            or block_id in note_source_ids
+            or str(node.get("semantic_role") or "").strip() in excluded_roles
+            or not text
+            or not signature
+            or bbox is None
+            or matched_counts[signature] >= row_signature_counts.get(signature, 0)
+        ):
+            continue
+        matched_counts[signature] += 1
+        candidates.append({"node": node, "block_id": block_id, "text": text, "signature": signature, "bbox": bbox})
+    if len(candidates) < 2:
+        return
+
+    source_visual_rows = [
+        {
+            "page": int(template.get("page", 0) or 0),
+            "text": str(item["text"]),
+            "source_block_id": str(item["block_id"]),
+            "bbox": list(item["bbox"]),
+            "physical_order_index": index + 1,
+        }
+        for index, item in enumerate(
+            sorted(candidates, key=lambda item: (float(item["bbox"][1]), float(item["bbox"][0])))
+        )
+    ]
+    source_visual_rows_complete = (
+        Counter(_compact_text(str(row.get("text") or "")) for row in source_visual_rows)
+        == row_signature_counts
+    )
+
+    heights = sorted(max(float(item["bbox"][3]) - float(item["bbox"][1]), 1.0) for item in candidates)
+    median_height = heights[len(heights) // 2]
+    row_tolerance = max(2.0, min(4.5, median_height * 0.38))
+    visual_rows: list[list[dict[str, Any]]] = []
+    for candidate in sorted(candidates, key=lambda item: (float(item["bbox"][1]), float(item["bbox"][0]))):
+        bbox = candidate["bbox"]
+        center_y = (float(bbox[1]) + float(bbox[3])) / 2.0
+        target: list[dict[str, Any]] | None = None
+        for row in visual_rows:
+            row_bbox = _bbox_union_loose([item["bbox"] for item in row])
+            row_center_y = (float(row_bbox[1]) + float(row_bbox[3])) / 2.0
+            vertical_overlap = max(
+                0.0,
+                min(float(bbox[3]), float(row_bbox[3])) - max(float(bbox[1]), float(row_bbox[1])),
+            )
+            overlap_floor = min(
+                float(bbox[3]) - float(bbox[1]),
+                float(row_bbox[3]) - float(row_bbox[1]),
+            ) * 0.45
+            if abs(center_y - row_center_y) <= row_tolerance or vertical_overlap >= overlap_floor:
+                target = row
+                break
+        if target is None:
+            visual_rows.append([candidate])
+        else:
+            target.append(candidate)
+
+    projection = dict(template.get("semantic_projection_v2") or {})
+    inline_projection = dict(projection.get("inline_form_row_projection") or {})
+    existing_consumed_ids = {
+        str(block_id or "").strip()
+        for block_id in inline_projection.get("consumed_source_block_ids", []) or []
+        if str(block_id or "").strip()
+    }
+    projected_rows = [dict(row) for row in inline_projection.get("rows", []) or [] if isinstance(row, dict)]
+    matrix_rows: list[dict[str, Any]] = []
+    for row in visual_rows:
+        row = sorted(row, key=lambda item: float(item["bbox"][0]))
+        if len(row) < 2 or any(item["block_id"] in existing_consumed_ids for item in row):
+            continue
+        leading_text = str(row[0]["text"] or "")
+        if not _blank_tabular_template_same_row_field_gap_text(leading_text):
+            continue
+        if re.search(r"[:：]", leading_text) or not re.search(
+            r"(?:剂量|浓度|含量|AUC|Cmax|Tmax|Css|百分比|比例)",
+            leading_text,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        if any(
+            re.search(r"[:：。！？；;]", str(item["text"] or ""))
+            or len(str(item["text"] or "")) > 42
+            or _blank_template_note_text(str(item["text"] or ""))
+            or _starts_new_ind_section_or_template(str(item["text"] or ""))
+            for item in row[1:]
+        ):
+            continue
+        if any(
+            _horizontal_overlap_ratio(left["bbox"], right["bbox"]) >= 0.05
+            or float(right["bbox"][0]) - float(left["bbox"][2]) < 8.0
+            for left, right in zip(row, row[1:])
+        ):
+            continue
+        row_bbox = _bbox_union_loose([item["bbox"] for item in row])
+        cells = [
+            {
+                "text": item["text"],
+                "source_block_id": item["block_id"],
+                "bbox": list(item["bbox"]),
+                "column_index": index,
+                "semantic_cell_role": "matrix_header_cell",
+                "source_semantic_role": str(item["node"].get("semantic_role") or "").strip(),
+                "data_population": "blank",
+            }
+            for index, item in enumerate(row)
+        ]
+        matrix_rows.append(
+            {
+                "page": int(template.get("page", 0) or 0),
+                "bbox": list(row_bbox),
+                "row_kind": "inline_matrix_header_row",
+                "display_text": _clean_text(" ".join(item["text"] for item in row)),
+                "source_block_ids": [item["block_id"] for item in row],
+                "cells": cells,
+            }
+        )
+    if not matrix_rows:
+        return
+
+    projected_rows.extend(matrix_rows)
+    projected_rows.sort(
+        key=lambda row: (
+            float((_coerce_bbox(row.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1]),
+            float((_coerce_bbox(row.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[0]),
+        )
+    )
+    for visual_row_index, row in enumerate(projected_rows, start=1):
+        row["visual_row_index"] = visual_row_index
+        for cell in row.get("cells", []) or []:
+            if isinstance(cell, dict):
+                cell["visual_row_index"] = visual_row_index
+    consumed_ids = [
+        str(block_id or "").strip()
+        for row in projected_rows
+        for block_id in row.get("source_block_ids", []) or []
+        if str(block_id or "").strip()
+    ]
+    consumed_signatures = [
+        str(cell.get("text") or "")
+        for row in projected_rows
+        for cell in row.get("cells", []) or []
+        if isinstance(cell, dict) and str(cell.get("text") or "").strip()
+    ]
+    inline_projection.update(
+        {
+            "source": inline_projection.get("source") or "owned_template_visual_row_geometry",
+            "semantic_profile": inline_projection.get("semantic_profile") or "inline_matrix_header_rows",
+            "rows": projected_rows,
+            "consumed_source_block_ids": consumed_ids,
+            "consumed_row_signatures": consumed_signatures,
+            "source_visual_rows": source_visual_rows,
+            "source_visual_rows_complete": source_visual_rows_complete,
+            "matrix_header_row_count": sum(
+                1 for row in projected_rows if row.get("row_kind") == "inline_matrix_header_row"
+            ),
+        }
+    )
+    projection["inline_form_row_projection"] = inline_projection
+    template["semantic_projection_v2"] = projection
+    if source_visual_rows_complete:
+        _rebuild_template_rows_from_source_visual_records(template, source_visual_rows)
+    signals = dict(template.get("semantic_signals") or {})
+    signals["inline_matrix_header_row_count"] = inline_projection["matrix_header_row_count"]
+    template["semantic_signals"] = signals
+
+
+def _rebuild_template_rows_from_source_visual_records(
+    template: dict[str, Any],
+    source_visual_rows: list[dict[str, Any]],
+) -> None:
+    ordered = sorted(
+        [row for row in source_visual_rows if isinstance(row, dict)],
+        key=lambda row: (
+            float((_coerce_bbox(row.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1]),
+            float((_coerce_bbox(row.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[0]),
+        ),
+    )
+    texts = [_clean_text(str(row.get("text") or "")) for row in ordered]
+    if not texts or any(not text for text in texts):
+        return
+    template["row_texts"] = texts
+
+    row_index_by_source_id = {
+        str(row.get("source_block_id") or "").strip(): index
+        for index, row in enumerate(ordered, start=1)
+        if str(row.get("source_block_id") or "").strip()
+    }
+    row_indexes_by_signature: dict[str, list[int]] = {}
+    for index, text in enumerate(texts, start=1):
+        row_indexes_by_signature.setdefault(_compact_text(text), []).append(index)
+    for key in ("fields", "sections"):
+        items = [dict(item) for item in template.get(key, []) or [] if isinstance(item, dict)]
+        for item in items:
+            source_id = str(item.get("source_block_id") or "").strip()
+            if source_id and source_id in row_index_by_source_id:
+                item["row_index"] = row_index_by_source_id[source_id]
+                continue
+            indexes = row_indexes_by_signature.get(_compact_text(str(item.get("text") or "")), [])
+            if len(indexes) == 1:
+                item["row_index"] = indexes[0]
+        template[key] = sorted(items, key=lambda item: int(item.get("row_index", 0) or 0))
+
+
 def _local_note_start(text: str) -> tuple[str, str]:
     return _postprocess_notes._local_note_start(text)
 
@@ -2613,13 +3205,45 @@ def _structure_template_note_anchor_refs(template: dict[str, Any]) -> list[dict[
                 "confidence": 0.9,
             }
         )
+    for ref in template.get("cross_component_note_refs", []) or []:
+        if not isinstance(ref, dict):
+            continue
+        marker = str(ref.get("marker") or "").strip()
+        anchor_text = str(ref.get("anchor_text") or "").strip()
+        note_text = str(ref.get("note_text") or "").strip()
+        if not marker or not anchor_text or not note_text:
+            continue
+        key = (str(ref.get("anchor_status") or "cross_component_anchor"), marker, note_text)
+        if key in seen:
+            continue
+        seen.add(key)
+        composite_ref = dict(ref)
+        composite_ref.setdefault("anchor_type", "study_panel_template_field")
+        composite_ref.setdefault(
+            "note_profile",
+            _structure_template_note_profile(
+                {
+                    "text": note_text,
+                    "marker": marker,
+                    "relation": ref.get("relation"),
+                }
+            ),
+        )
+        refs.append(composite_ref)
     return refs
 
 
 def _build_structure_template_composite_object(template: dict[str, Any]) -> dict[str, Any]:
+    prelude_blocks = [
+        dict(prelude)
+        for prelude in template.get("prelude_blocks", []) or []
+        if isinstance(prelude, dict) and str(prelude.get("text") or "").strip()
+    ]
     note_blocks = [dict(note) for note in template.get("note_blocks", []) or [] if isinstance(note, dict)]
     body_component_count = _structure_template_body_component_count(template)
     component_order: list[str] = []
+    if prelude_blocks:
+        component_order.append("prelude")
     if str(template.get("title") or "").strip():
         component_order.append("title")
     if body_component_count:
@@ -2633,7 +3257,12 @@ def _build_structure_template_composite_object(template: dict[str, Any]) -> dict
         "template_profile": template.get("template_profile"),
         "reading_flow": "composite_object",
         "body_flow_policy": "exclude_owned_text_from_body",
-        "presentation_order": ["title", "body", "notes"],
+        "presentation_order": [
+            *(["prelude"] if prelude_blocks else []),
+            "title",
+            "body",
+            "notes",
+        ],
         "component_order": component_order,
         "title_policy": "owned_object_title",
         "visible_title_owner": template.get("ownership_domain") or "template_form",
@@ -2649,8 +3278,10 @@ def _build_structure_template_composite_object(template: dict[str, Any]) -> dict
             else "local_object_notes_only"
         ),
         "has_title": bool(str(template.get("title") or "").strip()),
+        "has_prelude": bool(prelude_blocks),
         "has_body": bool(body_component_count),
         "has_notes": bool(note_blocks),
+        "prelude_block_count": len(prelude_blocks),
         "body_component_count": body_component_count,
         "note_block_count": len(note_blocks),
         "note_anchor_refs": _structure_template_note_anchor_refs(template),
@@ -2795,6 +3426,24 @@ def _table_composite_note_anchor_refs(table: dict[str, Any]) -> list[dict[str, A
                 "confidence": 0.84,
             }
         )
+
+    for ref in table.get("cross_component_note_refs", []) or []:
+        if not isinstance(ref, dict):
+            continue
+        marker = str(ref.get("marker") or "").strip()
+        note_text = str(ref.get("note_text") or "").strip()
+        anchor_text = str(ref.get("anchor_text") or "").strip()
+        if not marker or not note_text or not anchor_text:
+            continue
+        anchor_type = str(ref.get("anchor_owner_type") or "study_panel_component")
+        key = (anchor_type, marker, note_text, anchor_text)
+        if key in seen:
+            continue
+        seen.add(key)
+        composite_ref = dict(ref)
+        composite_ref.setdefault("anchor_type", anchor_type)
+        composite_ref.setdefault("note_profile", _object_note_profile({"text": note_text, "marker": marker}))
+        refs.append(composite_ref)
 
     return refs
 
@@ -2976,6 +3625,7 @@ def _sync_table_page_nodes(
                 "semantic_repairs",
                 "semantic_header_column_groups",
                 "semantic_header_row_groups",
+                "span_header_cells",
                 "header_column_groups",
                 "header_row_groups",
                 "row_groups",
@@ -2987,6 +3637,10 @@ def _sync_table_page_nodes(
                 "owned_texts",
                 "header_note_refs",
                 "cell_note_refs",
+                "cross_component_note_refs",
+                "note_groups",
+                "study_panel_id",
+                "context_structure_template_id",
                 "row_texts",
                 "raw_row_texts",
                 "display_row_texts",
@@ -3146,6 +3800,136 @@ def _absorbed_label_table_form_rows(table: dict[str, Any]) -> list[str]:
     return form_rows
 
 
+def _reconcile_absorbed_label_table_terminal_rows(
+    owner: dict[str, Any],
+    table: dict[str, Any],
+    appended_rows: list[str],
+) -> None:
+    projection = dict(owner.get("semantic_projection_v2") or {}).get(
+        "ruled_multilevel_template_header_projection"
+    )
+    if not isinstance(projection, dict):
+        return
+    slot_bboxes = [
+        bbox
+        for slot in projection.get("column_slots", []) or []
+        if isinstance(slot, dict)
+        and (bbox := _coerce_bbox([slot.get("x0"), slot.get("y0"), slot.get("x1"), slot.get("y1")]))
+        is not None
+    ]
+    if not slot_bboxes:
+        return
+    projected_grid_bottom = max(float(bbox[3]) for bbox in slot_bboxes)
+    appended_signatures = {
+        _compact_text(row)
+        for row in appended_rows
+        if _compact_text(row)
+    }
+    if not appended_signatures:
+        return
+
+    cells_by_row: dict[int, list[dict[str, Any]]] = {}
+    for cell in table.get("cells", []) or []:
+        if not isinstance(cell, dict):
+            continue
+        try:
+            logical_row = int(cell.get("logical_row", cell.get("row", -1)))
+        except (TypeError, ValueError):
+            continue
+        cells_by_row.setdefault(logical_row, []).append(cell)
+
+    table_id = str(table.get("table_id") or "").strip()
+    candidates: list[tuple[int, str, list[float]]] = []
+    for logical_row, cells in cells_by_row.items():
+        populated_cells = [
+            cell
+            for cell in cells
+            if _clean_text(str(cell.get("text") or ""))
+        ]
+        if len(populated_cells) != 1:
+            continue
+        cell = populated_cells[0]
+        text = _clean_text(str(cell.get("text") or ""))
+        signature = _compact_text(text)
+        bbox = _coerce_bbox(cell.get("bbox"))
+        if (
+            not signature
+            or signature not in appended_signatures
+            or not _terminal_template_additional_info_text(text)
+            or bbox is None
+            or float(bbox[1]) + 1.0 < projected_grid_bottom
+        ):
+            continue
+        candidates.append((logical_row, text, list(bbox)))
+    if not candidates:
+        return
+
+    candidate_signatures = {_compact_text(text) for _, text, _ in candidates}
+    for key in ("fields", "sections", "entries"):
+        items = [dict(item) for item in owner.get(key, []) or [] if isinstance(item, dict)]
+        owner[key] = [
+            item
+            for item in items
+            if not (
+                str(item.get("source_table_id") or "").strip() == table_id
+                and _compact_text(str(item.get("text") or item.get("label") or item.get("title") or ""))
+                in candidate_signatures
+            )
+        ]
+
+    notes = [dict(note) for note in owner.get("note_blocks", []) or [] if isinstance(note, dict)]
+    note_by_signature = {
+        _compact_text(str(note.get("text") or "")): note
+        for note in notes
+        if _compact_text(str(note.get("text") or ""))
+    }
+    for logical_row, text, bbox in candidates:
+        signature = _compact_text(text)
+        note = note_by_signature.get(signature)
+        if note is None:
+            note = {
+                "note_index": len(notes) + 1,
+                "text": text,
+                "marker": None,
+                "body": None,
+                "source_block_id": None,
+                "relation": "terminal_template_additional_info",
+                "note_kind": "terminal_additional_info",
+                "anchor_text": text,
+                "anchor_relation": "after_projected_template_grid",
+            }
+            notes.append(note)
+            note_by_signature[signature] = note
+        note.update(
+            {
+                "bbox": bbox,
+                "source_table_id": table_id or None,
+                "source_logical_row": logical_row,
+            }
+        )
+
+    notes.sort(
+        key=lambda note: (
+            0 if _coerce_bbox(note.get("bbox")) is not None else 1,
+            float((_coerce_bbox(note.get("bbox")) or [0.0, 0.0, 0.0, 0.0])[1]),
+            float((_coerce_bbox(note.get("bbox")) or [0.0, 0.0, 0.0, 0.0])[0]),
+            int(note.get("note_index", 0) or 0),
+        )
+    )
+    for note_index, note in enumerate(notes, start=1):
+        note["note_index"] = note_index
+    owner["note_blocks"] = notes
+    owner["entry_count"] = sum(len(owner.get(key, []) or []) for key in ("fields", "sections", "entries"))
+    owner["local_note_refs"] = _local_note_marker_anchor_refs(
+        [str(row or "") for row in owner.get("row_texts", []) or []],
+        notes,
+    )
+    signals = dict(owner.get("semantic_signals") or {})
+    signals["absorbed_terminal_additional_info_note_count"] = len(candidates)
+    signals["absorbed_terminal_row_role_reconciled"] = True
+    owner["semantic_signals"] = signals
+
+
 def _merge_absorbed_label_table_rows_into_template(owner: dict[str, Any], table: dict[str, Any]) -> None:
     row_texts = [
         _clean_text(str(row or ""))
@@ -3177,6 +3961,7 @@ def _merge_absorbed_label_table_rows_into_template(owner: dict[str, Any], table:
         owner["row_texts"] = row_texts
         owner["sections"] = sections
         owner["entry_count"] = len(owner.get("fields", []) or []) + len(sections)
+        _reconcile_absorbed_label_table_terminal_rows(owner, table, appended_rows)
         _refresh_structure_template_composite_object(owner)
 
 
@@ -3703,11 +4488,14 @@ def _sync_structure_template_page_nodes(
             for key in (
                 "bbox",
                 "title",
+                "title_source_block_id",
+                "prelude_blocks",
                 "template_kind",
                 "template_profile",
                 "ownership_domain",
                 "data_population",
                 "row_texts",
+                "row_sources",
                 "fields",
                 "sections",
                 "entries",
@@ -3719,6 +4507,8 @@ def _sync_structure_template_page_nodes(
                 "continued_from_title",
                 "continuation_parent_outline_index",
                 "continuation_parent_outline_indices",
+                "cross_component_note_refs",
+                "study_panel_id",
             ):
                 if key in template:
                     block[key] = deepcopy(template.get(key))
@@ -3778,17 +4568,28 @@ def _structure_template_page_node(template: dict[str, Any]) -> dict[str, Any]:
         "page": int(template.get("page", 0) or 0),
         "bbox": list(template.get("bbox", []) or []),
         "title": str(template.get("title") or "").strip(),
+        "title_source_block_id": str(template.get("title_source_block_id") or "").strip(),
+        "prelude_blocks": deepcopy(template.get("prelude_blocks", []) or []),
+        "parent_section_title": str(template.get("parent_section_title") or "").strip(),
+        "form_instance_group_id": str(template.get("form_instance_group_id") or "").strip(),
+        "form_instance_index": template.get("form_instance_index"),
+        "form_instance_count": template.get("form_instance_count"),
+        "local_form_title": str(template.get("local_form_title") or "").strip(),
         "semantic_role": "structure_template",
         "template_kind": template.get("template_kind"),
         "template_profile": template.get("template_profile"),
         "ownership_domain": template.get("ownership_domain"),
         "data_population": template.get("data_population"),
         "row_texts": deepcopy(template.get("row_texts", []) or []),
+        "row_sources": deepcopy(template.get("row_sources", []) or []),
         "fields": deepcopy(template.get("fields", []) or []),
         "sections": deepcopy(template.get("sections", []) or []),
         "note_blocks": deepcopy(template.get("note_blocks", []) or []),
         "local_note_refs": deepcopy(template.get("local_note_refs", []) or []),
+        "cross_component_note_refs": deepcopy(template.get("cross_component_note_refs", []) or []),
+        "study_panel_id": template.get("study_panel_id"),
         "semantic_signals": deepcopy(template.get("semantic_signals", {}) or {}),
+        "semantic_projection_v2": deepcopy(template.get("semantic_projection_v2", {}) or {}),
         "composite_object": deepcopy(template.get("composite_object", {}) or {}),
         "owned_text_block_ids": list(template.get("owned_text_block_ids", []) or []),
         "is_structure_template_continuation": template.get("is_structure_template_continuation"),
@@ -3938,8 +4739,281 @@ def _absorb_blank_template_continuation_tail(owner: dict[str, Any], continuation
     owner["entry_count"] = len(owner.get("fields", []) or []) + len(owner.get("sections", []) or [])
 
 
+def _same_page_blank_form_preamble_restart(rows: list[Any]) -> bool:
+    preamble = [_clean_text(str(row or "")) for row in rows[:5] if _clean_text(str(row or ""))]
+    has_location = _tabular_form_template_has_location_triplet(preamble)
+    has_identifier = any(
+        re.search(
+            r"(?:\u8bd5\u9a8c|\u7814\u7a76|\u62a5\u544a)(?:\u7f16\u53f7|\u53f7)|"
+            r"(?:study|report)\s*(?:number|no\.?|id)",
+            text,
+            re.IGNORECASE,
+        )
+        for text in preamble
+    )
+    return bool(has_location and has_identifier)
+
+
+def _same_page_blank_form_restart_index(rows: list[Any]) -> int | None:
+    cleaned = [_clean_text(str(row or "")) for row in rows]
+    terminal_seen = False
+    for index, row in enumerate(cleaned):
+        if _terminal_template_additional_info_text(row):
+            terminal_seen = True
+            continue
+        if terminal_seen and _same_page_blank_form_preamble_restart(cleaned[index:]):
+            return index
+    return None
+
+
+def _same_page_blank_form_boundary_rule(
+    owner_bbox: tuple[float, float, float, float],
+    page_drawings: list[dict[str, Any]],
+) -> tuple[float, float, float, float] | None:
+    owner_width = max(1.0, float(owner_bbox[2]) - float(owner_bbox[0]))
+    candidates: list[tuple[float, float, float, float]] = []
+    for drawing in page_drawings or []:
+        for rect in _iter_drawing_horizontal_rects(drawing):
+            x0, y0, x1, y1 = rect
+            width = float(x1) - float(x0)
+            center_y = (float(y0) + float(y1)) / 2.0
+            if width < max(120.0, owner_width * 0.72):
+                continue
+            if not (float(owner_bbox[3]) + 2.0 <= center_y <= float(owner_bbox[3]) + 42.0):
+                continue
+            overlap = max(0.0, min(float(owner_bbox[2]), float(x1)) - max(float(owner_bbox[0]), float(x0)))
+            if overlap / owner_width < 0.70:
+                continue
+            candidates.append((float(x0), float(y0), float(x1), float(y1)))
+    if not candidates:
+        return None
+    return min(candidates, key=lambda rect: ((rect[1] + rect[3]) / 2.0, rect[0]))
+
+
+def _same_page_blank_form_local_title(template: dict[str, Any], rows: list[str]) -> str:
+    row_norms = {_compact_text(row) for row in rows if _compact_text(row)}
+    for section in reversed(template.get("sections", []) or []):
+        if not isinstance(section, dict):
+            continue
+        text = _clean_text(str(section.get("text") or ""))
+        if (
+            text
+            and _compact_text(text) in row_norms
+            and not _starts_new_ind_section_or_template(text)
+            and not _study_summary_template_field_text(text)
+        ):
+            return text
+    return ""
+
+
+def _same_page_blank_form_trim_to_rows(
+    template: dict[str, Any],
+    rows: list[str],
+    *,
+    instance_bbox: tuple[float, float, float, float],
+    text_nodes_by_id: dict[str, dict[str, Any]],
+    preserve_title_source: bool,
+) -> None:
+    row_norms = {_compact_text(row) for row in rows if _compact_text(row)}
+    template["row_texts"] = list(rows)
+    template["fields"] = [
+        dict(field)
+        for field in template.get("fields", []) or []
+        if isinstance(field, dict)
+        and _compact_text(str(field.get("text") or field.get("label") or "")) in row_norms
+    ]
+    template["sections"] = [
+        dict(section)
+        for section in template.get("sections", []) or []
+        if isinstance(section, dict)
+        and _compact_text(str(section.get("text") or "")) in row_norms
+    ]
+    owned_ids: list[str] = []
+    for block_id in template.get("owned_text_block_ids", []) or []:
+        source_id = str(block_id or "").strip()
+        node_bbox = _coerce_bbox((text_nodes_by_id.get(source_id) or {}).get("bbox"))
+        if not source_id or node_bbox is None:
+            continue
+        center_x = (float(node_bbox[0]) + float(node_bbox[2])) / 2.0
+        center_y = (float(node_bbox[1]) + float(node_bbox[3])) / 2.0
+        if (
+            float(instance_bbox[0]) - 3.0 <= center_x <= float(instance_bbox[2]) + 3.0
+            and float(instance_bbox[1]) - 3.0 <= center_y <= float(instance_bbox[3]) + 3.0
+        ):
+            owned_ids.append(source_id)
+    template["owned_text_block_ids"] = list(dict.fromkeys(owned_ids))
+    owned_id_set = set(owned_ids)
+
+    def retained_item(item: Any) -> bool:
+        if not isinstance(item, dict):
+            return False
+        item_text = _clean_text(str(item.get("text") or item.get("title") or item.get("label") or ""))
+        if item_text and _compact_text(item_text) not in row_norms:
+            return False
+        source_ids = {
+            str(source_id or "").strip()
+            for source_id in [item.get("source_block_id"), *(item.get("source_block_ids", []) or [])]
+            if str(source_id or "").strip()
+        }
+        return not source_ids or bool(source_ids.intersection(owned_id_set))
+
+    template["entries"] = [dict(item) for item in template.get("entries", []) or [] if retained_item(item)]
+    template["root_nodes"] = [dict(item) for item in template.get("root_nodes", []) or [] if retained_item(item)]
+    template["note_blocks"] = []
+    template["local_note_refs"] = []
+    template["semantic_projection_v2"] = {}
+    template.pop("semantic_repairs", None)
+    if not preserve_title_source:
+        template.pop("title_source_block_id", None)
+    template["entry_count"] = len(template.get("fields", []) or []) + len(template.get("sections", []) or [])
+
+
+def _partition_same_page_blank_form_instances(
+    templates: list[dict[str, Any]],
+    page_drawings: list[dict[str, Any]],
+    text_nodes_by_id: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    source_nodes = text_nodes_by_id or {}
+    ordered = sorted(
+        [template for template in templates if isinstance(template, dict)],
+        key=lambda item: (_coerce_bbox(item.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1],
+    )
+    for owner in ordered:
+        owner_id = str(owner.get("structure_template_id") or "").strip()
+        owner_bbox = _coerce_bbox(owner.get("bbox"))
+        owner_title = _clean_text(str(owner.get("title") or ""))
+        if (
+            not owner_id
+            or owner_bbox is None
+            or str(owner.get("template_profile") or "") != "blank_study_summary_template"
+            or not _starts_new_ind_section_or_template(owner_title)
+        ):
+            continue
+        boundary_rule = _same_page_blank_form_boundary_rule(owner_bbox, page_drawings)
+        if boundary_rule is None:
+            continue
+        for fragment in ordered:
+            if fragment is owner or int(fragment.get("page", 0) or 0) != int(owner.get("page", 0) or 0):
+                continue
+            fragment_bbox = _coerce_bbox(fragment.get("bbox"))
+            boundary_y = (float(boundary_rule[1]) + float(boundary_rule[3])) / 2.0
+            if (
+                fragment_bbox is None
+                or fragment_bbox[1] > boundary_y + 42.0
+                or fragment_bbox[3] < boundary_y - 3.0
+            ):
+                continue
+            fragment_rows = [
+                _clean_text(str(row or ""))
+                for row in fragment.get("row_texts", []) or []
+                if _clean_text(str(row or ""))
+            ]
+            restart_index = _same_page_blank_form_restart_index(fragment_rows)
+            owner_has_terminal = any(
+                _terminal_template_additional_info_text(str(row or ""))
+                for row in owner.get("row_texts", []) or []
+            )
+            if (
+                restart_index is None
+                and owner_has_terminal
+                and _same_page_blank_form_preamble_restart(fragment_rows)
+            ):
+                restart_index = 0
+            if restart_index is None:
+                continue
+            if restart_index == 0 and fragment_bbox[1] < owner_bbox[3] - 4.0:
+                continue
+            if restart_index > 0 and fragment_bbox[1] < owner_bbox[1] - 4.0:
+                continue
+            sibling_rows = fragment_rows[restart_index:]
+            first_rows = [
+                _clean_text(str(row or ""))
+                for row in owner.get("row_texts", []) or []
+                if _clean_text(str(row or ""))
+            ]
+            local_title_first = _same_page_blank_form_local_title(owner, first_rows)
+            local_title_second = _same_page_blank_form_local_title(fragment, sibling_rows)
+            if not local_title_first or not local_title_second or _compact_text(local_title_first) == _compact_text(local_title_second):
+                continue
+
+            if owner_title in first_rows:
+                first_rows = first_rows[first_rows.index(owner_title) :]
+            _same_page_blank_form_trim_to_rows(
+                owner,
+                first_rows,
+                instance_bbox=owner_bbox,
+                text_nodes_by_id=source_nodes,
+                preserve_title_source=True,
+            )
+            group_id = owner_id
+            owner["form_instance_group_id"] = group_id
+            owner["form_instance_index"] = 1
+            owner["form_instance_count"] = 2
+            owner["local_form_title"] = local_title_first
+            owner["parent_section_title"] = owner_title
+
+            sibling_bbox = (
+                min(float(boundary_rule[0]), float(fragment_bbox[0])),
+                boundary_y,
+                max(float(boundary_rule[2]), float(fragment_bbox[2])),
+                float(fragment_bbox[3]),
+            )
+            _same_page_blank_form_trim_to_rows(
+                fragment,
+                sibling_rows,
+                instance_bbox=sibling_bbox,
+                text_nodes_by_id=source_nodes,
+                preserve_title_source=False,
+            )
+            fragment["title"] = ""
+            fragment["template_profile"] = "blank_study_summary_template"
+            fragment["is_structure_template_continuation"] = False
+            for key in (
+                "continued_from_structure_template_id",
+                "continued_from_title",
+                "continued_from_page",
+                "continuation_parent_outline_index",
+                "continuation_parent_outline_indices",
+            ):
+                fragment.pop(key, None)
+            fragment["form_instance_group_id"] = group_id
+            fragment["form_instance_index"] = 2
+            fragment["form_instance_count"] = 2
+            fragment["local_form_title"] = local_title_second
+            fragment["parent_section_title"] = owner_title
+            fragment["bbox"] = [round(value, 2) for value in sibling_bbox]
+            for instance in (owner, fragment):
+                signals = dict(instance.get("semantic_signals") or {})
+                signals["same_page_sibling_form_instance_partitioned"] = True
+                signals["form_instance_boundary_source"] = "terminal_restart_plus_full_width_rule"
+                instance["semantic_signals"] = signals
+
+            sibling_bbox = _coerce_bbox(fragment.get("bbox")) or fragment_bbox
+            for tail in ordered:
+                if tail is owner or tail is fragment or not bool(tail.get("is_structure_template_continuation")):
+                    continue
+                tail_bbox = _coerce_bbox(tail.get("bbox"))
+                if tail_bbox is None or int(tail.get("page", 0) or 0) != int(owner.get("page", 0) or 0):
+                    continue
+                gap = float(tail_bbox[1]) - float(sibling_bbox[3])
+                if gap < -3.0 or gap > 80.0:
+                    continue
+                if _horizontal_overlap_ratio(sibling_bbox, tail_bbox) < 0.05:
+                    continue
+                tail["form_instance_group_id"] = group_id
+                tail["form_instance_index"] = 2
+                tail["title"] = ""
+                for key in ("continued_from_structure_template_id", "continued_from_title", "continued_from_page"):
+                    tail.pop(key, None)
+            break
+    return ordered
+
+
 def _merge_same_page_fragmented_blank_template_regions(
     templates: list[dict[str, Any]],
+    *,
+    page_drawings: list[dict[str, Any]] | None = None,
+    text_nodes_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     if len(templates) < 2:
         return templates
@@ -3950,9 +5024,10 @@ def _merge_same_page_fragmented_blank_template_regions(
         "sparse_tabular_form_skeleton",
         "low_text_ruled_tabular_form_template",
     }
-    ordered = sorted(
-        [template for template in templates if isinstance(template, dict)],
-        key=lambda item: (_coerce_bbox(item.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1],
+    ordered = _partition_same_page_blank_form_instances(
+        templates,
+        list(page_drawings or []),
+        text_nodes_by_id,
     )
     removed_ids: set[str] = set()
     for owner in ordered:
@@ -3964,7 +5039,8 @@ def _merge_same_page_fragmented_blank_template_regions(
         if str(owner.get("ownership_domain") or "") != "template_form":
             continue
         owner_title = _clean_text(str(owner.get("title") or ""))
-        if not _starts_new_ind_section_or_template(owner_title):
+        owner_instance_index = int(owner.get("form_instance_index", 0) or 0)
+        if not _starts_new_ind_section_or_template(owner_title) and owner_instance_index <= 1:
             continue
         owner_bbox = _coerce_bbox(owner.get("bbox"))
         if owner_bbox is None:
@@ -3978,6 +5054,18 @@ def _merge_same_page_fragmented_blank_template_regions(
             if str(fragment.get("ownership_domain") or "") != "template_form":
                 continue
             if str(fragment.get("template_profile") or "") not in target_profiles:
+                continue
+            owner_group_id = str(owner.get("form_instance_group_id") or "").strip()
+            fragment_group_id = str(fragment.get("form_instance_group_id") or "").strip()
+            owner_instance = int(owner.get("form_instance_index", 0) or 0)
+            fragment_instance = int(fragment.get("form_instance_index", 0) or 0)
+            if (
+                owner_group_id
+                and fragment_group_id == owner_group_id
+                and owner_instance
+                and fragment_instance
+                and owner_instance != fragment_instance
+            ):
                 continue
             fragment_title = _clean_text(str(fragment.get("title") or ""))
             if (
@@ -4106,7 +5194,7 @@ def _rebuild_blank_template_matrix_rows_from_words(template: dict[str, Any], pag
         replace_indices = [
             index
             for index, row in enumerate(rows)
-            if row in source_tokens and (row in {"M", "F"} or _blank_template_matrix_row_label(row))
+            if row in source_tokens and (_blank_template_matrix_short_label_token(row) or _blank_template_matrix_row_label(row))
         ]
         if not replace_indices:
             continue
@@ -4138,7 +5226,7 @@ def _blank_template_repeated_short_label_row_text(row_words: list[_Word]) -> str
     texts = [_clean_text(word.text) for word in words if _clean_text(word.text)]
     if len(texts) < 4:
         return ""
-    short_tokens = [text for text in texts if re.fullmatch(r"[MF]|[锛(]?\d+[锛)]?", text)]
+    short_tokens = [text for text in texts if _blank_template_matrix_short_label_token(text)]
     if len(short_tokens) < 4:
         return ""
     if not any(_blank_template_matrix_row_label(text) for text in texts):
@@ -4147,6 +5235,15 @@ def _blank_template_repeated_short_label_row_text(row_words: list[_Word]) -> str
     if max(token_counts.values(), default=0) < 2:
         return ""
     return _clean_text(" ".join(texts))
+
+
+def _blank_template_matrix_short_label_token(text: str) -> bool:
+    compact = _clean_text(text)
+    if not compact:
+        return False
+    if re.fullmatch(r"[MF]:?", compact):
+        return True
+    return bool(re.fullmatch(r"[锛(]?\d+[锛)]?", compact))
 
 
 def _blank_template_matrix_row_label(text: str) -> bool:
@@ -4408,7 +5505,10 @@ def _template_allows_tail_legend_note_reclassification(template: dict[str, Any])
     )
 
 
-def _ensure_template_tail_note_run_notes(template: dict[str, Any]) -> None:
+def _ensure_template_tail_note_run_notes(
+    template: dict[str, Any],
+    text_page_nodes: list[dict[str, Any]] | None = None,
+) -> None:
     if str(template.get("template_kind") or "") != "tabular_form":
         return
     if str(template.get("ownership_domain") or "") != "template_form":
@@ -4445,12 +5545,77 @@ def _ensure_template_tail_note_run_notes(template: dict[str, Any]) -> None:
     if not note_indices:
         return
 
+    ordered_nodes = [
+        node
+        for node in sorted(text_page_nodes or [], key=_node_physical_order_key)
+        if isinstance(node, dict)
+        and str(node.get("block_type", "text") or "text") == "text"
+    ]
+    node_by_id = {
+        str(node.get("block_id") or "").strip(): node
+        for node in ordered_nodes
+        if str(node.get("block_id") or "").strip()
+    }
+    node_index_by_id = {
+        block_id: index
+        for index, block_id in enumerate(node_by_id)
+    }
+    owned_ids = {
+        str(block_id).strip()
+        for block_id in template.get("owned_text_block_ids", []) or []
+        if str(block_id).strip()
+    }
+    source_candidates_by_signature: dict[str, list[dict[str, Any]]] = {}
+    if owned_ids:
+        for node in ordered_nodes:
+            block_id = str(node.get("block_id") or "").strip()
+            if block_id not in owned_ids:
+                continue
+            signature = _compact_text(str(node.get("text") or ""))
+            if not signature:
+                continue
+            source_candidates_by_signature.setdefault(signature, []).append(node)
+
     notes = [dict(item) for item in template.get("note_blocks", []) or [] if isinstance(item, dict)]
-    existing = {_compact_text(str(note.get("text") or "")) for note in notes}
+    note_by_signature = {
+        _compact_text(str(note.get("text") or "")): note
+        for note in notes
+        if _compact_text(str(note.get("text") or ""))
+    }
+    used_source_ids = {
+        str(note.get("source_block_id") or "").strip()
+        for note in notes
+        if str(note.get("source_block_id") or "").strip()
+    }
+
+    def source_node_for_row(text: str) -> dict[str, Any] | None:
+        signature = _compact_text(text)
+        for candidate in source_candidates_by_signature.get(signature, []) or []:
+            block_id = str(candidate.get("block_id") or "").strip()
+            if block_id and block_id not in used_source_ids:
+                used_source_ids.add(block_id)
+                return candidate
+        return None
+
+    def enrich_note_with_source(note: dict[str, Any], source_node: dict[str, Any] | None) -> None:
+        if source_node is None:
+            return
+        source_id = str(source_node.get("block_id") or "").strip()
+        if source_id and not str(note.get("source_block_id") or "").strip():
+            note["source_block_id"] = source_id
+        bbox = _coerce_bbox(source_node.get("bbox"))
+        if bbox is not None and not _coerce_bbox(note.get("bbox")):
+            note["bbox"] = list(source_node.get("bbox", []) or [])
+        source_node["semantic_role"] = "structure_template_note"
+
     for row_index in sorted(note_indices):
         text = rows[row_index]
         signature = _compact_text(text)
-        if not signature or signature in existing:
+        if not signature:
+            continue
+        source_node = source_node_for_row(text)
+        if signature in note_by_signature:
+            enrich_note_with_source(note_by_signature[signature], source_node)
             continue
         marker, body = _local_note_start(text)
         relation = "terminal_template_note_anchor" if _terminal_template_note_anchor_text(text) else "terminal_template_note_run"
@@ -4459,19 +5624,33 @@ def _ensure_template_tail_note_run_notes(template: dict[str, Any]) -> None:
             note_kind = "template_legend_note"
         else:
             note_kind = "terminal_additional_info" if relation == "terminal_template_note_anchor" else "template_tail_note"
-        notes.append(
-            {
-                "note_index": len(notes) + 1,
-                "text": text,
-                "marker": marker or None,
-                "body": body or None,
-                "source_block_id": None,
-                "bbox": [],
-                "relation": relation,
-                "note_kind": note_kind,
-            }
-        )
-        existing.add(signature)
+        note = {
+            "note_index": len(notes) + 1,
+            "text": text,
+            "marker": marker or None,
+            "body": body or None,
+            "source_block_id": None,
+            "bbox": [],
+            "relation": relation,
+            "note_kind": note_kind,
+        }
+        enrich_note_with_source(note, source_node)
+        notes.append(note)
+        note_by_signature[signature] = note
+
+    def note_order_key(note: dict[str, Any]) -> tuple[float, float, int]:
+        source_id = str(note.get("source_block_id") or "").strip()
+        if source_id in node_index_by_id:
+            return (float(node_index_by_id[source_id]), 0.0, int(note.get("note_index", 0) or 0))
+        bbox = _coerce_bbox(note.get("bbox"))
+        if bbox is not None:
+            return (100000.0 + float(bbox[1]), float(bbox[0]), int(note.get("note_index", 0) or 0))
+        return (200000.0, 0.0, int(note.get("note_index", 0) or 0))
+
+    if node_index_by_id or any(_coerce_bbox(note.get("bbox")) is not None for note in notes):
+        notes = sorted(notes, key=note_order_key)
+        for note_index, note in enumerate(notes, start=1):
+            note["note_index"] = note_index
     template["note_blocks"] = notes
     template["row_texts"] = [row for idx, row in enumerate(rows) if idx not in note_indices]
     template["local_note_refs"] = _local_note_marker_anchor_refs(
@@ -4583,13 +5762,419 @@ def _ensure_template_terminal_additional_info_notes(template: dict[str, Any]) ->
     template["semantic_signals"] = signals
 
 
-def _ensure_structure_template_terminal_additional_info_notes(templates: list[dict[str, Any]]) -> None:
+def _structure_template_numbered_note_start(text: str) -> tuple[int | None, str, str]:
+    number, marker, body = _template_numbered_note_start(text)
+    if number is not None:
+        return number, marker, body
+    cleaned = _clean_text(str(text or ""))
+    match = re.match(
+        r"^(?:(?:\u5907\u6ce8|\u6ce8\u91ca|\u8bf4\u660e)\s*[:\uff1a]\s*)?"
+        r"(?:\((?P<ascii>\d{1,3})\)|\uff08(?P<fullwidth>\d{1,3})\uff09)\s*"
+        r"(?P<body>\S.*)$",
+        cleaned,
+    )
+    if not match:
+        return None, "", ""
+    marker = str(match.group("ascii") or match.group("fullwidth") or "").strip()
+    body = _clean_text(str(match.group("body") or ""))
+    if not marker or not body:
+        return None, "", ""
+    try:
+        return int(marker), marker, body
+    except ValueError:
+        return None, "", ""
+
+
+def _ensure_structure_template_contiguous_note_run_nodes(
+    template: dict[str, Any],
+    text_page_nodes: list[dict[str, Any]] | None,
+) -> None:
+    if str(template.get("template_kind") or "") != "tabular_form":
+        return
+    if str(template.get("ownership_domain") or "") != "template_form":
+        return
+    if not text_page_nodes:
+        return
+    notes = [dict(item) for item in template.get("note_blocks", []) or [] if isinstance(item, dict)]
+    if len(notes) < 2:
+        return
+
+    ordered_nodes = [
+        node
+        for node in sorted(text_page_nodes, key=_node_physical_order_key)
+        if str(node.get("block_type", "text") or "text") == "text"
+    ]
+    node_by_id = {str(node.get("block_id") or "").strip(): node for node in ordered_nodes if str(node.get("block_id") or "").strip()}
+    node_index_by_id = {block_id: index for index, block_id in enumerate(node_by_id)}
+    note_source_ids = [
+        str(note.get("source_block_id") or "").strip()
+        for note in notes
+        if str(note.get("source_block_id") or "").strip() in node_index_by_id
+    ]
+    if len(note_source_ids) < 2:
+        return
+
+    existing_note_signatures = {_compact_text(str(note.get("text") or "")) for note in notes if _compact_text(str(note.get("text") or ""))}
+    owned_ids = {str(block_id).strip() for block_id in template.get("owned_text_block_ids", []) or [] if str(block_id).strip()}
+    added_owned_ids: list[str] = []
+    added_notes: list[dict[str, Any]] = []
+    sorted_note_ids = sorted(dict.fromkeys(note_source_ids), key=lambda block_id: node_index_by_id[block_id])
+    for left_id, right_id in zip(sorted_note_ids, sorted_note_ids[1:]):
+        left_index = node_index_by_id[left_id]
+        right_index = node_index_by_id[right_id]
+        if right_index <= left_index + 1:
+            continue
+        left_bbox = _coerce_bbox(node_by_id[left_id].get("bbox"))
+        right_bbox = _coerce_bbox(node_by_id[right_id].get("bbox"))
+        if left_bbox is None or right_bbox is None:
+            continue
+        if float(right_bbox[1]) - float(left_bbox[3]) > 96.0:
+            continue
+        left_edge = min(float(left_bbox[0]), float(right_bbox[0]))
+        right_edge = max(float(left_bbox[2]), float(right_bbox[2]))
+        for node in ordered_nodes[left_index + 1 : right_index]:
+            block_id = str(node.get("block_id") or "").strip()
+            text = _clean_text(str(node.get("text") or ""))
+            if not text:
+                continue
+            number, marker, body = _structure_template_numbered_note_start(text)
+            if number is None:
+                continue
+            signature = _compact_text(text)
+            if not signature or signature in existing_note_signatures:
+                continue
+            bbox = _coerce_bbox(node.get("bbox"))
+            if bbox is None:
+                continue
+            if float(bbox[0]) > right_edge + 24.0 or float(bbox[2]) < left_edge - 24.0:
+                continue
+            node["semantic_role"] = "structure_template_note"
+            note = {
+                "note_index": len(notes) + len(added_notes) + 1,
+                "text": text,
+                "marker": marker,
+                "body": body,
+                "source_block_id": block_id or None,
+                "bbox": list(node.get("bbox", []) or []),
+                "relation": "contiguous_template_note_run",
+                "note_number": number,
+                "note_run_id": str(template.get("structure_template_id") or template.get("block_id") or "template_note_run"),
+                "note_run_order": number,
+            }
+            added_notes.append(note)
+            existing_note_signatures.add(signature)
+            if block_id:
+                owned_ids.add(block_id)
+                added_owned_ids.append(block_id)
+
+    if not added_notes:
+        return
+
+    notes.extend(added_notes)
+
+    def note_order_key(note: dict[str, Any]) -> tuple[float, float, int]:
+        source_id = str(note.get("source_block_id") or "").strip()
+        if source_id in node_index_by_id:
+            return (float(node_index_by_id[source_id]), 0.0, int(note.get("note_index", 0) or 0))
+        bbox = _coerce_bbox(note.get("bbox"))
+        if bbox is not None:
+            return (100000.0 + float(bbox[1]), float(bbox[0]), int(note.get("note_index", 0) or 0))
+        return (200000.0, 0.0, int(note.get("note_index", 0) or 0))
+
+    notes = sorted(notes, key=note_order_key)
+    for index, note in enumerate(notes, start=1):
+        note["note_index"] = index
+    template["note_blocks"] = notes
+    template["owned_text_block_ids"] = list(dict.fromkeys([*(template.get("owned_text_block_ids", []) or []), *added_owned_ids]))
+    template["local_note_refs"] = _local_note_marker_anchor_refs(
+        [str(row or "") for row in template.get("row_texts", []) or []],
+        [dict(note) for note in notes],
+    )
+    signals = dict(template.get("semantic_signals", {}) or {})
+    signals["contiguous_note_run_absorbed_count"] = len(added_notes)
+    template["semantic_signals"] = signals
+
+
+def _ensure_structure_template_terminal_additional_info_notes(
+    templates: list[dict[str, Any]],
+    text_page_nodes: list[dict[str, Any]] | None = None,
+) -> None:
     for template in templates or []:
         if isinstance(template, dict):
             _ensure_template_terminal_additional_info_notes(template)
-            _ensure_template_tail_note_run_notes(template)
+            _ensure_template_tail_note_run_notes(template, text_page_nodes)
+            _ensure_structure_template_contiguous_note_run_nodes(template, text_page_nodes)
             _normalize_structure_template_numbered_note_runs(template)
             _ensure_structure_template_note_row_exclusivity(template)
+            template["local_note_refs"] = _local_note_marker_anchor_refs(
+                [str(row or "") for row in template.get("row_texts", []) or []],
+                [dict(note) for note in template.get("note_blocks", []) or [] if isinstance(note, dict)],
+            )
+
+
+def _split_same_page_continuation_templates_after_tail_notes(
+    templates: list[dict[str, Any]],
+    text_page_nodes: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    if not templates or not text_page_nodes:
+        return templates
+    text_nodes = [
+        node
+        for node in sorted(text_page_nodes, key=_node_physical_order_key)
+        if isinstance(node, dict)
+        and str(node.get("block_type", "text") or "text") == "text"
+        and str(node.get("block_id") or "").strip()
+        and _coerce_bbox(node.get("bbox")) is not None
+    ]
+    text_nodes_by_id = {str(node.get("block_id") or "").strip(): node for node in text_nodes}
+    existing_ids = {
+        str(template.get("structure_template_id") or template.get("block_id") or "").strip()
+        for template in templates
+        if isinstance(template, dict)
+    }
+    result: list[dict[str, Any]] = []
+    for template in templates:
+        if not isinstance(template, dict):
+            result.append(template)
+            continue
+        split_template = _split_single_same_page_continuation_template_after_tail_notes(
+            template,
+            text_nodes,
+            text_nodes_by_id,
+            existing_ids,
+        )
+        result.append(template)
+        if split_template is not None:
+            existing_ids.add(str(split_template.get("structure_template_id") or ""))
+            result.append(split_template)
+    return result
+
+
+def _split_single_same_page_continuation_template_after_tail_notes(
+    template: dict[str, Any],
+    text_nodes: list[dict[str, Any]],
+    text_nodes_by_id: dict[str, dict[str, Any]],
+    existing_ids: set[str],
+) -> dict[str, Any] | None:
+    if str(template.get("template_kind") or "") != "tabular_form":
+        return None
+    if str(template.get("ownership_domain") or "") != "template_form":
+        return None
+    note_blocks = [dict(note) for note in template.get("note_blocks", []) or [] if isinstance(note, dict)]
+    if not note_blocks:
+        return None
+    note_bboxes = [_coerce_bbox(note.get("bbox")) for note in note_blocks]
+    note_bboxes = [bbox for bbox in note_bboxes if bbox is not None]
+    if not note_bboxes:
+        return None
+    last_note_bottom = max(float(bbox[3]) for bbox in note_bboxes)
+    template_bbox = _coerce_bbox(template.get("bbox"))
+    if template_bbox is None:
+        return None
+    owned_ids = [
+        str(block_id or "").strip()
+        for block_id in template.get("owned_text_block_ids", []) or []
+        if str(block_id or "").strip()
+    ]
+    owned_id_set = set(owned_ids)
+    note_source_ids = {
+        str(note.get("source_block_id") or "").strip()
+        for note in note_blocks
+        if str(note.get("source_block_id") or "").strip()
+    }
+    after_note_owned_nodes = [
+        node
+        for node in text_nodes
+        if str(node.get("block_id") or "").strip() in owned_id_set
+        and str(node.get("block_id") or "").strip() not in note_source_ids
+        and (_coerce_bbox(node.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1] > last_note_bottom + 2.0
+    ]
+    if not after_note_owned_nodes:
+        return None
+
+    first_after_note_top = min(
+        float((_coerce_bbox(node.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1])
+        for node in after_note_owned_nodes
+    )
+    title_node = _same_page_continuation_title_node_after_tail_notes(
+        text_nodes,
+        template_bbox,
+        last_note_bottom,
+        first_after_note_top,
+    )
+    if title_node is None:
+        return None
+    title_bbox = _coerce_bbox(title_node.get("bbox"))
+    if title_bbox is None:
+        return None
+    body_nodes = [
+        node
+        for node in after_note_owned_nodes
+        if (_coerce_bbox(node.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1] >= float(title_bbox[3]) - 2.0
+        and not _same_page_post_note_continuation_title_text(str(node.get("text") or ""))
+    ]
+    pending_body_on_next_page = not body_nodes
+
+    moved_ids = {
+        str(title_node.get("block_id") or "").strip(),
+        *[str(node.get("block_id") or "").strip() for node in body_nodes],
+    }
+    moved_ids.discard("")
+    new_template_id = _unique_same_page_continuation_template_id(template, existing_ids)
+    continuation = deepcopy(template)
+    continuation["structure_template_id"] = new_template_id
+    continuation["block_id"] = new_template_id
+    continuation["title"] = _clean_text(str(title_node.get("text") or ""))
+    continuation["title_source_block_id"] = str(title_node.get("block_id") or "").strip() or None
+    continuation["owned_text_block_ids"] = [
+        str(block_id)
+        for block_id in [
+            continuation.get("title_source_block_id"),
+            *[str(node.get("block_id") or "").strip() for node in body_nodes],
+        ]
+        if str(block_id or "").strip()
+    ]
+    continuation["note_blocks"] = []
+    continuation["leading_continuation_note_blocks"] = []
+    continuation["leading_detached_note_blocks"] = []
+    continuation["local_note_refs"] = []
+    continuation["fields"] = []
+    continuation["sections"] = []
+    continuation["entries"] = []
+    continuation["row_texts"] = [
+        _clean_text(str(node.get("text") or ""))
+        for group in _line_groups_from_nodes(body_nodes, y_tolerance=4.5)
+        for node in group
+        if _clean_text(str(node.get("text") or ""))
+    ]
+    continuation["bbox"] = _bbox_to_list(
+        _bbox_union_loose(
+            [
+                bbox
+                for bbox in [title_bbox, *[_coerce_bbox(node.get("bbox")) for node in body_nodes]]
+                if bbox is not None
+            ]
+        )
+    )
+    continuation["is_structure_template_continuation"] = True
+    continuation["continued_from_structure_template_id"] = str(template.get("structure_template_id") or "").strip() or None
+    continuation["continued_from_page"] = template.get("page")
+    continuation["continued_from_title"] = template.get("title")
+    signals = dict(continuation.get("semantic_signals", {}) or {})
+    signals["same_page_post_note_continuation_split"] = True
+    signals["same_page_post_note_continuation_title_source_block_id"] = continuation.get("title_source_block_id")
+    signals["same_page_post_note_continuation_body_count"] = len(body_nodes)
+    if pending_body_on_next_page:
+        signals["same_page_post_note_continuation_state"] = "pending_body_on_next_page"
+    continuation["semantic_signals"] = signals
+    if body_nodes:
+        _rebuild_blank_tabular_template_rows_from_owned_field_nodes(continuation, text_nodes_by_id)
+
+    title_node["semantic_role"] = "structure_template_title"
+    title_node["unit_role"] = "metadata"
+    for node in body_nodes:
+        node["semantic_role"] = "structure_template_entry"
+        node["unit_role"] = "metadata"
+
+    template["owned_text_block_ids"] = [block_id for block_id in owned_ids if block_id not in moved_ids]
+    _rebuild_blank_tabular_template_rows_from_owned_field_nodes(template, text_nodes_by_id)
+    moved_texts = {
+        _compact_text(str((text_nodes_by_id.get(block_id) or {}).get("text") or ""))
+        for block_id in moved_ids
+    }
+    moved_texts.discard("")
+    for key in ("sections", "entries"):
+        items = [dict(item) for item in template.get(key, []) or [] if isinstance(item, dict)]
+        if not items:
+            continue
+        remaining_signature_counts = Counter(
+            _compact_text(str((text_nodes_by_id.get(block_id) or {}).get("text") or ""))
+            for block_id in template.get("owned_text_block_ids", []) or []
+            if _compact_text(str((text_nodes_by_id.get(block_id) or {}).get("text") or ""))
+        )
+        retained_source_less_counts: Counter[str] = Counter()
+        retained_items: list[dict[str, Any]] = []
+        for item in items:
+            source_id = str(item.get("source_block_id") or "").strip()
+            signature = _compact_text(str(item.get("text") or item.get("label") or item.get("title") or ""))
+            if source_id:
+                if source_id not in moved_ids:
+                    retained_items.append(item)
+                continue
+            if signature not in moved_texts:
+                retained_items.append(item)
+                continue
+            if retained_source_less_counts[signature] < remaining_signature_counts.get(signature, 0):
+                retained_source_less_counts[signature] += 1
+                retained_items.append(item)
+        template[key] = [
+            item for item in retained_items
+        ]
+    remaining_bboxes = [
+        _coerce_bbox((text_nodes_by_id.get(block_id) or {}).get("bbox"))
+        for block_id in template.get("owned_text_block_ids", []) or []
+    ]
+    remaining_bboxes = [bbox for bbox in remaining_bboxes if bbox is not None]
+    if remaining_bboxes:
+        template["bbox"] = _bbox_to_list(_bbox_union_loose(remaining_bboxes))
+    template["entry_count"] = (
+        len(template.get("fields", []) or [])
+        + len(template.get("sections", []) or [])
+        + len(template.get("entries", []) or [])
+    )
+    template["local_note_refs"] = _local_note_marker_anchor_refs(
+        [str(row or "") for row in template.get("row_texts", []) or []],
+        [dict(note) for note in template.get("note_blocks", []) or [] if isinstance(note, dict)],
+    )
+    previous_signals = dict(template.get("semantic_signals", {}) or {})
+    previous_signals["same_page_post_note_continuation_split_off_count"] = len(body_nodes)
+    template["semantic_signals"] = previous_signals
+    return continuation
+
+
+def _same_page_continuation_title_node_after_tail_notes(
+    text_nodes: list[dict[str, Any]],
+    template_bbox: tuple[float, float, float, float],
+    last_note_bottom: float,
+    first_after_note_top: float,
+) -> dict[str, Any] | None:
+    candidates: list[dict[str, Any]] = []
+    for node in text_nodes:
+        bbox = _coerce_bbox(node.get("bbox"))
+        if bbox is None:
+            continue
+        if float(bbox[1]) <= last_note_bottom + 2.0:
+            continue
+        if float(bbox[1]) > first_after_note_top + 40.0:
+            break
+        text = _clean_text(str(node.get("text") or ""))
+        if not _same_page_post_note_continuation_title_text(text):
+            continue
+        if _horizontal_overlap_ratio(bbox, template_bbox) < 0.08 and abs(float(bbox[0]) - float(template_bbox[0])) > 90.0:
+            continue
+        candidates.append(node)
+    if not candidates:
+        return None
+    return sorted(candidates, key=_node_physical_order_key)[0]
+
+
+def _same_page_post_note_continuation_title_text(text: str) -> bool:
+    compact = _clean_text(str(text or ""))
+    if not compact or "续" not in compact:
+        return False
+    marker = parse_outline_heading(compact)
+    if marker is not None and marker.marker_kind == "decimal_numeric":
+        return True
+    return bool(re.match(r"^\d+(?:\.\d+){2,}\b", compact))
+
+
+def _unique_same_page_continuation_template_id(template: dict[str, Any], existing_ids: set[str]) -> str:
+    base_id = str(template.get("structure_template_id") or template.get("block_id") or "structure_template").strip()
+    for index in range(1, 100):
+        candidate = f"{base_id}_continuation_{index}"
+        if candidate not in existing_ids:
+            return candidate
+    return f"{base_id}_continuation_extra"
 
 
 def _template_preceding_title_boundary_text(text: str) -> bool:
@@ -4614,6 +6199,7 @@ def _promote_preceding_template_titles(
         return
     target_profiles = {
         "blank_study_summary_template",
+        "blank_study_summary_template_continuation",
         "tabular_form_template",
         "sparse_tabular_form_skeleton",
         "low_text_ruled_tabular_form_template",
@@ -4935,6 +6521,11 @@ def _expand_blank_tabular_template_ownership(
         ],
         key=_node_physical_order_key,
     )
+    text_nodes_by_id = {
+        str(node.get("block_id") or "").strip(): node
+        for node in ordered_nodes
+        if str(node.get("block_id") or "").strip()
+    }
     for template in templates:
         if str(template.get("template_kind") or "") != "tabular_form":
             continue
@@ -5006,6 +6597,3085 @@ def _expand_blank_tabular_template_ownership(
             if gap > 18.0:
                 break
         template["entry_count"] = len(template.get("fields", []) or []) + len(template.get("sections", []) or [])
+
+
+def _absorb_same_row_field_gaps_in_blank_tabular_templates(
+    templates: list[dict[str, Any]],
+    text_page_nodes: list[dict[str, Any]],
+) -> None:
+    if not templates or not text_page_nodes:
+        return
+    text_nodes_by_id = {
+        str(node.get("block_id") or "").strip(): node
+        for node in text_page_nodes
+        if str(node.get("block_type", "text") or "text") == "text"
+        and str(node.get("block_id") or "").strip()
+    }
+    globally_owned_ids = {
+        str(block_id).strip()
+        for template in templates
+        for block_id in template.get("owned_text_block_ids", []) or []
+        if str(block_id).strip()
+    }
+    for template in templates:
+        if not _blank_tabular_template_can_absorb_same_row_field_gap(template):
+            continue
+        template_bbox = _coerce_bbox(template.get("bbox"))
+        if template_bbox is None:
+            continue
+        title_id = str(template.get("title_source_block_id") or "").strip()
+        note_ids = {
+            str(note.get("source_block_id") or "").strip()
+            for note in template.get("note_blocks", []) or []
+            if isinstance(note, dict) and str(note.get("source_block_id") or "").strip()
+        }
+        owned_field_nodes: list[dict[str, Any]] = []
+        for block_id in template.get("owned_text_block_ids", []) or []:
+            block_id = str(block_id or "").strip()
+            if not block_id or block_id == title_id or block_id in note_ids:
+                continue
+            node = text_nodes_by_id.get(block_id)
+            if node is None:
+                continue
+            text = _clean_text(str(node.get("text") or ""))
+            bbox = _coerce_bbox(node.get("bbox"))
+            if not text or bbox is None:
+                continue
+            if _blank_template_note_text(text) or _starts_new_ind_section_or_template(text):
+                continue
+            owned_field_nodes.append(node)
+        if len(owned_field_nodes) < 3:
+            continue
+
+        absorbed_nodes: list[dict[str, Any]] = []
+        column_lattice_absorbed_count = 0
+        for node in text_page_nodes:
+            block_id = str(node.get("block_id") or "").strip()
+            if not block_id or block_id in globally_owned_ids:
+                continue
+            text = _clean_text(str(node.get("text") or ""))
+            bbox = _coerce_bbox(node.get("bbox"))
+            if not text or bbox is None:
+                continue
+            field_gap_text = _blank_tabular_template_same_row_field_gap_text(text)
+            column_lattice_gap = _node_aligns_with_existing_template_column_lattice(
+                node,
+                owned_field_nodes,
+            ) and _blank_tabular_template_column_lattice_gap_text(text)
+            if not field_gap_text and not column_lattice_gap:
+                continue
+            if not _bbox_within_or_near_template_body(bbox, template_bbox):
+                continue
+            if (
+                not column_lattice_gap
+                and not _node_aligns_with_existing_template_field_row(node, owned_field_nodes)
+            ):
+                continue
+            _append_blank_template_owned_row(template, node, role="field_gap")
+            node["semantic_role"] = "structure_template_entry"
+            node["unit_role"] = "metadata"
+            globally_owned_ids.add(block_id)
+            absorbed_nodes.append(node)
+            owned_field_nodes.append(node)
+            if column_lattice_gap:
+                column_lattice_absorbed_count += 1
+
+        if not absorbed_nodes:
+            continue
+        _rebuild_blank_tabular_template_rows_from_owned_field_nodes(template, text_nodes_by_id)
+        signals = dict(template.get("semantic_signals", {}) or {})
+        signals["same_row_field_gap_absorbed_count"] = int(signals.get("same_row_field_gap_absorbed_count", 0) or 0) + len(absorbed_nodes)
+        if column_lattice_absorbed_count:
+            signals["same_row_column_lattice_gap_absorbed_count"] = (
+                int(signals.get("same_row_column_lattice_gap_absorbed_count", 0) or 0)
+                + column_lattice_absorbed_count
+            )
+        signals["blank_template_same_row_field_gap_repaired"] = True
+        template["semantic_signals"] = signals
+
+
+def _apply_blank_template_header_grid_projections(
+    templates: list[dict[str, Any]],
+    text_page_nodes: list[dict[str, Any]],
+    *,
+    page_words: list[Any] | None = None,
+    page_drawings: list[dict[str, Any]] | None = None,
+) -> None:
+    if not templates or not text_page_nodes:
+        return
+    text_nodes_by_id = {
+        str(node.get("block_id") or "").strip(): node
+        for node in text_page_nodes
+        if str(node.get("block_type", "text") or "text") == "text"
+        and str(node.get("block_id") or "").strip()
+    }
+    for template in templates:
+        multilevel_projection = _ruled_multilevel_template_header_projection_for_template(
+            template,
+            text_nodes_by_id,
+            page_words or [],
+            page_drawings or [],
+        )
+        ruled_projection = _ruled_slot_template_header_projection_for_template(
+            template,
+            text_nodes_by_id,
+            page_words or [],
+            page_drawings or [],
+        )
+        projection = _blank_template_header_grid_projection_for_template(template, text_nodes_by_id)
+        if multilevel_projection is None and ruled_projection is None and projection is None:
+            continue
+        semantic_projection = dict(template.get("semantic_projection_v2") or {})
+        if multilevel_projection is not None:
+            semantic_projection["ruled_multilevel_template_header_projection"] = multilevel_projection
+        if ruled_projection is not None:
+            semantic_projection["ruled_slot_template_header_projection"] = ruled_projection
+        if projection is not None:
+            semantic_projection["blank_template_header_grid_projection"] = projection
+        template["semantic_projection_v2"] = semantic_projection
+        signals = dict(template.get("semantic_signals", {}) or {})
+        if multilevel_projection is not None:
+            signals["ruled_multilevel_template_header_projected"] = True
+            signals["ruled_multilevel_template_header_column_count"] = len(multilevel_projection.get("logical_columns", []) or [])
+        if ruled_projection is not None:
+            signals["ruled_slot_template_header_projected"] = True
+            signals["ruled_slot_template_header_column_count"] = len(ruled_projection.get("logical_columns", []) or [])
+        if projection is not None:
+            signals["blank_template_header_grid_projected"] = True
+            signals["blank_template_header_grid_column_count"] = len(projection.get("logical_columns", []) or [])
+        template["semantic_signals"] = signals
+        repairs = [
+            repair
+            for repair in template.get("semantic_repairs", []) or []
+            if not (
+                isinstance(repair, dict)
+                and str(repair.get("repair") or "") in {
+                    "blank_template_header_grid_projection",
+                    "ruled_multilevel_template_header_projection",
+                    "ruled_slot_template_header_projection",
+                }
+            )
+        ]
+        if multilevel_projection is not None:
+            repairs.append(
+                {
+                    "repair": "ruled_multilevel_template_header_projection",
+                    "confidence": multilevel_projection.get("projection_confidence", "medium"),
+                    "source_block_ids": list(multilevel_projection.get("source_block_ids", []) or []),
+                    "column_slot_count": len(multilevel_projection.get("column_slots", []) or []),
+                }
+            )
+        if ruled_projection is not None:
+            repairs.append(
+                {
+                    "repair": "ruled_slot_template_header_projection",
+                    "confidence": ruled_projection.get("projection_confidence", "medium"),
+                    "source_block_ids": list(ruled_projection.get("source_block_ids", []) or []),
+                    "column_slot_count": len(ruled_projection.get("column_slots", []) or []),
+                }
+            )
+        if projection is not None:
+            repairs.append(
+                {
+                    "repair": "blank_template_header_grid_projection",
+                    "confidence": projection.get("projection_confidence", "medium"),
+                    "source_block_ids": list(projection.get("source_block_ids", []) or []),
+                }
+            )
+        template["semantic_repairs"] = repairs
+
+
+def _mark_blank_template_internal_matrix_text_ownership(
+    templates: list[dict[str, Any]],
+    text_page_nodes: list[dict[str, Any]],
+) -> None:
+    if not templates or not text_page_nodes:
+        return
+    target_profiles = {
+        "blank_study_summary_template",
+        "blank_study_summary_template_continuation",
+        "tabular_form_template",
+        "sparse_tabular_form_skeleton",
+        "low_text_ruled_tabular_form_template",
+    }
+    globally_owned_ids = {
+        str(block_id).strip()
+        for template in templates
+        for block_id in template.get("owned_text_block_ids", []) or []
+        if str(block_id).strip()
+    }
+    for template in templates:
+        if str(template.get("template_kind") or "") != "tabular_form":
+            continue
+        if str(template.get("ownership_domain") or "") != "template_form":
+            continue
+        if str(template.get("template_profile") or "") not in target_profiles:
+            continue
+        if str(template.get("data_population") or "").strip() not in {"", "blank"}:
+            continue
+        template_bbox = _coerce_bbox(template.get("bbox"))
+        if template_bbox is None:
+            continue
+        row_texts = [
+            _clean_text(str(row or ""))
+            for row in template.get("row_texts", []) or []
+            if _clean_text(str(row or ""))
+        ]
+        if not any(_blank_template_matrix_row_label(row) for row in row_texts):
+            continue
+        row_signatures = [_compact_text(row) for row in row_texts if _compact_text(row)]
+        title_id = str(template.get("title_source_block_id") or "").strip()
+        note_ids = {
+            str(note.get("source_block_id") or "").strip()
+            for note in template.get("note_blocks", []) or []
+            if isinstance(note, dict) and str(note.get("source_block_id") or "").strip()
+        }
+        absorbed_count = 0
+        for node in text_page_nodes:
+            block_id = str(node.get("block_id") or "").strip()
+            if not block_id or block_id in globally_owned_ids or block_id == title_id or block_id in note_ids:
+                continue
+            if str(node.get("block_type", "text") or "text") != "text":
+                continue
+            text = _clean_text(str(node.get("text") or ""))
+            bbox = _coerce_bbox(node.get("bbox"))
+            if not text or bbox is None:
+                continue
+            if _blank_template_note_text(text) or _starts_new_ind_section_or_template(text):
+                continue
+            if not _bbox_within_or_near_template_body(bbox, template_bbox):
+                continue
+            text_signature = _compact_text(text)
+            if not text_signature:
+                continue
+            covered_by_rows = any(
+                text_signature == row_signature or text_signature in row_signature
+                for row_signature in row_signatures
+            )
+            if not covered_by_rows:
+                continue
+            if not (
+                _blank_template_matrix_short_label_token(text)
+                or _blank_template_matrix_row_label(text)
+                or _blank_template_adjacent_matrix_label_text(text)
+                or any(text_signature in row_signature for row_signature in row_signatures)
+            ):
+                continue
+            owned_ids = list(template.get("owned_text_block_ids", []) or [])
+            owned_ids.append(block_id)
+            template["owned_text_block_ids"] = list(dict.fromkeys(str(item) for item in owned_ids if str(item or "").strip()))
+            node["semantic_role"] = "structure_template_entry"
+            node["unit_role"] = "metadata"
+            globally_owned_ids.add(block_id)
+            absorbed_count += 1
+        if absorbed_count:
+            signals = dict(template.get("semantic_signals", {}) or {})
+            signals["blank_template_internal_matrix_text_owned_count"] = (
+                int(signals.get("blank_template_internal_matrix_text_owned_count", 0) or 0) + absorbed_count
+            )
+            signals["blank_template_internal_matrix_text_ownership_repaired"] = True
+            template["semantic_signals"] = signals
+
+
+def _ruled_multilevel_template_header_projection_for_template(
+    template: dict[str, Any],
+    text_nodes_by_id: dict[str, dict[str, Any]],
+    page_words: list[Any],
+    page_drawings: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not page_words or not page_drawings:
+        return None
+    legacy_candidate = _blank_template_header_grid_candidate(template)
+    sparse_candidate = _ruled_sparse_template_candidate(template)
+    if not legacy_candidate and not sparse_candidate:
+        return None
+    rows = _blank_template_header_grid_rows_from_owned_nodes(template, text_nodes_by_id)
+    template_bbox = _coerce_bbox(template.get("bbox"))
+    if template_bbox is None:
+        return None
+    rects = _ruled_template_body_rule_rects(template_bbox, page_drawings)
+    bands = _ruled_template_rule_bands(rects)
+    body_lattice_projection = (
+        _ruled_multilevel_body_lattice_projection_for_template(
+            rows,
+            template_bbox,
+            bands,
+            page_words,
+        )
+        if rows and legacy_candidate
+        else None
+    )
+    if body_lattice_projection is not None:
+        return body_lattice_projection
+    sparse_projection = (
+        _ruled_sparse_template_projection_for_template(
+            rows,
+            template_bbox,
+            bands,
+            page_words,
+            source_row_texts=list(template.get("row_texts", []) or []),
+        )
+        if sparse_candidate
+        else None
+    )
+    if sparse_projection is not None:
+        return sparse_projection
+    if not rows or not legacy_candidate:
+        return None
+    parent_band, leaf_band, leaf_slots, raw_parent_groups = _ruled_multilevel_parent_leaf_layout(
+        bands,
+        page_words,
+    )
+    if not parent_band or not leaf_band or not leaf_slots or not raw_parent_groups:
+        return None
+
+    leaf_span = (
+        min(float(slot.get("x0", 0.0) or 0.0) for slot in leaf_slots),
+        max(float(slot.get("x1", 0.0) or 0.0) for slot in leaf_slots),
+    )
+    stub_text, stub_fragments = _ruled_multilevel_stub_text(
+        template_bbox,
+        leaf_span[0],
+        leaf_band,
+        page_words,
+    )
+    covered_leaf_count = sum(int(group.get("colspan", 0) or 0) for group in raw_parent_groups)
+    if stub_text:
+        column_layout_mode = "external_stub_plus_leaf_slots"
+        column_offset = 1
+        if covered_leaf_count / max(len(leaf_slots), 1) < 0.50:
+            return None
+        leaf_columns, leaf_fragments = _ruled_multilevel_leaf_columns_from_words(
+            leaf_slots,
+            leaf_band,
+            page_words,
+        )
+    else:
+        column_layout_mode = "full_width_leaf_slots"
+        column_offset = 0
+        if leaf_span[0] > float(template_bbox[0]) + 16.0:
+            return None
+        leaf_columns, leaf_fragments = _ruled_multilevel_full_width_leaf_columns_from_words(
+            leaf_slots,
+            parent_band,
+            leaf_band,
+            raw_parent_groups,
+            page_words,
+        )
+    if len(leaf_columns) != len(leaf_slots) or not all(leaf_columns):
+        return None
+
+    parent_groups = _ruled_multilevel_project_parent_groups(raw_parent_groups, column_offset)
+    logical_columns = [stub_text, *leaf_columns] if stub_text else list(leaf_columns)
+    if not _ruled_multilevel_logical_columns_are_distinguishable(
+        stub_text,
+        leaf_columns,
+        parent_groups,
+        column_offset=column_offset,
+    ):
+        return None
+    parent_row = list(logical_columns)
+    leaf_row = ["" for _ in logical_columns]
+    covered_leaf_indexes: set[int] = set()
+    for group in parent_groups:
+        start_col = int(group.get("start_col", 0) or 0)
+        end_col = int(group.get("end_col", -1) or -1)
+        text = _clean_text(str(group.get("text") or ""))
+        if not text or start_col < column_offset or end_col < start_col or end_col >= len(logical_columns):
+            return None
+        for col_index in range(start_col, end_col + 1):
+            parent_row[col_index] = text
+            leaf_row[col_index] = logical_columns[col_index]
+            covered_leaf_indexes.add(col_index - column_offset)
+    repeats_stub_for_legacy_full_span = (
+        bool(stub_text)
+        and len(parent_groups) == 1
+        and len(covered_leaf_indexes) == len(leaf_columns)
+    )
+    if repeats_stub_for_legacy_full_span:
+        leaf_row[0] = stub_text
+    source_block_ids = [
+        str(node.get("block_id") or "").strip()
+        for row in rows
+        for node in row
+        if isinstance(node, dict) and str(node.get("block_id") or "").strip()
+    ]
+    column_slots = [
+        *(
+            [
+                {
+                    "col": 0,
+                    "x0": round(float(template_bbox[0]), 2),
+                    "x1": round(float(leaf_span[0]), 2),
+                    "source": "stub_text_alignment",
+                }
+            ]
+            if stub_text
+            else []
+        ),
+        *[
+            {**dict(slot), "col": index + column_offset}
+            for index, slot in enumerate(leaf_slots)
+        ],
+    ]
+    header_fragments = [
+        *stub_fragments,
+        *[
+            fragment
+            for group in parent_groups
+            for fragment in group.get("header_fragments", []) or []
+        ],
+        *leaf_fragments,
+    ]
+    consumed_header_row_texts = _ruled_multilevel_owned_header_row_texts(
+        rows,
+        parent_band,
+        leaf_band,
+        column_slots=column_slots,
+        header_fragments=header_fragments,
+    )
+    return {
+        "source": "ruled_multilevel_template_header_projection",
+        "semantic_profile": "ruled_multilevel_ctd_template_header",
+        "template_header_family": "ruled_multilevel_ctd_header_grid",
+        "column_layout_mode": column_layout_mode,
+        "logical_columns": logical_columns,
+        "semantic_grid": [parent_row, leaf_row],
+        "header_column_groups": [
+            {
+                "text": group.get("text"),
+                "start_col": group.get("start_col"),
+                "end_col": group.get("end_col"),
+                "colspan": group.get("colspan"),
+                "source": "ruled_parent_header_band",
+            }
+            for group in parent_groups
+        ],
+        "span_header_cells": [
+            {
+                "row": 0,
+                "col": group.get("start_col"),
+                "colspan": group.get("colspan"),
+                "text": group.get("text"),
+                "source": "ruled_parent_header_band",
+            }
+            for group in parent_groups
+        ],
+        "header_row_count": 2,
+        "consumed_header_row_texts": consumed_header_row_texts,
+        "source_block_ids": list(dict.fromkeys(source_block_ids)),
+        "column_slots": column_slots,
+        "header_fragments": header_fragments,
+        "projection_confidence": "high",
+    }
+
+
+def _ruled_multilevel_logical_columns_are_distinguishable(
+    stub_text: str,
+    leaf_columns: list[str],
+    parent_groups: list[dict[str, Any]],
+    *,
+    column_offset: int = 1,
+) -> bool:
+    stub_norm = _compact_text(stub_text)
+    leaf_norms = [_compact_text(column) for column in leaf_columns]
+    if column_offset not in {0, 1}:
+        return False
+    if not leaf_norms or any(not norm for norm in leaf_norms):
+        return False
+    if column_offset == 1 and not stub_norm:
+        return False
+    if stub_norm and stub_norm in leaf_norms:
+        return False
+    contexts_by_leaf: dict[str, list[str | None]] = {}
+    for leaf_index, leaf_norm in enumerate(leaf_norms):
+        logical_col = leaf_index + column_offset
+        parent_group = next(
+            (
+                group
+                for group in parent_groups
+                if int(group.get("start_col", 0) or 0)
+                <= logical_col
+                <= int(group.get("end_col", -1) or -1)
+            ),
+            None,
+        )
+        if parent_group is None:
+            context = None
+        else:
+            context = _compact_text(str(parent_group.get("text") or "")) or None
+        contexts_by_leaf.setdefault(leaf_norm, []).append(context)
+
+    for contexts in contexts_by_leaf.values():
+        if len(contexts) < 2:
+            continue
+        if any(context is None for context in contexts):
+            return False
+        parent_contexts = [context for context in contexts if context is not None]
+        if len(set(parent_contexts)) != len(parent_contexts):
+            return False
+    return True
+
+
+def _ruled_template_body_rule_rects(
+    template_bbox: tuple[float, float, float, float],
+    page_drawings: list[dict[str, Any]],
+) -> list[tuple[float, float, float, float]]:
+    rects: list[tuple[float, float, float, float]] = []
+    for drawing in page_drawings or []:
+        for rect in _iter_drawing_horizontal_rects(drawing):
+            x0, y0, x1, y1 = rect
+            width = max(0.0, x1 - x0)
+            height = max(0.0, y1 - y0)
+            if width < 8.0 or height > 3.2:
+                continue
+            if x1 < template_bbox[0] - 8.0 or x0 > template_bbox[2] + 36.0:
+                continue
+            y_center = (y0 + y1) / 2.0
+            if not (template_bbox[1] - 4.0 <= y_center <= template_bbox[3] + 8.0):
+                continue
+            if width > max(220.0, (template_bbox[2] - template_bbox[0]) * 0.62):
+                continue
+            rects.append((x0, y0, x1, y1))
+    return rects
+
+
+def _ruled_template_rule_bands(
+    rects: list[tuple[float, float, float, float]],
+) -> list[list[tuple[float, float, float, float]]]:
+    bands: list[list[tuple[float, float, float, float]]] = []
+    for rect in sorted(rects, key=lambda item: (item[1] + item[3]) / 2.0):
+        center_y = (rect[1] + rect[3]) / 2.0
+        if not bands:
+            bands.append([rect])
+            continue
+        band_center = sum((item[1] + item[3]) / 2.0 for item in bands[-1]) / max(len(bands[-1]), 1)
+        if abs(center_y - band_center) <= 4.0:
+            bands[-1].append(rect)
+        else:
+            bands.append([rect])
+    return bands
+
+
+def _ruled_multilevel_body_lattice_projection_for_template(
+    rows: list[list[dict[str, Any]]],
+    template_bbox: tuple[float, float, float, float],
+    bands: list[list[tuple[float, float, float, float]]],
+    page_words: list[Any],
+) -> dict[str, Any] | None:
+    layout = _ruled_multilevel_body_lattice_layout(bands, template_bbox, page_words)
+    if layout is None:
+        return None
+    leaf_columns = list(layout.get("leaf_columns", []) or [])
+    raw_parent_groups = list(layout.get("parent_groups", []) or [])
+    if not leaf_columns or not raw_parent_groups:
+        return None
+    parent_groups = _ruled_multilevel_project_parent_groups(raw_parent_groups, 0)
+    if not _ruled_multilevel_logical_columns_are_distinguishable(
+        "",
+        leaf_columns,
+        parent_groups,
+        column_offset=0,
+    ):
+        return None
+
+    parent_row = list(leaf_columns)
+    leaf_row = ["" for _ in leaf_columns]
+    for group in parent_groups:
+        start_col = int(group.get("start_col", -1) or 0)
+        end_col = int(group.get("end_col", -1) or 0)
+        text = _clean_text(str(group.get("text") or ""))
+        if not text or start_col < 0 or end_col < start_col or end_col >= len(leaf_columns):
+            return None
+        for col_index in range(start_col, end_col + 1):
+            parent_row[col_index] = text
+            leaf_row[col_index] = leaf_columns[col_index]
+
+    template_body_rows = [
+        [str(cell or "") for cell in row]
+        for row in layout.get("body_rows", []) or []
+        if isinstance(row, list) and len(row) == len(leaf_columns) and any(str(cell or "").strip() for cell in row)
+    ]
+    source_block_ids = [
+        str(node.get("block_id") or "").strip()
+        for row in rows
+        for node in row
+        if isinstance(node, dict) and str(node.get("block_id") or "").strip()
+    ]
+    column_slots = [
+        {
+            **dict(slot),
+            "col": index,
+            "source": "ruled_body_column_lattice",
+        }
+        for index, slot in enumerate(layout.get("column_slots", []) or [])
+    ]
+    header_fragments = [
+        *[
+            fragment
+            for group in parent_groups
+            for fragment in group.get("header_fragments", []) or []
+        ],
+        *list(layout.get("leaf_fragments", []) or []),
+    ]
+    consumed_header_row_texts = _ruled_multilevel_owned_header_row_texts(
+        rows,
+        list(layout.get("parent_band", []) or []),
+        list(layout.get("leaf_band", []) or []),
+        column_slots=column_slots,
+        header_fragments=header_fragments,
+    )
+    return {
+        "source": "ruled_multilevel_template_header_projection",
+        "semantic_profile": "ruled_multilevel_ctd_template_header",
+        "template_header_family": "ruled_multilevel_ctd_header_grid",
+        "column_layout_mode": "body_lattice_with_header_anchors",
+        "logical_columns": leaf_columns,
+        "semantic_grid": [parent_row, leaf_row, *template_body_rows],
+        "template_body_rows": template_body_rows,
+        "template_body_fragments": list(layout.get("body_fragments", []) or []),
+        "header_column_groups": [
+            {
+                "text": group.get("text"),
+                "start_col": group.get("start_col"),
+                "end_col": group.get("end_col"),
+                "colspan": group.get("colspan"),
+                "source": "ruled_parent_header_band",
+            }
+            for group in parent_groups
+        ],
+        "span_header_cells": [
+            {
+                "row": 0,
+                "col": group.get("start_col"),
+                "colspan": group.get("colspan"),
+                "text": group.get("text"),
+                "source": "ruled_parent_header_band",
+            }
+            for group in parent_groups
+        ],
+        "header_row_count": 2,
+        "consumed_header_row_texts": consumed_header_row_texts,
+        "source_block_ids": list(dict.fromkeys(source_block_ids)),
+        "column_slots": column_slots,
+        "header_fragments": header_fragments,
+        "projection_confidence": "high",
+    }
+
+
+def _ruled_multilevel_body_lattice_layout(
+    bands: list[list[tuple[float, float, float, float]]],
+    template_bbox: tuple[float, float, float, float],
+    page_words: list[Any],
+) -> dict[str, Any] | None:
+    if len(bands) < 3:
+        return None
+    selected_layout: dict[str, Any] | None = None
+    selected_body_y = float("-inf")
+    for parent_index, parent_band in enumerate(bands[:-2]):
+        for leaf_index in range(parent_index + 1, len(bands) - 1):
+            leaf_band = bands[leaf_index]
+            leaf_anchors = _ruled_slot_template_column_slots(leaf_band)
+            if len(leaf_anchors) < 4:
+                continue
+            leaf_band_y = _ruled_multilevel_rule_band_y(leaf_band)
+            for body_band in bands[leaf_index + 1:]:
+                body_band_y = _ruled_multilevel_rule_band_y(body_band)
+                if body_band_y - leaf_band_y < 36.0:
+                    continue
+                column_slots = _ruled_slot_template_column_slots(body_band)
+                if len(column_slots) != len(leaf_anchors):
+                    continue
+                if not _ruled_multilevel_body_lattice_slots_are_valid(column_slots, template_bbox):
+                    continue
+                if not _ruled_multilevel_leaf_anchors_cover_lattice(leaf_anchors, column_slots):
+                    continue
+                parent_groups, singleton_parent_words = _ruled_multilevel_lattice_parent_layout(
+                    parent_band,
+                    column_slots,
+                    page_words,
+                )
+                if not parent_groups:
+                    continue
+                leaf_columns, leaf_fragments = _ruled_multilevel_lattice_leaf_columns_from_words(
+                    column_slots,
+                    leaf_band,
+                    singleton_parent_words,
+                    page_words,
+                )
+                if len(leaf_columns) != len(column_slots) or not all(leaf_columns):
+                    continue
+                body_rows = _ruled_multilevel_lattice_body_rows_from_words(
+                    column_slots,
+                    leaf_band,
+                    body_band,
+                    page_words,
+                    template_bbox=template_bbox,
+                )
+                if not body_rows:
+                    continue
+                body_fragments = _ruled_multilevel_lattice_body_fragments_from_words(
+                    column_slots,
+                    leaf_band,
+                    body_band,
+                    page_words,
+                    template_bbox=template_bbox,
+                )
+                if body_band_y <= selected_body_y:
+                    continue
+                selected_body_y = body_band_y
+                selected_layout = {
+                    "parent_band": parent_band,
+                    "leaf_band": leaf_band,
+                    "body_band": body_band,
+                    "column_slots": column_slots,
+                    "parent_groups": parent_groups,
+                    "leaf_columns": leaf_columns,
+                    "leaf_fragments": leaf_fragments,
+                    "body_rows": body_rows,
+                    "body_fragments": body_fragments,
+                }
+    return selected_layout
+
+
+def _ruled_multilevel_rule_band_y(
+    band: list[tuple[float, float, float, float]],
+) -> float:
+    return sum((rect[1] + rect[3]) / 2.0 for rect in band) / max(len(band), 1)
+
+
+def _ruled_multilevel_body_lattice_slots_are_valid(
+    column_slots: list[dict[str, Any]],
+    template_bbox: tuple[float, float, float, float],
+) -> bool:
+    if len(column_slots) < 4:
+        return False
+    ordered = sorted(column_slots, key=lambda slot: float(slot.get("x0", 0.0) or 0.0))
+    if float(ordered[0].get("x0", 0.0) or 0.0) > float(template_bbox[0]) + 16.0:
+        return False
+    if float(ordered[-1].get("x1", 0.0) or 0.0) < float(template_bbox[2]) - 36.0:
+        return False
+    for left, right in zip(ordered, ordered[1:]):
+        gap = float(right.get("x0", 0.0) or 0.0) - float(left.get("x1", 0.0) or 0.0)
+        if gap < -2.0 or gap > 4.0:
+            return False
+    return True
+
+
+def _ruled_multilevel_leaf_anchors_cover_lattice(
+    leaf_anchors: list[dict[str, Any]],
+    column_slots: list[dict[str, Any]],
+) -> bool:
+    mapped_indexes: list[int] = []
+    for anchor in leaf_anchors:
+        anchor_center = (
+            float(anchor.get("x0", 0.0) or 0.0)
+            + float(anchor.get("x1", 0.0) or 0.0)
+        ) / 2.0
+        mapped_index = next(
+            (
+                index
+                for index, slot in enumerate(column_slots)
+                if float(slot.get("x0", 0.0) or 0.0) - 4.0
+                <= anchor_center
+                <= float(slot.get("x1", 0.0) or 0.0) + 4.0
+            ),
+            None,
+        )
+        if mapped_index is None:
+            return False
+        mapped_indexes.append(mapped_index)
+    return sorted(mapped_indexes) == list(range(len(column_slots)))
+
+
+def _ruled_multilevel_lattice_parent_layout(
+    parent_band: list[tuple[float, float, float, float]],
+    column_slots: list[dict[str, Any]],
+    page_words: list[Any],
+) -> tuple[list[dict[str, Any]], dict[int, list[Any]]]:
+    parent_groups: list[dict[str, Any]] = []
+    singleton_parent_words: dict[int, list[Any]] = {}
+    occupied_indexes: set[int] = set()
+    for parent_span in _ruled_multilevel_parent_rule_spans(parent_band):
+        leaf_indexes = _ruled_multilevel_parent_span_lattice_indexes(parent_span, column_slots)
+        if not leaf_indexes or leaf_indexes != list(range(leaf_indexes[0], leaf_indexes[-1] + 1)):
+            continue
+        if any(index in occupied_indexes for index in leaf_indexes):
+            continue
+        parent_words = _ruled_multilevel_parent_header_words(parent_span, parent_band, page_words)
+        if len(parent_words) > 4:
+            continue
+        parent_text = _ruled_slot_template_column_text(parent_words)
+        if not parent_text:
+            continue
+        occupied_indexes.update(leaf_indexes)
+        if len(leaf_indexes) == 1:
+            singleton_parent_words.setdefault(leaf_indexes[0], []).extend(parent_words)
+            continue
+        parent_groups.append(
+            {
+                "text": parent_text,
+                "start_leaf_index": leaf_indexes[0],
+                "end_leaf_index": leaf_indexes[-1],
+                "colspan": len(leaf_indexes),
+                "source": "ruled_parent_header_band",
+                "rule_span": [round(float(parent_span[0]), 2), round(float(parent_span[1]), 2)],
+                "header_fragments": [
+                    {
+                        "text": _clean_text(str(getattr(word, "text", "") or "")),
+                        "row": 0,
+                        "col": leaf_indexes[0],
+                        "colspan": len(leaf_indexes),
+                        "bbox": [
+                            round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[0]), 2),
+                            round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[1]), 2),
+                            round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[2]), 2),
+                            round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[3]), 2),
+                        ],
+                        "source": "page_word",
+                    }
+                    for word in parent_words
+                    if _clean_text(str(getattr(word, "text", "") or ""))
+                ],
+            }
+        )
+    return parent_groups, singleton_parent_words
+
+
+def _ruled_multilevel_parent_span_lattice_indexes(
+    parent_span: tuple[float, float],
+    column_slots: list[dict[str, Any]],
+) -> list[int]:
+    overlaps: list[float] = []
+    widths: list[float] = []
+    for index, slot in enumerate(column_slots):
+        slot_x0 = float(slot.get("x0", 0.0) or 0.0)
+        slot_x1 = float(slot.get("x1", 0.0) or 0.0)
+        slot_width = max(slot_x1 - slot_x0, 1.0)
+        overlap = max(0.0, min(parent_span[1], slot_x1) - max(parent_span[0], slot_x0))
+        overlaps.append(overlap)
+        widths.append(slot_width)
+    core_indexes = [
+        index
+        for index, (overlap, width) in enumerate(zip(overlaps, widths))
+        if overlap / width >= 0.50
+    ]
+    if not core_indexes or core_indexes != list(range(core_indexes[0], core_indexes[-1] + 1)):
+        return []
+    first_index = core_indexes[0]
+    last_index = core_indexes[-1]
+    if first_index > 0:
+        edge_index = first_index - 1
+        if overlaps[edge_index] >= max(6.0, widths[edge_index] * 0.08):
+            first_index = edge_index
+    if last_index + 1 < len(column_slots):
+        edge_index = last_index + 1
+        if overlaps[edge_index] >= max(6.0, widths[edge_index] * 0.08):
+            last_index = edge_index
+    return list(range(first_index, last_index + 1))
+
+
+def _ruled_multilevel_lattice_leaf_columns_from_words(
+    column_slots: list[dict[str, Any]],
+    leaf_band: list[tuple[float, float, float, float]],
+    singleton_parent_words: dict[int, list[Any]],
+    page_words: list[Any],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    leaf_band_y = _ruled_multilevel_rule_band_y(leaf_band)
+    words_by_col: list[list[Any]] = [list(singleton_parent_words.get(index, []) or []) for index in range(len(column_slots))]
+    fragments: list[dict[str, Any]] = []
+    for col_index, words in singleton_parent_words.items():
+        for word in words:
+            bbox = _word_bbox_tuple(word)
+            word_text = _clean_text(str(getattr(word, "text", "") or ""))
+            if bbox is None or not word_text:
+                continue
+            fragments.append(
+                {
+                    "text": word_text,
+                    "col": col_index,
+                    "bbox": [round(float(bbox[0]), 2), round(float(bbox[1]), 2), round(float(bbox[2]), 2), round(float(bbox[3]), 2)],
+                    "source": "page_word",
+                }
+            )
+    for word in page_words or []:
+        bbox = _word_bbox_tuple(word)
+        word_text = _clean_text(str(getattr(word, "text", "") or ""))
+        if bbox is None or not word_text:
+            continue
+        word_center_y = (bbox[1] + bbox[3]) / 2.0
+        if not (leaf_band_y - 9.0 <= word_center_y <= leaf_band_y + 2.0):
+            continue
+        col_index = _ruled_slot_template_word_column_index(bbox, column_slots)
+        if col_index is None:
+            continue
+        words_by_col[col_index].append(word)
+        fragments.append(
+            {
+                "text": word_text,
+                "col": col_index,
+                "bbox": [round(float(bbox[0]), 2), round(float(bbox[1]), 2), round(float(bbox[2]), 2), round(float(bbox[3]), 2)],
+                "source": "page_word",
+            }
+        )
+    return [_ruled_slot_template_column_text(words) for words in words_by_col], fragments
+
+
+def _ruled_multilevel_lattice_body_rows_from_words(
+    column_slots: list[dict[str, Any]],
+    leaf_band: list[tuple[float, float, float, float]],
+    body_band: list[tuple[float, float, float, float]],
+    page_words: list[Any],
+    *,
+    template_bbox: tuple[float, float, float, float],
+) -> list[list[str]]:
+    body_words = _ruled_multilevel_lattice_body_words(
+        column_slots,
+        leaf_band,
+        body_band,
+        page_words,
+        template_bbox=template_bbox,
+    )
+    body_rows: list[list[str]] = []
+    for word_row in _ruled_slot_template_word_rows(body_words):
+        words_by_col: list[list[Any]] = [[] for _ in column_slots]
+        for word in word_row:
+            bbox = _word_bbox_tuple(word)
+            if bbox is None:
+                continue
+            col_index = _ruled_slot_template_word_column_index(bbox, column_slots)
+            if col_index is not None:
+                words_by_col[col_index].append(word)
+        row = [_ruled_slot_template_column_text(words) for words in words_by_col]
+        if any(row):
+            body_rows.append(row)
+    return body_rows
+
+
+def _ruled_multilevel_lattice_body_fragments_from_words(
+    column_slots: list[dict[str, Any]],
+    leaf_band: list[tuple[float, float, float, float]],
+    body_band: list[tuple[float, float, float, float]],
+    page_words: list[Any],
+    *,
+    template_bbox: tuple[float, float, float, float],
+) -> list[dict[str, Any]]:
+    fragments: list[dict[str, Any]] = []
+    for word in _ruled_multilevel_lattice_body_words(
+        column_slots,
+        leaf_band,
+        body_band,
+        page_words,
+        template_bbox=template_bbox,
+    ):
+        bbox = _word_bbox_tuple(word)
+        if bbox is None:
+            continue
+        col_index = _ruled_slot_template_word_column_index(bbox, column_slots)
+        text = _clean_text(str(getattr(word, "text", "") or ""))
+        if col_index is None or not text:
+            continue
+        fragments.append(
+            {
+                "text": text,
+                "col": col_index,
+                "bbox": [
+                    round(float(bbox[0]), 2),
+                    round(float(bbox[1]), 2),
+                    round(float(bbox[2]), 2),
+                    round(float(bbox[3]), 2),
+                ],
+                "source": "page_word",
+            }
+        )
+    return fragments
+
+
+def _ruled_multilevel_lattice_body_words(
+    column_slots: list[dict[str, Any]],
+    leaf_band: list[tuple[float, float, float, float]],
+    body_band: list[tuple[float, float, float, float]],
+    page_words: list[Any],
+    *,
+    template_bbox: tuple[float, float, float, float],
+) -> list[Any]:
+    leaf_band_y = _ruled_multilevel_rule_band_y(leaf_band)
+    body_band_y = _ruled_multilevel_rule_band_y(body_band)
+    return [
+        word
+        for word in page_words or []
+        for bbox in [_word_bbox_tuple(word)]
+        if bbox is not None
+        and template_bbox[0] - 2.0 <= (bbox[0] + bbox[2]) / 2.0 <= template_bbox[2] + 2.0
+        and template_bbox[1] - 2.0 <= (bbox[1] + bbox[3]) / 2.0 <= template_bbox[3] + 2.0
+        and leaf_band_y + 2.0 < (bbox[1] + bbox[3]) / 2.0 < body_band_y + 2.0
+        and _ruled_slot_template_word_column_index(bbox, column_slots) is not None
+    ]
+
+
+def _ruled_multilevel_owned_header_row_texts(
+    rows: list[list[dict[str, Any]]],
+    parent_band: list[tuple[float, float, float, float]],
+    leaf_band: list[tuple[float, float, float, float]],
+    *,
+    column_slots: list[dict[str, Any]],
+    header_fragments: list[dict[str, Any]],
+) -> list[str]:
+    if not parent_band or not leaf_band or not column_slots:
+        return []
+    top_y = _ruled_multilevel_rule_band_y(parent_band) - 22.0
+    bottom_y = _ruled_multilevel_rule_band_y(leaf_band) + 2.0
+    left_x = min(float(slot.get("x0", 0.0) or 0.0) for slot in column_slots)
+    right_x = max(float(slot.get("x1", 0.0) or 0.0) for slot in column_slots)
+    fragment_evidence: list[dict[str, Any]] = []
+    for fragment in header_fragments:
+        if not isinstance(fragment, dict):
+            continue
+        fragment_bbox = _coerce_bbox(fragment.get("bbox"))
+        fragment_norm = _compact_text(str(fragment.get("text") or ""))
+        try:
+            fragment_col = int(fragment.get("col"))
+            fragment_colspan = max(1, int(fragment.get("colspan", 1)))
+        except (TypeError, ValueError):
+            continue
+        if (
+            fragment_bbox is None
+            or not fragment_norm
+            or fragment_col < 0
+            or fragment_col + fragment_colspan > len(column_slots)
+        ):
+            continue
+        fragment_evidence.append(
+            {
+                "norm": fragment_norm,
+                "bbox": fragment_bbox,
+                "col": fragment_col,
+                "colspan": fragment_colspan,
+            }
+        )
+    texts: list[str] = []
+    for row in rows:
+        for node in row:
+            if not isinstance(node, dict):
+                continue
+            bbox = _coerce_bbox(node.get("bbox"))
+            text = _clean_text(str(node.get("text") or ""))
+            if bbox is None or not text:
+                continue
+            center_y = (bbox[1] + bbox[3]) / 2.0
+            center_x = (bbox[0] + bbox[2]) / 2.0
+            if not (
+                top_y <= center_y <= bottom_y
+                and left_x - 4.0 <= center_x <= right_x + 4.0
+            ):
+                continue
+            aligned_fragments = _ruled_fragments_in_visual_order(
+                [
+                    fragment
+                    for fragment in fragment_evidence
+                    if bbox[0] - 3.0 <= fragment["bbox"][0]
+                    and fragment["bbox"][2] <= bbox[2] + 3.0
+                    and bbox[1] - 3.0
+                    <= (fragment["bbox"][1] + fragment["bbox"][3]) / 2.0
+                    <= bbox[3] + 3.0
+                ]
+            )
+            used_indexes = _ruled_fragment_indexes_composing_text_once(
+                text,
+                [str(fragment["norm"]) for fragment in aligned_fragments],
+            )
+            if used_indexes is None:
+                continue
+            used_fragments = [aligned_fragments[index] for index in used_indexes]
+            evidence_left = min(float(fragment["bbox"][0]) for fragment in used_fragments)
+            evidence_right = max(float(fragment["bbox"][2]) for fragment in used_fragments)
+            if abs(evidence_left - bbox[0]) > 4.0 or abs(evidence_right - bbox[2]) > 4.0:
+                continue
+            used_columns = sorted(
+                {
+                    col
+                    for fragment in used_fragments
+                    for col in range(
+                        int(fragment["col"]),
+                        int(fragment["col"]) + int(fragment["colspan"]),
+                    )
+                }
+            )
+            if not used_columns or used_columns != list(range(used_columns[0], used_columns[-1] + 1)):
+                continue
+            texts.append(text)
+    return list(dict.fromkeys(texts))
+
+
+def _ruled_fragments_in_visual_order(fragments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[list[dict[str, Any]]] = []
+    for fragment in sorted(
+        fragments,
+        key=lambda item: (
+            (float(item["bbox"][1]) + float(item["bbox"][3])) / 2.0,
+            float(item["bbox"][0]),
+        ),
+    ):
+        center_y = (float(fragment["bbox"][1]) + float(fragment["bbox"][3])) / 2.0
+        if rows:
+            row_center = sum(
+                (float(item["bbox"][1]) + float(item["bbox"][3])) / 2.0
+                for item in rows[-1]
+            ) / len(rows[-1])
+        else:
+            row_center = center_y
+        if not rows or abs(center_y - row_center) > 4.0:
+            rows.append([fragment])
+        else:
+            rows[-1].append(fragment)
+    return [
+        fragment
+        for row in rows
+        for fragment in sorted(
+            row,
+            key=lambda item: (
+                float(item["bbox"][0]),
+                int(item["col"]),
+                float(item["bbox"][2]),
+            ),
+        )
+    ]
+
+
+def _ruled_fragment_indexes_composing_text_once(
+    text: str,
+    fragment_norms: list[str],
+) -> list[int] | None:
+    target = _compact_text(text)
+    normalized = [_compact_text(norm) for norm in fragment_norms]
+    if not target or not normalized or any(not norm for norm in normalized):
+        return None
+    reachable: dict[int, tuple[int, ...]] = {0: ()}
+    for index, fragment_norm in enumerate(normalized):
+        next_reachable = dict(reachable)
+        for position, path in reachable.items():
+            if not target.startswith(fragment_norm, position):
+                continue
+            next_position = position + len(fragment_norm)
+            next_reachable.setdefault(next_position, (*path, index))
+        reachable = next_reachable
+    path = reachable.get(len(target))
+    return list(path) if path is not None else None
+
+
+def _ruled_text_is_composed_of_fragments_once(text: str, fragment_norms: list[str]) -> bool:
+    target = _compact_text(text)
+    normalized = [norm for norm in (_compact_text(value) for value in fragment_norms) if norm]
+    if not target or not normalized:
+        return False
+    unique_norms = list(dict.fromkeys(normalized))
+    initial_counts = tuple(normalized.count(norm) for norm in unique_norms)
+    states: set[tuple[int, tuple[int, ...]]] = {(0, initial_counts)}
+    while states:
+        position, counts = states.pop()
+        if position == len(target):
+            return True
+        for index, fragment_norm in enumerate(unique_norms):
+            if counts[index] <= 0 or not target.startswith(fragment_norm, position):
+                continue
+            remaining = list(counts)
+            remaining[index] -= 1
+            states.add((position + len(fragment_norm), tuple(remaining)))
+    return False
+
+
+def _ruled_sparse_template_projection_for_template(
+    rows: list[list[dict[str, Any]]],
+    template_bbox: tuple[float, float, float, float],
+    bands: list[list[tuple[float, float, float, float]]],
+    page_words: list[Any],
+    *,
+    source_row_texts: list[Any] | None = None,
+) -> dict[str, Any] | None:
+    leaf_band = _ruled_sparse_dominant_leaf_band(bands)
+    if not leaf_band or leaf_band != bands[-1]:
+        return None
+    leaf_slots = _ruled_slot_template_column_slots(leaf_band)
+    leaf_columns, leaf_fragments = _ruled_multilevel_lattice_leaf_columns_from_words(
+        leaf_slots,
+        leaf_band,
+        {},
+        page_words,
+    )
+    if len(leaf_columns) != len(leaf_slots) or not all(leaf_columns):
+        return None
+
+    leaf_band_y = _ruled_multilevel_rule_band_y(leaf_band)
+    repeated_layout = _ruled_sparse_repeated_group_layout(
+        bands,
+        leaf_band,
+        leaf_slots,
+        leaf_columns,
+    )
+    parent_groups = _ruled_sparse_centered_parent_groups(
+        leaf_slots,
+        leaf_band_y,
+        page_words,
+    )
+    if repeated_layout is not None and parent_groups:
+        return None
+
+    header_fragments = list(leaf_fragments)
+    group_count = 0
+    leaf_count_per_group = 0
+    if repeated_layout is not None:
+        stub_text, stub_fragments, stub_bottom_y = _ruled_sparse_same_band_stub_header(
+            template_bbox,
+            leaf_slots,
+            leaf_fragments,
+            page_words,
+        )
+        if not stub_text:
+            return None
+        column_layout_mode = "same_band_stub_plus_blank_group_slots_plus_repeated_leaf_anchors"
+        group_count = int(repeated_layout.get("group_count", 0) or 0)
+        leaf_count_per_group = int(repeated_layout.get("leaf_count_per_group", 0) or 0)
+        logical_columns = [stub_text, *leaf_columns]
+        column_slots = [
+            {
+                "x0": round(float(template_bbox[0]), 2),
+                "x1": round(float(leaf_slots[0].get("x0", 0.0) or 0.0), 2),
+                "y0": round(float(leaf_band_y), 2),
+                "y1": round(float(leaf_band_y), 2),
+                "rule_count": 0,
+                "source": "same_band_stub_alignment",
+            },
+            *[dict(slot) for slot in leaf_slots],
+        ]
+        header_fragments = [
+            *stub_fragments,
+            *[
+                {
+                    **dict(fragment),
+                    "col": int(fragment.get("col", 0) or 0) + 1,
+                }
+                for fragment in leaf_fragments
+            ],
+        ]
+        projected_parent_groups = [
+            {
+                "text": "",
+                "start_col": 1 + group_index * leaf_count_per_group,
+                "end_col": (group_index + 1) * leaf_count_per_group,
+                "colspan": leaf_count_per_group,
+                "source": "blank_group_rule_slot",
+                "rule_span": list(repeated_layout.get("group_rule_spans", [])[group_index]),
+            }
+            for group_index in range(group_count)
+        ]
+        header_bottom_y = stub_bottom_y
+        semantic_header_rows = [logical_columns]
+    else:
+        normalized_leafs = [_compact_text(column) for column in leaf_columns]
+        if len(set(normalized_leafs)) != len(normalized_leafs):
+            return None
+        logical_columns = list(leaf_columns)
+        column_slots = [dict(slot) for slot in leaf_slots]
+        header_bottom_y = leaf_band_y
+        if parent_groups:
+            column_layout_mode = "centered_parent_anchor_over_leaf_slots"
+            projected_parent_groups = _ruled_multilevel_project_parent_groups(parent_groups, 0)
+            parent_row = list(logical_columns)
+            leaf_row = ["" for _ in logical_columns]
+            for group in projected_parent_groups:
+                start_col = int(group.get("start_col", -1) or 0)
+                end_col = int(group.get("end_col", -1) or 0)
+                text = _clean_text(str(group.get("text") or ""))
+                if not text or start_col < 0 or end_col <= start_col or end_col >= len(logical_columns):
+                    return None
+                for col_index in range(start_col, end_col + 1):
+                    parent_row[col_index] = text
+                    leaf_row[col_index] = logical_columns[col_index]
+            header_fragments.extend(
+                fragment
+                for group in projected_parent_groups
+                for fragment in group.get("header_fragments", []) or []
+            )
+            semantic_header_rows = [parent_row, leaf_row]
+        else:
+            column_layout_mode = "flat_leaf_slots"
+            projected_parent_groups = []
+            semantic_header_rows = [logical_columns]
+
+    body_rows, body_fragments, body_bottom_y = _ruled_sparse_template_body_layout(
+        column_slots,
+        header_bottom_y,
+        template_bbox,
+        page_words,
+    )
+    if not body_rows:
+        return None
+
+    header_row_texts = _ruled_sparse_owned_row_texts(
+        rows,
+        column_slots,
+        header_fragments,
+        y_min=leaf_band_y - 38.0,
+        y_max=header_bottom_y + 2.0,
+    )
+    header_row_texts.extend(
+        _ruled_sparse_source_row_texts_composed_of_fragments(
+            source_row_texts or [],
+            header_fragments,
+        )
+    )
+    header_row_texts = list(dict.fromkeys(header_row_texts))
+    body_row_texts = _ruled_sparse_owned_row_texts(
+        rows,
+        column_slots,
+        body_fragments,
+        y_min=header_bottom_y + 1.0,
+        y_max=body_bottom_y + 2.0,
+    )
+    body_row_texts.extend(
+        _ruled_sparse_source_row_texts_composed_of_fragments(
+            source_row_texts or [],
+            body_fragments,
+        )
+    )
+    body_row_texts = list(dict.fromkeys(body_row_texts))
+    source_block_ids = [
+        str(node.get("block_id") or "").strip()
+        for row in rows
+        for node in row
+        if isinstance(node, dict) and str(node.get("block_id") or "").strip()
+    ]
+    projected_slots = [
+        {
+            **dict(slot),
+            "col": index,
+            "source": str(slot.get("source") or "ruled_sparse_leaf_anchor"),
+        }
+        for index, slot in enumerate(column_slots)
+    ]
+    projection: dict[str, Any] = {
+        "source": "ruled_multilevel_template_header_projection",
+        "semantic_profile": "ruled_multilevel_ctd_template_header",
+        "template_header_family": "ruled_sparse_template_grid",
+        "column_layout_mode": column_layout_mode,
+        "logical_columns": logical_columns,
+        "semantic_grid": [*semantic_header_rows, *body_rows],
+        "template_body_rows": body_rows,
+        "template_body_fragments": body_fragments,
+        "header_column_groups": projected_parent_groups,
+        "span_header_cells": [
+            {
+                "row": 0,
+                "col": group.get("start_col"),
+                "colspan": group.get("colspan"),
+                "text": group.get("text"),
+                "source": group.get("source"),
+            }
+            for group in projected_parent_groups
+            if _clean_text(str(group.get("text") or ""))
+        ],
+        "header_row_count": len(semantic_header_rows),
+        "consumed_header_row_texts": header_row_texts,
+        "consumed_body_row_texts": body_row_texts,
+        "source_block_ids": list(dict.fromkeys(source_block_ids)),
+        "column_slots": projected_slots,
+        "header_fragments": header_fragments,
+        "projection_confidence": "high",
+    }
+    if repeated_layout is not None:
+        projection["group_count"] = group_count
+        projection["leaf_count_per_group"] = leaf_count_per_group
+        projection["repeated_leaf_pattern"] = list(repeated_layout.get("leaf_pattern", []) or [])
+    return projection
+
+
+def _ruled_sparse_dominant_leaf_band(
+    bands: list[list[tuple[float, float, float, float]]],
+) -> list[tuple[float, float, float, float]]:
+    candidates = [
+        band
+        for band in bands
+        if len(_ruled_slot_template_column_slots(band)) >= 5
+    ]
+    if not candidates:
+        return []
+    return max(
+        candidates,
+        key=lambda band: (
+            len(_ruled_slot_template_column_slots(band)),
+            _ruled_multilevel_rule_band_y(band),
+        ),
+    )
+
+
+def _ruled_sparse_centered_parent_groups(
+    leaf_slots: list[dict[str, Any]],
+    leaf_band_y: float,
+    page_words: list[Any],
+) -> list[dict[str, Any]]:
+    candidates = [
+        word
+        for word in page_words or []
+        for bbox in [_word_bbox_tuple(word)]
+        if bbox is not None
+        and leaf_band_y - 36.0 <= (bbox[1] + bbox[3]) / 2.0 <= leaf_band_y - 10.0
+        and float(leaf_slots[0].get("x0", 0.0) or 0.0) - 8.0
+        <= (bbox[0] + bbox[2]) / 2.0
+        <= float(leaf_slots[-1].get("x1", 0.0) or 0.0) + 8.0
+    ]
+    groups: list[dict[str, Any]] = []
+    occupied: set[int] = set()
+    for word_row in _ruled_slot_template_word_rows(candidates):
+        for word_cluster in _ruled_sparse_parent_anchor_word_clusters(word_row, leaf_slots):
+            text = _ruled_slot_template_column_text(word_cluster)
+            bboxes = [_word_bbox_tuple(word) for word in word_cluster]
+            bboxes = [bbox for bbox in bboxes if bbox is not None]
+            if not text or not bboxes:
+                continue
+            combined = _Word(
+                min(bbox[0] for bbox in bboxes),
+                min(bbox[1] for bbox in bboxes),
+                max(bbox[2] for bbox in bboxes),
+                max(bbox[3] for bbox in bboxes),
+                text,
+            )
+            group = _ruled_sparse_centered_parent_group_for_word(
+                combined,
+                leaf_slots,
+                leaf_band_y=leaf_band_y,
+            )
+            if group is None:
+                continue
+            indexes = set(range(int(group["start_leaf_index"]), int(group["end_leaf_index"]) + 1))
+            if occupied.intersection(indexes):
+                return []
+            group["header_fragments"] = [
+                {
+                    "text": _clean_text(str(getattr(word, "text", "") or "")),
+                    "bbox": [round(float(value), 2) for value in (_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))],
+                    "source": "page_word",
+                }
+                for word in word_cluster
+                if _clean_text(str(getattr(word, "text", "") or ""))
+            ]
+            groups.append(group)
+            occupied.update(indexes)
+    return groups
+
+
+def _ruled_sparse_parent_anchor_word_clusters(
+    words: list[Any],
+    leaf_slots: list[dict[str, Any]],
+) -> list[list[Any]]:
+    if not words:
+        return []
+    slot_centers = [
+        (
+            float(slot.get("x0", 0.0) or 0.0)
+            + float(slot.get("x1", 0.0) or 0.0)
+        )
+        / 2.0
+        for slot in leaf_slots
+    ]
+    center_gaps = [right - left for left, right in zip(slot_centers, slot_centers[1:]) if right > left]
+    join_gap = max(12.0, min(center_gaps, default=40.0) * 0.45)
+    clusters: list[list[Any]] = []
+    for word in sorted(words, key=_word_x0):
+        bbox = _word_bbox_tuple(word)
+        if bbox is None:
+            continue
+        if not clusters:
+            clusters.append([word])
+            continue
+        previous_bbox = _word_bbox_tuple(clusters[-1][-1])
+        if previous_bbox is not None and bbox[0] - previous_bbox[2] <= join_gap:
+            clusters[-1].append(word)
+        else:
+            clusters.append([word])
+    return clusters
+
+
+def _ruled_sparse_centered_parent_group_for_word(
+    word: Any,
+    leaf_slots: list[dict[str, Any]],
+    *,
+    leaf_band_y: float,
+) -> dict[str, Any] | None:
+    bbox = _word_bbox_tuple(word)
+    text = _clean_text(str(getattr(word, "text", "") or ""))
+    if bbox is None or not text or len(leaf_slots) < 2:
+        return None
+    word_center_y = (bbox[1] + bbox[3]) / 2.0
+    if not (10.0 <= leaf_band_y - word_center_y <= 36.0):
+        return None
+    word_center_x = (bbox[0] + bbox[2]) / 2.0
+    slot_centers = [
+        (
+            float(slot.get("x0", 0.0) or 0.0)
+            + float(slot.get("x1", 0.0) or 0.0)
+        )
+        / 2.0
+        for slot in leaf_slots
+    ]
+    best: tuple[float, int] | None = None
+    for index, (left_center, right_center) in enumerate(zip(slot_centers, slot_centers[1:])):
+        midpoint = (left_center + right_center) / 2.0
+        distance = abs(word_center_x - midpoint)
+        tolerance = max(7.0, abs(right_center - left_center) * 0.24)
+        if distance > tolerance:
+            continue
+        if best is None or distance < best[0]:
+            best = (distance, index)
+    if best is None:
+        return None
+    start_index = best[1]
+    end_index = start_index + 1
+    union_x0 = float(leaf_slots[start_index].get("x0", 0.0) or 0.0)
+    union_x1 = float(leaf_slots[end_index].get("x1", 0.0) or 0.0)
+    if not (union_x0 - 4.0 <= word_center_x <= union_x1 + 4.0):
+        return None
+    return {
+        "text": text,
+        "start_leaf_index": start_index,
+        "end_leaf_index": end_index,
+        "colspan": 2,
+        "source": "centered_parent_header_anchor",
+        "anchor_bbox": [round(float(value), 2) for value in bbox],
+    }
+
+
+def _ruled_sparse_repeated_group_layout(
+    bands: list[list[tuple[float, float, float, float]]],
+    leaf_band: list[tuple[float, float, float, float]],
+    leaf_slots: list[dict[str, Any]],
+    leaf_columns: list[str],
+) -> dict[str, Any] | None:
+    leaf_y = _ruled_multilevel_rule_band_y(leaf_band)
+    candidates: list[dict[str, Any]] = []
+    for band in bands:
+        band_y = _ruled_multilevel_rule_band_y(band)
+        if band_y >= leaf_y - 24.0:
+            continue
+        group_slots = _ruled_slot_template_column_slots(band)
+        group_count = len(group_slots)
+        if group_count < 2:
+            continue
+        pattern = _ruled_sparse_repeated_leaf_pattern(leaf_columns, group_count=group_count)
+        if not pattern:
+            continue
+        period = len(pattern)
+        if not _ruled_sparse_group_slots_align_with_leaf_groups(
+            group_slots,
+            leaf_slots,
+            leaf_count_per_group=period,
+        ):
+            continue
+        candidates.append(
+            {
+                "group_count": group_count,
+                "leaf_count_per_group": period,
+                "leaf_pattern": pattern,
+                "group_rule_spans": [
+                    [
+                        round(float(slot.get("x0", 0.0) or 0.0), 2),
+                        round(float(slot.get("x1", 0.0) or 0.0), 2),
+                    ]
+                    for slot in group_slots
+                ],
+                "band_y": band_y,
+            }
+        )
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: (int(candidate["group_count"]), float(candidate["band_y"])))
+
+
+def _ruled_sparse_repeated_leaf_pattern(
+    leaf_columns: list[str],
+    *,
+    group_count: int,
+) -> list[str]:
+    if group_count < 2 or len(leaf_columns) % group_count != 0:
+        return []
+    period = len(leaf_columns) // group_count
+    if period < 2:
+        return []
+    pattern = list(leaf_columns[:period])
+    pattern_norms = [_compact_text(item) for item in pattern]
+    if any(not item for item in pattern_norms) or len(set(pattern_norms)) != len(pattern_norms):
+        return []
+    for group_index in range(1, group_count):
+        start = group_index * period
+        candidate_norms = [_compact_text(item) for item in leaf_columns[start : start + period]]
+        if candidate_norms != pattern_norms:
+            return []
+    return pattern
+
+
+def _ruled_sparse_group_slots_align_with_leaf_groups(
+    group_slots: list[dict[str, Any]],
+    leaf_slots: list[dict[str, Any]],
+    *,
+    leaf_count_per_group: int,
+) -> bool:
+    if leaf_count_per_group < 2 or len(group_slots) * leaf_count_per_group != len(leaf_slots):
+        return False
+    for group_index, group_slot in enumerate(group_slots):
+        start = group_index * leaf_count_per_group
+        end = start + leaf_count_per_group - 1
+        leaf_x0 = float(leaf_slots[start].get("x0", 0.0) or 0.0)
+        leaf_x1 = float(leaf_slots[end].get("x1", 0.0) or 0.0)
+        leaf_center = (leaf_x0 + leaf_x1) / 2.0
+        leaf_width = max(leaf_x1 - leaf_x0, 1.0)
+        group_x0 = float(group_slot.get("x0", 0.0) or 0.0)
+        group_x1 = float(group_slot.get("x1", 0.0) or 0.0)
+        group_width = max(group_x1 - group_x0, 0.0)
+        group_center = (
+            group_x0
+            + group_x1
+        ) / 2.0
+        overlap = max(0.0, min(group_x1, leaf_x1) - max(group_x0, leaf_x0))
+        if group_width < leaf_width * 0.35 or overlap < group_width * 0.70:
+            return False
+        if abs(group_center - leaf_center) > max(12.0, leaf_width * 0.30):
+            return False
+    return True
+
+
+def _ruled_sparse_same_band_stub_header(
+    template_bbox: tuple[float, float, float, float],
+    leaf_slots: list[dict[str, Any]],
+    leaf_fragments: list[dict[str, Any]],
+    page_words: list[Any],
+) -> tuple[str, list[dict[str, Any]], float]:
+    leaf_bboxes = [
+        bbox
+        for fragment in leaf_fragments
+        if isinstance(fragment, dict)
+        and (bbox := _coerce_bbox(fragment.get("bbox"))) is not None
+    ]
+    if not leaf_slots or not leaf_bboxes:
+        return "", [], 0.0
+    header_y0 = min(float(bbox[1]) for bbox in leaf_bboxes)
+    header_y1 = max(float(bbox[3]) for bbox in leaf_bboxes)
+    header_center_y = (header_y0 + header_y1) / 2.0
+    header_height = max(header_y1 - header_y0, 1.0)
+    leaf_x0 = float(leaf_slots[0].get("x0", 0.0) or 0.0)
+    candidates = [
+        word
+        for word in page_words or []
+        for bbox in [_word_bbox_tuple(word)]
+        if bbox is not None
+        and template_bbox[0] - 2.0 <= (bbox[0] + bbox[2]) / 2.0 < leaf_x0 - 8.0
+        and max(0.0, min(float(bbox[3]), header_y1) - max(float(bbox[1]), header_y0))
+        >= min(max(float(bbox[3]) - float(bbox[1]), 1.0), header_height) * 0.45
+        and abs((float(bbox[1]) + float(bbox[3])) / 2.0 - header_center_y)
+        <= max(3.0, header_height * 0.45)
+    ]
+    rows = _ruled_slot_template_word_rows(candidates)
+    if len(rows) != 1:
+        return "", [], header_y1
+    words = rows[0]
+    text = _ruled_slot_template_column_text(words)
+    fragments = [
+        {
+            "text": _clean_text(str(getattr(word, "text", "") or "")),
+            "col": 0,
+            "bbox": [round(float(value), 2) for value in (_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))],
+            "source": "page_word",
+        }
+        for word in words
+        if _clean_text(str(getattr(word, "text", "") or ""))
+    ]
+    bottom_y = max(
+        header_y1,
+        max((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, header_y1))[3] for word in words),
+    )
+    return text, fragments, bottom_y
+
+
+def _ruled_sparse_template_body_layout(
+    column_slots: list[dict[str, Any]],
+    header_bottom_y: float,
+    template_bbox: tuple[float, float, float, float],
+    page_words: list[Any],
+) -> tuple[list[list[str]], list[dict[str, Any]], float]:
+    candidates = [
+        word
+        for word in page_words or []
+        for bbox in [_word_bbox_tuple(word)]
+        if bbox is not None
+        and header_bottom_y + 1.0 < (bbox[1] + bbox[3]) / 2.0 <= template_bbox[3] + 2.0
+        and template_bbox[0] - 2.0 <= (bbox[0] + bbox[2]) / 2.0 <= template_bbox[2] + 2.0
+        and _ruled_slot_template_word_column_index(bbox, column_slots) is not None
+    ]
+    word_rows = _ruled_slot_template_word_rows(candidates)
+    selected_rows: list[list[Any]] = []
+    previous_y = header_bottom_y
+    for word_row in word_rows:
+        row_y = sum(_word_yc(word) for word in word_row) / max(len(word_row), 1)
+        gap = row_y - previous_y
+        if not selected_rows and gap > 36.0:
+            break
+        if selected_rows and gap > 30.0:
+            break
+        selected_rows.append(word_row)
+        previous_y = row_y
+    if not selected_rows:
+        return [], [], header_bottom_y
+
+    body_rows: list[list[str]] = []
+    fragments: list[dict[str, Any]] = []
+    bottom_y = header_bottom_y
+    for word_row in selected_rows:
+        words_by_col: list[list[Any]] = [[] for _ in column_slots]
+        for word in word_row:
+            bbox = _word_bbox_tuple(word)
+            text = _clean_text(str(getattr(word, "text", "") or ""))
+            if bbox is None or not text:
+                continue
+            col_index = _ruled_slot_template_word_column_index(bbox, column_slots)
+            if col_index is None:
+                continue
+            words_by_col[col_index].append(word)
+            bottom_y = max(bottom_y, bbox[3])
+            fragments.append(
+                {
+                    "text": text,
+                    "col": col_index,
+                    "bbox": [round(float(value), 2) for value in bbox],
+                    "source": "page_word",
+                }
+            )
+        row = [_ruled_slot_template_column_text(words) for words in words_by_col]
+        if any(row):
+            body_rows.append(row)
+    return body_rows, fragments, bottom_y
+
+
+def _ruled_sparse_owned_row_texts(
+    rows: list[list[dict[str, Any]]],
+    column_slots: list[dict[str, Any]],
+    fragments: list[dict[str, Any]],
+    *,
+    y_min: float,
+    y_max: float,
+) -> list[str]:
+    if not column_slots or not fragments:
+        return []
+    left_x = min(float(slot.get("x0", 0.0) or 0.0) for slot in column_slots)
+    right_x = max(float(slot.get("x1", 0.0) or 0.0) for slot in column_slots)
+    fragment_norms = [
+        norm
+        for norm in (
+            _compact_text(str(fragment.get("text") or ""))
+            for fragment in fragments
+            if isinstance(fragment, dict)
+        )
+        if norm
+    ]
+    texts: list[str] = []
+    for row in rows:
+        for node in row:
+            if not isinstance(node, dict):
+                continue
+            bbox = _coerce_bbox(node.get("bbox"))
+            text = _clean_text(str(node.get("text") or ""))
+            if bbox is None or not text:
+                continue
+            center_x = (bbox[0] + bbox[2]) / 2.0
+            center_y = (bbox[1] + bbox[3]) / 2.0
+            if not (left_x - 4.0 <= center_x <= right_x + 4.0 and y_min <= center_y <= y_max):
+                continue
+            if _ruled_text_is_composed_of_fragments_once(text, fragment_norms):
+                texts.append(text)
+    return list(dict.fromkeys(texts))
+
+
+def _ruled_sparse_source_row_texts_composed_of_fragments(
+    source_rows: list[Any],
+    fragments: list[dict[str, Any]],
+) -> list[str]:
+    fragment_norms = [
+        norm
+        for norm in (
+            _compact_text(str(fragment.get("text") or ""))
+            for fragment in fragments
+            if isinstance(fragment, dict)
+        )
+        if norm
+    ]
+    return list(
+        dict.fromkeys(
+            text
+            for value in source_rows
+            for text in [_clean_text(str(value or ""))]
+            if text and _ruled_text_is_composed_of_fragments_once(text, fragment_norms)
+        )
+    )
+
+
+def _ruled_multilevel_parent_leaf_layout(
+    bands: list[list[tuple[float, float, float, float]]],
+    page_words: list[Any],
+) -> tuple[
+    list[tuple[float, float, float, float]],
+    list[tuple[float, float, float, float]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    if len(bands) < 2:
+        return [], [], [], []
+    partial_parent_candidate: tuple[
+        list[tuple[float, float, float, float]],
+        list[tuple[float, float, float, float]],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+    ] | None = None
+    for index, parent_band in enumerate(bands[:-1]):
+        for leaf_band in bands[index + 1:]:
+            leaf_slots = _ruled_slot_template_column_slots(leaf_band)
+            if len(leaf_slots) < 4:
+                continue
+            parent_groups = _ruled_multilevel_parent_header_groups(
+                parent_band,
+                leaf_slots,
+                page_words,
+            )
+            if not parent_groups:
+                continue
+            covered_leaf_count = sum(int(group.get("colspan", 0) or 0) for group in parent_groups)
+            if covered_leaf_count / max(len(leaf_slots), 1) >= 0.50:
+                return parent_band, leaf_band, leaf_slots, parent_groups
+            if partial_parent_candidate is None:
+                partial_parent_candidate = parent_band, leaf_band, leaf_slots, parent_groups
+    if partial_parent_candidate is not None:
+        return partial_parent_candidate
+    return [], [], [], []
+
+
+def _ruled_multilevel_parent_header_groups(
+    parent_band: list[tuple[float, float, float, float]],
+    leaf_slots: list[dict[str, Any]],
+    page_words: list[Any],
+) -> list[dict[str, Any]]:
+    groups: list[dict[str, Any]] = []
+    occupied_leaf_indexes: set[int] = set()
+    for parent_span in _ruled_multilevel_parent_rule_spans(parent_band):
+        leaf_indexes = _ruled_multilevel_parent_span_leaf_indexes(parent_span, leaf_slots)
+        if len(leaf_indexes) < 2 or leaf_indexes != list(range(leaf_indexes[0], leaf_indexes[-1] + 1)):
+            continue
+        if any(index in occupied_leaf_indexes for index in leaf_indexes):
+            continue
+        parent_words = _ruled_multilevel_parent_header_words(
+            parent_span,
+            parent_band,
+            page_words,
+        )
+        if len(parent_words) > 3:
+            continue
+        parent_text = _ruled_slot_template_column_text(parent_words)
+        if not parent_text:
+            continue
+        occupied_leaf_indexes.update(leaf_indexes)
+        groups.append(
+            {
+                "text": parent_text,
+                "start_leaf_index": leaf_indexes[0],
+                "end_leaf_index": leaf_indexes[-1],
+                "colspan": len(leaf_indexes),
+                "source": "ruled_parent_header_band",
+                "rule_span": [round(float(parent_span[0]), 2), round(float(parent_span[1]), 2)],
+                "header_fragments": [
+                    {
+                        "text": _clean_text(str(getattr(word, "text", "") or "")),
+                        "row": 0,
+                        "col": leaf_indexes[0],
+                        "colspan": len(leaf_indexes),
+                        "bbox": [
+                            round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[0]), 2),
+                            round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[1]), 2),
+                            round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[2]), 2),
+                            round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[3]), 2),
+                        ],
+                        "source": "page_word",
+                    }
+                    for word in parent_words
+                    if _clean_text(str(getattr(word, "text", "") or ""))
+                ],
+            }
+        )
+    return groups
+
+
+def _ruled_multilevel_project_parent_groups(
+    parent_groups: list[dict[str, Any]],
+    column_offset: int,
+) -> list[dict[str, Any]]:
+    projected: list[dict[str, Any]] = []
+    for group in parent_groups:
+        start_leaf_index = int(group.get("start_leaf_index", -1) or 0)
+        end_leaf_index = int(group.get("end_leaf_index", -1) or 0)
+        projected.append(
+            {
+                **dict(group),
+                "start_col": start_leaf_index + column_offset,
+                "end_col": end_leaf_index + column_offset,
+                "header_fragments": [
+                    {
+                        **dict(fragment),
+                        "col": int(fragment.get("col", start_leaf_index) or 0) + column_offset,
+                    }
+                    for fragment in group.get("header_fragments", []) or []
+                    if isinstance(fragment, dict)
+                ],
+            }
+        )
+    return projected
+
+
+def _ruled_multilevel_parent_rule_spans(
+    parent_band: list[tuple[float, float, float, float]],
+) -> list[tuple[float, float]]:
+    spans: list[list[float]] = []
+    for rect in sorted(parent_band, key=lambda item: (item[0], item[2])):
+        x0, x1 = float(rect[0]), float(rect[2])
+        if x1 <= x0:
+            continue
+        if spans and x0 - spans[-1][1] <= 2.0:
+            spans[-1][1] = max(spans[-1][1], x1)
+        else:
+            spans.append([x0, x1])
+    return [(span[0], span[1]) for span in spans]
+
+
+def _ruled_multilevel_parent_span_leaf_indexes(
+    parent_span: tuple[float, float],
+    leaf_slots: list[dict[str, Any]],
+) -> list[int]:
+    leaf_indexes: list[int] = []
+    for index, slot in enumerate(leaf_slots):
+        slot_x0 = float(slot.get("x0", 0.0) or 0.0)
+        slot_x1 = float(slot.get("x1", 0.0) or 0.0)
+        slot_width = max(slot_x1 - slot_x0, 1.0)
+        overlap = max(0.0, min(parent_span[1], slot_x1) - max(parent_span[0], slot_x0))
+        if overlap / slot_width >= 0.55:
+            leaf_indexes.append(index)
+    return leaf_indexes
+
+
+def _ruled_multilevel_parent_header_words(
+    parent_span: tuple[float, float],
+    parent_band: list[tuple[float, float, float, float]],
+    page_words: list[Any],
+) -> list[Any]:
+    band_y = sum((rect[1] + rect[3]) / 2.0 for rect in parent_band) / max(len(parent_band), 1)
+    return [
+        word
+        for word in page_words or []
+        for bbox in [_word_bbox_tuple(word)]
+        if bbox is not None
+        and parent_span[0] - 8.0 <= (bbox[0] + bbox[2]) / 2.0 <= parent_span[1] + 8.0
+        and band_y - 22.0 <= (bbox[1] + bbox[3]) / 2.0 <= band_y - 1.0
+    ]
+
+
+def _ruled_multilevel_leaf_columns_from_words(
+    leaf_slots: list[dict[str, Any]],
+    leaf_band: list[tuple[float, float, float, float]],
+    page_words: list[Any],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    band_y = sum((rect[1] + rect[3]) / 2.0 for rect in leaf_band) / max(len(leaf_band), 1)
+    words_by_col: list[list[Any]] = [[] for _ in leaf_slots]
+    fragments: list[dict[str, Any]] = []
+    for word in page_words or []:
+        bbox = _word_bbox_tuple(word)
+        word_text = _clean_text(str(getattr(word, "text", "") or ""))
+        if bbox is None or not word_text:
+            continue
+        word_center_y = (bbox[1] + bbox[3]) / 2.0
+        if not (band_y - 22.0 <= word_center_y <= band_y + 2.0):
+            continue
+        col_index = _ruled_slot_template_word_column_index(bbox, leaf_slots)
+        if col_index is None:
+            continue
+        words_by_col[col_index].append(word)
+        fragments.append(
+            {
+                "text": word_text,
+                "col": col_index + 1,
+                "bbox": [round(float(bbox[0]), 2), round(float(bbox[1]), 2), round(float(bbox[2]), 2), round(float(bbox[3]), 2)],
+                "source": "page_word",
+            }
+        )
+    return [_ruled_slot_template_column_text(words) for words in words_by_col], fragments
+
+
+def _ruled_multilevel_full_width_leaf_columns_from_words(
+    leaf_slots: list[dict[str, Any]],
+    parent_band: list[tuple[float, float, float, float]],
+    leaf_band: list[tuple[float, float, float, float]],
+    parent_groups: list[dict[str, Any]],
+    page_words: list[Any],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    parent_band_y = sum((rect[1] + rect[3]) / 2.0 for rect in parent_band) / max(len(parent_band), 1)
+    leaf_band_y = sum((rect[1] + rect[3]) / 2.0 for rect in leaf_band) / max(len(leaf_band), 1)
+    covered_leaf_indexes = {
+        leaf_index
+        for group in parent_groups
+        for leaf_index in range(
+            int(group.get("start_leaf_index", -1) or 0),
+            int(group.get("end_leaf_index", -1) or 0) + 1,
+        )
+    }
+    words_by_col: list[list[Any]] = [[] for _ in leaf_slots]
+    fragments: list[dict[str, Any]] = []
+    for word in page_words or []:
+        bbox = _word_bbox_tuple(word)
+        word_text = _clean_text(str(getattr(word, "text", "") or ""))
+        if bbox is None or not word_text:
+            continue
+        col_index = _ruled_slot_template_word_column_index(bbox, leaf_slots)
+        if col_index is None:
+            continue
+        word_center_y = (bbox[1] + bbox[3]) / 2.0
+        top_y = leaf_band_y - 22.0 if col_index in covered_leaf_indexes else parent_band_y - 4.0
+        if not (top_y <= word_center_y <= leaf_band_y + 2.0):
+            continue
+        words_by_col[col_index].append(word)
+        fragments.append(
+            {
+                "text": word_text,
+                "col": col_index,
+                "bbox": [
+                    round(float(bbox[0]), 2),
+                    round(float(bbox[1]), 2),
+                    round(float(bbox[2]), 2),
+                    round(float(bbox[3]), 2),
+                ],
+                "source": "page_word",
+            }
+        )
+    return [_ruled_slot_template_column_text(words) for words in words_by_col], fragments
+
+
+def _ruled_multilevel_stub_text(
+    template_bbox: tuple[float, float, float, float],
+    leaf_span_left: float,
+    leaf_band: list[tuple[float, float, float, float]],
+    page_words: list[Any],
+) -> tuple[str, list[dict[str, Any]]]:
+    band_y = sum((rect[1] + rect[3]) / 2.0 for rect in leaf_band) / max(len(leaf_band), 1)
+    words = [
+        word
+        for word in page_words or []
+        for bbox in [_word_bbox_tuple(word)]
+        if bbox is not None
+        and template_bbox[0] - 8.0 <= bbox[0]
+        and bbox[2] <= leaf_span_left - 24.0
+        and band_y - 22.0 <= (bbox[1] + bbox[3]) / 2.0 <= band_y + 2.0
+    ]
+    text = _ruled_slot_template_column_text(words)
+    fragments = [
+        {
+            "text": _clean_text(str(getattr(word, "text", "") or "")),
+            "col": 0,
+            "bbox": [
+                round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[0]), 2),
+                round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[1]), 2),
+                round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[2]), 2),
+                round(float((_word_bbox_tuple(word) or (0.0, 0.0, 0.0, 0.0))[3]), 2),
+            ],
+            "source": "page_word",
+        }
+        for word in words
+        if _clean_text(str(getattr(word, "text", "") or ""))
+    ]
+    return text, fragments
+
+
+def _ruled_slot_template_header_projection_for_template(
+    template: dict[str, Any],
+    text_nodes_by_id: dict[str, dict[str, Any]],
+    page_words: list[Any],
+    page_drawings: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not page_words or not page_drawings:
+        return None
+    if not _blank_template_header_grid_candidate(template):
+        return None
+    rows = _blank_template_header_grid_rows_from_owned_nodes(template, text_nodes_by_id)
+    if not rows:
+        return None
+    header_bbox = _bbox_union_loose(
+        [
+            node.get("bbox")
+            for row in rows[:3]
+            for node in row
+            if isinstance(node, dict)
+        ]
+    )
+    if header_bbox == (0.0, 0.0, 0.0, 0.0):
+        return None
+    template_bbox = _coerce_bbox(template.get("bbox"))
+    if template_bbox is None:
+        return None
+    slot_rects = _ruled_slot_template_header_rule_rects(
+        template_bbox,
+        header_bbox,
+        page_drawings,
+    )
+    if _ruled_slot_template_has_parent_header_band(slot_rects):
+        return None
+    column_slots = _ruled_slot_template_column_slots(slot_rects)
+    if len(column_slots) < 5:
+        return None
+    columns, fragments = _ruled_slot_template_columns_from_words(
+        column_slots,
+        template_bbox,
+        header_bbox,
+        page_words,
+    )
+    if len(columns) != len(column_slots) or not all(columns):
+        return None
+    if len(set(_compact_text(column) for column in columns if _compact_text(column))) != len(columns):
+        return None
+    source_block_ids = [
+        str(node.get("block_id") or "").strip()
+        for row in rows
+        for node in row
+        if isinstance(node, dict) and str(node.get("block_id") or "").strip()
+    ]
+    header_row_count = len(
+        _cluster_float_values(
+            [
+                (float(slot["y0"]) + float(slot["y1"])) / 2.0
+                for slot in column_slots
+            ],
+            tolerance=4.0,
+        )
+    )
+    return {
+        "source": "ruled_slot_template_header_projection",
+        "semantic_profile": "ruled_sparse_ctd_template_header",
+        "template_header_family": "ruled_sparse_ctd_header_grid",
+        "logical_columns": columns,
+        "header_row_count": header_row_count,
+        "source_block_ids": list(dict.fromkeys(source_block_ids)),
+        "column_slots": column_slots,
+        "header_fragments": fragments,
+        "projection_confidence": "high",
+    }
+
+
+def _ruled_slot_template_header_rule_rects(
+    template_bbox: tuple[float, float, float, float],
+    header_bbox: tuple[float, float, float, float],
+    page_drawings: list[dict[str, Any]],
+) -> list[tuple[float, float, float, float]]:
+    y_min = float(header_bbox[1]) - 4.0
+    y_max = float(header_bbox[3]) + 4.0
+    rects: list[tuple[float, float, float, float]] = []
+    for drawing in page_drawings or []:
+        for rect in _iter_drawing_horizontal_rects(drawing):
+            x0, y0, x1, y1 = rect
+            width = max(0.0, x1 - x0)
+            height = max(0.0, y1 - y0)
+            if width < 8.0 or height > 3.2:
+                continue
+            y_center = (y0 + y1) / 2.0
+            if not (y_min <= y_center <= y_max):
+                continue
+            if x1 < template_bbox[0] - 8.0 or x0 > template_bbox[2] + 8.0:
+                continue
+            if width > max(160.0, (template_bbox[2] - template_bbox[0]) * 0.45):
+                continue
+            rects.append((x0, y0, x1, y1))
+    return rects
+
+
+def _iter_drawing_horizontal_rects(drawing: dict[str, Any]) -> list[tuple[float, float, float, float]]:
+    rects: list[tuple[float, float, float, float]] = []
+    for item in drawing.get("items", []) or []:
+        if not isinstance(item, (list, tuple)) or not item:
+            continue
+        item_type = item[0]
+        if item_type == "re" and len(item) >= 2:
+            rect = _coerce_drawing_rect_bbox(item[1])
+            if rect is not None:
+                rects.append(rect)
+        elif item_type == "l" and len(item) >= 3:
+            p1 = item[1]
+            p2 = item[2]
+            if hasattr(p1, "x") and hasattr(p2, "x"):
+                x0 = min(float(p1.x), float(p2.x))
+                x1 = max(float(p1.x), float(p2.x))
+                y0 = min(float(p1.y), float(p2.y))
+                y1 = max(float(p1.y), float(p2.y))
+                rects.append((x0, y0, x1, y1))
+    if rects:
+        return rects
+    rect = _coerce_drawing_rect_bbox(drawing.get("rect"))
+    return [rect] if rect is not None else []
+
+
+def _coerce_drawing_rect_bbox(value: Any) -> tuple[float, float, float, float] | None:
+    if value is None:
+        return None
+    if all(hasattr(value, attr) for attr in ("x0", "y0", "x1", "y1")):
+        return (float(value.x0), float(value.y0), float(value.x1), float(value.y1))
+    return _coerce_bbox(value)
+
+
+def _ruled_slot_template_column_slots(
+    rects: list[tuple[float, float, float, float]],
+) -> list[dict[str, Any]]:
+    clusters: list[list[tuple[float, float, float, float]]] = []
+    for rect in sorted(rects, key=lambda item: (item[0], item[1])):
+        target: list[tuple[float, float, float, float]] | None = None
+        for cluster in clusters:
+            if _rule_rect_aligns_with_slot_cluster(rect, cluster):
+                target = cluster
+                break
+        if target is None:
+            clusters.append([rect])
+        else:
+            target.append(rect)
+    slots: list[dict[str, Any]] = []
+    for index, cluster in enumerate(clusters):
+        x0 = min(rect[0] for rect in cluster)
+        y0 = min(rect[1] for rect in cluster)
+        x1 = max(rect[2] for rect in cluster)
+        y1 = max(rect[3] for rect in cluster)
+        slots.append(
+            {
+                "col": index,
+                "x0": round(float(x0), 2),
+                "y0": round(float(y0), 2),
+                "x1": round(float(x1), 2),
+                "y1": round(float(y1), 2),
+                "rule_count": len(cluster),
+            }
+        )
+    return sorted(slots, key=lambda item: float(item.get("x0", 0.0) or 0.0))
+
+
+def _ruled_slot_template_has_parent_header_band(
+    rects: list[tuple[float, float, float, float]],
+) -> bool:
+    if len(rects) < 5:
+        return False
+    bands: list[list[tuple[float, float, float, float]]] = []
+    for rect in sorted(rects, key=lambda item: (item[1] + item[3]) / 2.0):
+        center_y = (rect[1] + rect[3]) / 2.0
+        if not bands:
+            bands.append([rect])
+            continue
+        band_center = sum((item[1] + item[3]) / 2.0 for item in bands[-1]) / max(len(bands[-1]), 1)
+        if abs(center_y - band_center) <= 4.0:
+            bands[-1].append(rect)
+        else:
+            bands.append([rect])
+    if len(bands) < 2:
+        return False
+    top_band = bands[0]
+    lower_rects = [rect for band in bands[1:] for rect in band]
+    if not lower_rects or len(top_band) >= max(len(band) for band in bands[1:]):
+        return False
+    lower_min_x = min(rect[0] for rect in lower_rects)
+    lower_max_x = max(rect[2] for rect in lower_rects)
+    for rect in top_band:
+        center_x = (rect[0] + rect[2]) / 2.0
+        if lower_min_x - 8.0 <= center_x <= lower_max_x + 8.0:
+            return True
+    return False
+
+
+def _rule_rect_aligns_with_slot_cluster(
+    rect: tuple[float, float, float, float],
+    cluster: list[tuple[float, float, float, float]],
+) -> bool:
+    x0, _y0, x1, _y1 = rect
+    width = max(x1 - x0, 1.0)
+    center = (x0 + x1) / 2.0
+    for existing in cluster:
+        ex0, _ey0, ex1, _ey1 = existing
+        existing_width = max(ex1 - ex0, 1.0)
+        existing_center = (ex0 + ex1) / 2.0
+        overlap = max(0.0, min(x1, ex1) - max(x0, ex0))
+        if overlap / max(min(width, existing_width), 1.0) >= 0.45:
+            return True
+        if abs(center - existing_center) <= max(10.0, min(width, existing_width) * 0.45):
+            return True
+    return False
+
+
+def _ruled_slot_template_columns_from_words(
+    column_slots: list[dict[str, Any]],
+    template_bbox: tuple[float, float, float, float],
+    header_bbox: tuple[float, float, float, float],
+    page_words: list[Any],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    y_min = float(header_bbox[1]) - 5.0
+    y_max = float(header_bbox[3]) + 5.0
+    words_by_col: list[list[Any]] = [[] for _ in column_slots]
+    fragments: list[dict[str, Any]] = []
+    for word in page_words or []:
+        word_bbox = _word_bbox_tuple(word)
+        word_text = _clean_text(str(getattr(word, "text", "") or ""))
+        if word_bbox is None or not word_text:
+            continue
+        wx0, wy0, wx1, wy1 = word_bbox
+        if wx1 < template_bbox[0] - 8.0 or wx0 > template_bbox[2] + 8.0:
+            continue
+        word_center_y = (wy0 + wy1) / 2.0
+        if not (y_min <= word_center_y <= y_max):
+            continue
+        col_index = _ruled_slot_template_word_column_index(word_bbox, column_slots)
+        if col_index is None:
+            continue
+        words_by_col[col_index].append(word)
+        fragments.append(
+            {
+                "text": word_text,
+                "col": col_index,
+                "bbox": [round(float(wx0), 2), round(float(wy0), 2), round(float(wx1), 2), round(float(wy1), 2)],
+                "source": "page_word",
+            }
+        )
+    columns = [
+        _ruled_slot_template_column_text(words)
+        for words in words_by_col
+    ]
+    return columns, fragments
+
+
+def _word_bbox_tuple(word: Any) -> tuple[float, float, float, float] | None:
+    if all(hasattr(word, attr) for attr in ("x0", "y0", "x1", "y1")):
+        return (float(word.x0), float(word.y0), float(word.x1), float(word.y1))
+    if isinstance(word, dict):
+        bbox = _coerce_bbox(word.get("bbox"))
+        if bbox is not None:
+            return bbox
+    return None
+
+
+def _ruled_slot_template_word_column_index(
+    word_bbox: tuple[float, float, float, float],
+    column_slots: list[dict[str, Any]],
+) -> int | None:
+    word_center = (word_bbox[0] + word_bbox[2]) / 2.0
+    best_index: int | None = None
+    best_distance = float("inf")
+    for index, slot in enumerate(column_slots):
+        x0 = float(slot.get("x0", 0.0) or 0.0)
+        x1 = float(slot.get("x1", 0.0) or 0.0)
+        if x0 - 8.0 <= word_center <= x1 + 8.0:
+            distance = 0.0
+        else:
+            distance = min(abs(word_center - x0), abs(word_center - x1))
+        if distance < best_distance:
+            best_distance = distance
+            best_index = index
+    if best_index is None or best_distance > 18.0:
+        return None
+    return best_index
+
+
+def _ruled_slot_template_column_text(words: list[Any]) -> str:
+    if not words:
+        return ""
+    ordered: list[Any] = []
+    for row in _ruled_slot_template_word_rows(words):
+        ordered.extend(sorted(row, key=_word_x0))
+    text = ""
+    for word in ordered:
+        part = _clean_text(str(getattr(word, "text", "") or ""))
+        if not part:
+            continue
+        text = _blank_template_header_grid_join_text_parts(text, part)
+    text = _blank_template_header_grid_normalize_column_text(text)
+    text = re.sub(r"\b(GLP)\s+([\u4e00-\u9fff])", r"\1\2", text)
+    return text
+
+
+def _ruled_slot_template_word_rows(words: list[Any]) -> list[list[Any]]:
+    rows: list[list[Any]] = []
+    for word in sorted(words, key=lambda item: (_word_yc(item), _word_x0(item))):
+        if not rows:
+            rows.append([word])
+            continue
+        current_row = rows[-1]
+        current_y = sum(_word_yc(item) for item in current_row) / max(len(current_row), 1)
+        if abs(_word_yc(word) - current_y) <= 3.0:
+            current_row.append(word)
+        else:
+            rows.append([word])
+    return rows
+
+
+def _word_yc(word: Any) -> float:
+    if hasattr(word, "yc"):
+        return float(word.yc)
+    bbox = _word_bbox_tuple(word)
+    return ((bbox[1] + bbox[3]) / 2.0) if bbox is not None else 0.0
+
+
+def _word_x0(word: Any) -> float:
+    if hasattr(word, "x0"):
+        return float(word.x0)
+    bbox = _word_bbox_tuple(word)
+    return float(bbox[0]) if bbox is not None else 0.0
+
+
+def _cluster_float_values(values: list[float], *, tolerance: float) -> list[list[float]]:
+    clusters: list[list[float]] = []
+    for value in sorted(values):
+        if not clusters or abs(value - (sum(clusters[-1]) / max(len(clusters[-1]), 1))) > tolerance:
+            clusters.append([value])
+        else:
+            clusters[-1].append(value)
+    return clusters
+
+
+def _blank_template_header_grid_projection_for_template(
+    template: dict[str, Any],
+    text_nodes_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not _blank_template_header_grid_candidate(template):
+        return None
+    rows = _blank_template_header_grid_rows_from_owned_nodes(template, text_nodes_by_id)
+    if not rows:
+        return None
+    fragments = [
+        fragment
+        for row_index, row in enumerate(rows)
+        for node in row
+        for fragment in _blank_template_header_grid_fragments_from_node(node, row_index=row_index)
+    ]
+    logical_columns = _blank_template_header_grid_logical_columns_from_fragments(fragments)
+    if not logical_columns:
+        return None
+    source_block_ids = []
+    seen_source_ids: set[str] = set()
+    for fragment in fragments:
+        source_block_id = str(fragment.get("source_block_id") or "").strip()
+        if source_block_id and source_block_id not in seen_source_ids:
+            seen_source_ids.add(source_block_id)
+            source_block_ids.append(source_block_id)
+    source_rows = [
+        " ".join(_clean_text(str(node.get("text") or "")) for node in row if _clean_text(str(node.get("text") or "")))
+        for row in rows
+    ]
+    template_header_family = _blank_template_header_grid_family(logical_columns)
+    return {
+        "source": "blank_template_header_grid_projection",
+        "semantic_profile": "blank_ctd_table_template_header",
+        "template_header_family": template_header_family,
+        "logical_columns": logical_columns,
+        "header_row_count": len(rows),
+        "source_rows": source_rows,
+        "source_block_ids": source_block_ids,
+        "header_fragments": fragments,
+        "projection_confidence": "high",
+    }
+
+
+def _blank_template_header_grid_candidate(template: dict[str, Any]) -> bool:
+    if str(template.get("template_kind") or "") != "tabular_form":
+        return False
+    if str(template.get("ownership_domain") or "") not in {"", "template_form"}:
+        return False
+    if str(template.get("data_population") or "").strip() not in {"", "blank"}:
+        return False
+    if str(template.get("template_profile") or "") not in {
+        "blank_study_summary_template",
+        "blank_study_summary_template_continuation",
+        "tabular_form_template",
+        "sparse_tabular_form_skeleton",
+        "low_text_ruled_tabular_form_template",
+    }:
+        return False
+    rows = [_clean_text(str(row or "")) for row in template.get("row_texts", []) or []]
+    non_title_rows = [
+        row
+        for row in rows
+        if row
+        and not _starts_new_ind_section_or_template(row)
+        and not _blank_template_note_text(row)
+    ]
+    if len(non_title_rows) < 5:
+        return False
+    prose_like = [
+        row
+        for row in non_title_rows
+        if len(row) >= 32 and re.search(r"[。；;]", row)
+    ]
+    if prose_like:
+        return False
+    return True
+
+
+def _ruled_sparse_template_candidate(template: dict[str, Any]) -> bool:
+    if str(template.get("semantic_role") or "") != "structure_template":
+        return False
+    if str(template.get("template_kind") or "") != "tabular_form":
+        return False
+    if str(template.get("ownership_domain") or "") not in {"", "template_form"}:
+        return False
+    if str(template.get("data_population") or "").strip() not in {"", "blank"}:
+        return False
+    if str(template.get("template_profile") or "") not in {
+        "blank_study_summary_template",
+        "blank_study_summary_template_continuation",
+        "tabular_form_template",
+        "sparse_tabular_form_skeleton",
+        "low_text_ruled_tabular_form_template",
+    }:
+        return False
+    rows = [_clean_text(str(row or "")) for row in template.get("row_texts", []) or []]
+    non_title_rows = [
+        row
+        for row in rows
+        if row
+        and not _starts_new_ind_section_or_template(row)
+        and not _blank_template_note_text(row)
+    ]
+    if len(non_title_rows) < 2:
+        return False
+    return not any(
+        len(row) >= 32 and re.search(r"[。；;]", row)
+        for row in non_title_rows
+    )
+
+
+def _blank_template_header_grid_rows_from_owned_nodes(
+    template: dict[str, Any],
+    text_nodes_by_id: dict[str, dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    title_id = str(template.get("title_source_block_id") or "").strip()
+    note_ids = {
+        str(note.get("source_block_id") or "").strip()
+        for note in template.get("note_blocks", []) or []
+        if isinstance(note, dict) and str(note.get("source_block_id") or "").strip()
+    }
+    nodes: list[dict[str, Any]] = []
+    for block_id in template.get("owned_text_block_ids", []) or []:
+        block_id = str(block_id or "").strip()
+        if not block_id or block_id == title_id or block_id in note_ids:
+            continue
+        node = text_nodes_by_id.get(block_id)
+        if node is None:
+            continue
+        text = _clean_text(str(node.get("text") or ""))
+        bbox = _coerce_bbox(node.get("bbox"))
+        if not text or bbox is None:
+            continue
+        if _blank_template_note_text(text) or _starts_new_ind_section_or_template(text):
+            continue
+        nodes.append(node)
+    if len(nodes) < 5:
+        return []
+    rows = _line_groups_from_nodes(nodes, y_tolerance=4.5)
+    return [row for row in rows if row]
+
+
+def _blank_template_header_grid_fragments_from_node(
+    node: dict[str, Any],
+    *,
+    row_index: int,
+) -> list[dict[str, Any]]:
+    text = _clean_text(str(node.get("text") or ""))
+    bbox = _coerce_bbox(node.get("bbox"))
+    if not text or bbox is None:
+        return []
+    parts = _blank_template_header_grid_split_text(text)
+    if not parts:
+        return []
+    total_width = max(float(bbox[2]) - float(bbox[0]), 1.0)
+    weights = [max(len(_compact_text(part)), 1) for part in parts]
+    total_weight = max(sum(weights), 1)
+    cursor = float(bbox[0])
+    fragments: list[dict[str, Any]] = []
+    for index, part in enumerate(parts):
+        width = total_width * (weights[index] / total_weight)
+        part_bbox = [cursor, float(bbox[1]), cursor + width, float(bbox[3])]
+        fragments.append(
+            {
+                "text": part,
+                "source_text": text,
+                "source_block_id": str(node.get("block_id") or "").strip(),
+                "row_index": row_index,
+                "bbox": part_bbox,
+                "x_center": (part_bbox[0] + part_bbox[2]) / 2.0,
+                "y_center": (part_bbox[1] + part_bbox[3]) / 2.0,
+            }
+        )
+        cursor += width
+    return fragments
+
+
+def _blank_template_header_grid_split_text(text: str) -> list[str]:
+    compact = _compact_text(text)
+    unit_split = re.match(
+        r"^(?P<label>[\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z\s]{0,12})\s+"
+        r"(?P<unit>m?g/kg(?:/天|/day)?)\s+"
+        r"(?P<trailing>[\u4e00-\u9fffA-Za-z]+/[组組])$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if unit_split is not None:
+        label = _clean_text(unit_split.group("label"))
+        unit = _clean_text(unit_split.group("unit"))
+        trailing = _clean_text(unit_split.group("trailing"))
+        if label and unit and trailing:
+            return [f"{label}({unit})", trailing]
+    split_patterns = [
+        ["性别和数量", "观察到的最大非", "近似致死剂量"],
+        ["/组", "致死剂量(mg/kg)"],
+        ["性别和数量/组", "NOAELa(mg/kg)"],
+        ["性别和数量/组", "NOAEL(mg/kg)"],
+    ]
+    for parts in split_patterns:
+        if compact == _compact_text("".join(parts)):
+            return parts
+    return [text]
+
+
+def _blank_template_header_grid_logical_columns_from_fragments(
+    fragments: list[dict[str, Any]],
+) -> list[str]:
+    if len(fragments) < 5:
+        return []
+    generic_columns = _blank_template_header_grid_generic_columns_from_fragments(fragments)
+    if generic_columns:
+        return generic_columns
+    joined_fragments = _compact_text("".join(str(fragment.get("text") or "") for fragment in fragments))
+
+    def has_text(term: str) -> bool:
+        term_norm = _compact_text(term)
+        return bool(term_norm) and (
+            term_norm in joined_fragments
+            or any(term_norm in _compact_text(str(fragment.get("text") or "")) for fragment in fragments)
+        )
+
+    base_terms = ("种属/品系", "给药方法", "剂型)", "值得注意的结果", "试验编号")
+    if not all(has_text(term) for term in base_terms):
+        return []
+
+    single_dose = has_text("观察到的最大非") and has_text("近似致死剂量")
+    reproductive_non_pivotal = (
+        has_text("给药期限")
+        and has_text("剂量(mg/kg)")
+        and has_text("数量/组")
+        and not has_text("性别和数量/组")
+        and not any("NOAEL" in str(fragment.get("text") or "") for fragment in fragments)
+    )
+    repeat_dose = has_text("给药期限") or any("NOAEL" in str(fragment.get("text") or "") for fragment in fragments)
+    if single_dose:
+        required = ("剂量(mg/kg)", "性别和数量", "/组", "致死剂量(mg/kg)", "(mg/kg)")
+        if not all(has_text(term) for term in required):
+            return []
+        return [
+            "种属/品系",
+            "给药方法(溶媒/剂型)",
+            "剂量(mg/kg)",
+            "性别和数量/组",
+            "观察到的最大非致死剂量(mg/kg)",
+            "近似致死剂量(mg/kg)",
+            "值得注意的结果",
+            "试验编号",
+        ]
+    if reproductive_non_pivotal:
+        return [
+            "种属/品系",
+            "给药方法(溶媒/剂型)",
+            "给药期限",
+            "剂量(mg/kg)",
+            "数量/组",
+            "值得注意的结果",
+            "试验编号",
+        ]
+    if repeat_dose:
+        if not has_text("剂量") or not has_text("(mg/kg)") or not has_text("性别和数量/组"):
+            return []
+        noael = next(
+            (
+                _clean_text(str(fragment.get("text") or ""))
+                for fragment in fragments
+                if re.search(r"NOAEL\w?\(mg/kg\)", str(fragment.get("text") or ""), flags=re.IGNORECASE)
+            ),
+            "",
+        )
+        if not noael:
+            return []
+        columns = [
+            "种属/品系",
+            "给药方法(溶媒/剂型)",
+        ]
+        if has_text("给药期限"):
+            columns.append("给药期限")
+        columns.extend(
+            [
+                "剂量(mg/kg)",
+                "性别和数量/组",
+                noael,
+                "值得注意的结果",
+                "试验编号",
+            ]
+        )
+        return columns
+    return []
+
+
+def _blank_template_header_grid_generic_columns_from_fragments(
+    fragments: list[dict[str, Any]],
+) -> list[str]:
+    colon_like_count = sum(
+        1
+        for fragment in fragments
+        if re.search(r"[:：]", str(fragment.get("text") or ""))
+    )
+    if colon_like_count >= 2:
+        return []
+    clusters: list[list[dict[str, Any]]] = []
+    for fragment in sorted(fragments, key=lambda item: (float(item.get("x_center", 0.0) or 0.0), int(item.get("row_index", 0) or 0))):
+        bbox = _coerce_bbox(fragment.get("bbox"))
+        if bbox is None:
+            continue
+        target_cluster: list[dict[str, Any]] | None = None
+        for cluster in clusters:
+            if any(int(existing.get("row_index", -1) or -1) == int(fragment.get("row_index", -2) or -2) for existing in cluster):
+                continue
+            if _blank_template_header_grid_fragment_aligns_with_cluster(fragment, cluster):
+                target_cluster = cluster
+                break
+        if target_cluster is None:
+            clusters.append([fragment])
+        else:
+            target_cluster.append(fragment)
+    has_cross_row_cluster = any(
+        len({int(item.get("row_index", 0) or 0) for item in cluster}) > 1
+        for cluster in clusters
+    )
+    if not has_cross_row_cluster and not _blank_template_header_grid_has_unit_field_split(fragments):
+        return []
+    columns: list[tuple[float, str]] = []
+    for cluster in clusters:
+        text = _blank_template_header_grid_cluster_text(cluster)
+        if not text:
+            continue
+        x_center = sum(float(item.get("x_center", 0.0) or 0.0) for item in cluster) / max(len(cluster), 1)
+        columns.append((x_center, text))
+    logical_columns = [
+        column
+        for _, column in sorted(columns, key=lambda item: item[0])
+        if column
+    ]
+    if len(logical_columns) < 5:
+        return []
+    if len(set(_compact_text(column) for column in logical_columns if _compact_text(column))) != len(logical_columns):
+        return []
+    return logical_columns
+
+
+def _blank_template_header_grid_has_unit_field_split(fragments: list[dict[str, Any]]) -> bool:
+    fragments_by_source: dict[str, list[dict[str, Any]]] = {}
+    for fragment in fragments:
+        source_block_id = str(fragment.get("source_block_id") or "").strip()
+        if not source_block_id:
+            continue
+        fragments_by_source.setdefault(source_block_id, []).append(fragment)
+    for source_fragments in fragments_by_source.values():
+        if len(source_fragments) < 2:
+            continue
+        source_text = str(source_fragments[0].get("source_text") or "")
+        if re.search(r"\bm?g/kg(?:/天|/day)?\b", source_text, flags=re.IGNORECASE) and re.search(r"/[组組]\s*$", source_text):
+            return True
+    return False
+
+
+def _blank_template_header_grid_fragment_aligns_with_cluster(
+    fragment: dict[str, Any],
+    cluster: list[dict[str, Any]],
+) -> bool:
+    bbox = _coerce_bbox(fragment.get("bbox"))
+    if bbox is None or not cluster:
+        return False
+    x_center = float(fragment.get("x_center", 0.0) or 0.0)
+    width = max(float(bbox[2]) - float(bbox[0]), 1.0)
+    for existing in cluster:
+        existing_bbox = _coerce_bbox(existing.get("bbox"))
+        if existing_bbox is None:
+            continue
+        existing_center = float(existing.get("x_center", 0.0) or 0.0)
+        existing_width = max(float(existing_bbox[2]) - float(existing_bbox[0]), 1.0)
+        overlap = max(0.0, min(float(bbox[2]), float(existing_bbox[2])) - max(float(bbox[0]), float(existing_bbox[0])))
+        overlap_ratio = overlap / max(min(width, existing_width), 1.0)
+        if overlap_ratio >= 0.35:
+            return True
+        if abs(x_center - existing_center) <= max(18.0, min(width, existing_width) * 0.95):
+            return True
+    return False
+
+
+def _blank_template_header_grid_cluster_text(cluster: list[dict[str, Any]]) -> str:
+    parts = [
+        _clean_text(str(fragment.get("text") or ""))
+        for fragment in sorted(
+            cluster,
+            key=lambda item: (int(item.get("row_index", 0) or 0), float(item.get("x_center", 0.0) or 0.0)),
+        )
+        if _clean_text(str(fragment.get("text") or ""))
+    ]
+    if not parts:
+        return ""
+    text = parts[0]
+    for part in parts[1:]:
+        text = _blank_template_header_grid_join_text_parts(text, part)
+    return _blank_template_header_grid_normalize_column_text(text)
+
+
+def _blank_template_header_grid_join_text_parts(left: str, right: str) -> str:
+    left = _clean_text(left)
+    right = _clean_text(right)
+    if not left:
+        return right
+    if not right:
+        return left
+    if left.endswith(("/", "(", "（")) or right.startswith(("/", ")", "）", "(", "（")):
+        return f"{left}{right}"
+    if re.search(r"[\u4e00-\u9fff]$", left) and re.match(r"^[\u4e00-\u9fff]", right):
+        return f"{left}{right}"
+    return f"{left} {right}"
+
+
+def _blank_template_header_grid_normalize_column_text(text: str) -> str:
+    text = _clean_text(text)
+    text = re.sub(r"\s*/\s*", "/", text)
+    text = re.sub(r"\(\s+", "(", text)
+    text = re.sub(r"\s+\)", ")", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    dose_unit = re.match(r"^(?P<label>剂量|日剂量|给药剂量)\s*\(?\s*(?P<unit>m?g/kg(?:/天|/day)?)\s*\)?$", text, flags=re.IGNORECASE)
+    if dose_unit is not None:
+        return f"{dose_unit.group('label')}({dose_unit.group('unit')})"
+    return text
+
+
+def _blank_template_header_grid_family(logical_columns: list[str]) -> str:
+    return "generic_blank_ctd_header_grid"
+
+
+
+
+def _blank_tabular_template_can_absorb_same_row_field_gap(template: dict[str, Any]) -> bool:
+    if str(template.get("template_kind") or "") != "tabular_form":
+        return False
+    if str(template.get("ownership_domain") or "") != "template_form":
+        return False
+    if str(template.get("data_population") or "").strip() not in {"", "blank"}:
+        return False
+    return str(template.get("template_profile") or "") in {
+        "blank_study_summary_template",
+        "tabular_form_template",
+        "sparse_tabular_form_skeleton",
+        "low_text_ruled_tabular_form_template",
+    }
+
+
+def _blank_tabular_template_same_row_field_gap_text(text: str) -> bool:
+    compact = _clean_text(text)
+    if not compact or len(compact) > 42:
+        return False
+    if _blank_template_note_text(compact) or _starts_new_ind_section_or_template(compact):
+        return False
+    if _tabular_form_template_field_label_score(compact) and not _tabular_form_template_data_score(compact):
+        return True
+    if not re.search(r"[\u4e00-\u9fffA-Za-z]", compact):
+        return False
+    if not re.search(r"[（(][^()（）]{1,24}[）)]", compact):
+        return False
+    return bool(
+        re.search(
+            r"(?:剂量|日剂量|给药剂量|NOAEL|AUC|Cmax|Tmax|Css|浓度|含量|平均|百分比|比例)",
+            compact,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _blank_tabular_template_column_lattice_gap_text(text: str) -> bool:
+    compact = _clean_text(text)
+    if not compact or len(compact) > 80:
+        return False
+    if _blank_template_note_text(compact) or _starts_new_ind_section_or_template(compact):
+        return False
+    if _standalone_continuation_marker_text(compact):
+        return False
+    if not re.search(r"[\u4e00-\u9fffA-Za-z]", compact):
+        return False
+    if re.search(r"[。！？；;]\s*$", compact) and not _tabular_form_template_field_label_score(compact):
+        return False
+    return True
+
+
+def _bbox_within_or_near_template_body(
+    bbox: tuple[float, float, float, float],
+    template_bbox: tuple[float, float, float, float],
+) -> bool:
+    return (
+        float(bbox[0]) >= float(template_bbox[0]) - 18.0
+        and float(bbox[2]) <= float(template_bbox[2]) + 24.0
+        and float(bbox[1]) >= float(template_bbox[1]) - 6.0
+        and float(bbox[3]) <= float(template_bbox[3]) + 8.0
+    )
+
+
+def _node_aligns_with_existing_template_field_row(
+    node: dict[str, Any],
+    owned_field_nodes: list[dict[str, Any]],
+) -> bool:
+    bbox = _coerce_bbox(node.get("bbox"))
+    if bbox is None:
+        return False
+    candidate_center = (float(bbox[1]) + float(bbox[3])) / 2.0
+    same_row_nodes = []
+    for owned in owned_field_nodes:
+        owned_bbox = _coerce_bbox(owned.get("bbox"))
+        if owned_bbox is None:
+            continue
+        owned_center = (float(owned_bbox[1]) + float(owned_bbox[3])) / 2.0
+        if abs(candidate_center - owned_center) <= 4.5:
+            same_row_nodes.append(owned)
+    if len(same_row_nodes) < 2:
+        return False
+    same_row_bboxes = [_coerce_bbox(item.get("bbox")) for item in same_row_nodes]
+    same_row_bboxes = [item for item in same_row_bboxes if item is not None]
+    if not same_row_bboxes:
+        return False
+    min_x = min(float(item[0]) for item in same_row_bboxes)
+    max_x = max(float(item[2]) for item in same_row_bboxes)
+    return min_x - 36.0 <= float(bbox[0]) <= max_x + 80.0
+
+
+def _node_aligns_with_existing_template_column_lattice(
+    node: dict[str, Any],
+    owned_field_nodes: list[dict[str, Any]],
+) -> bool:
+    bbox = _coerce_bbox(node.get("bbox"))
+    if bbox is None:
+        return False
+    candidate_center_y = (float(bbox[1]) + float(bbox[3])) / 2.0
+    same_row_owned: list[dict[str, Any]] = []
+    supported_column_x: list[float] = []
+    x_values: list[float] = []
+    for owned in owned_field_nodes:
+        owned_bbox = _coerce_bbox(owned.get("bbox"))
+        if owned_bbox is None:
+            continue
+        x_values.append(float(owned_bbox[0]))
+        owned_center_y = (float(owned_bbox[1]) + float(owned_bbox[3])) / 2.0
+        if abs(candidate_center_y - owned_center_y) <= 4.5:
+            same_row_owned.append(owned)
+    if not same_row_owned:
+        return False
+    if not any(
+        _tabular_form_template_field_label_score(_clean_text(str(item.get("text") or "")))
+        for item in same_row_owned
+    ):
+        return False
+
+    for x_value in sorted(x_values):
+        matched = False
+        for index, anchor in enumerate(supported_column_x):
+            if abs(x_value - anchor) <= 28.0:
+                supported_column_x[index] = (anchor + x_value) / 2.0
+                matched = True
+                break
+        if not matched:
+            supported_column_x.append(x_value)
+
+    candidate_x = float(bbox[0])
+    column_support_counts: list[tuple[float, int]] = []
+    for anchor in supported_column_x:
+        support_count = sum(1 for x_value in x_values if abs(x_value - anchor) <= 28.0)
+        column_support_counts.append((anchor, support_count))
+    if not any(abs(candidate_x - anchor) <= 36.0 and support_count >= 2 for anchor, support_count in column_support_counts):
+        return False
+
+    supported_anchors = [anchor for anchor, support_count in column_support_counts if support_count >= 2]
+    if not supported_anchors:
+        return False
+    return min(supported_anchors) - 42.0 <= candidate_x <= max(supported_anchors) + 92.0
+
+
+def _rebuild_blank_tabular_template_rows_from_owned_field_nodes(
+    template: dict[str, Any],
+    text_nodes_by_id: dict[str, dict[str, Any]],
+) -> None:
+    title_id = str(template.get("title_source_block_id") or "").strip()
+    note_ids = {
+        str(note.get("source_block_id") or "").strip()
+        for note in template.get("note_blocks", []) or []
+        if isinstance(note, dict) and str(note.get("source_block_id") or "").strip()
+    }
+    nodes: list[dict[str, Any]] = []
+    for block_id in template.get("owned_text_block_ids", []) or []:
+        block_id = str(block_id or "").strip()
+        if not block_id or block_id == title_id or block_id in note_ids:
+            continue
+        node = text_nodes_by_id.get(block_id)
+        if node is None:
+            continue
+        text = _clean_text(str(node.get("text") or ""))
+        bbox = _coerce_bbox(node.get("bbox"))
+        if not text or bbox is None:
+            continue
+        if _blank_template_note_text(text) or _starts_new_ind_section_or_template(text):
+            continue
+        nodes.append(node)
+    if not nodes:
+        return
+    rows = [
+        _clean_text(str(node.get("text") or ""))
+        for group in _line_groups_from_nodes(nodes, y_tolerance=4.5)
+        for node in group
+        if _clean_text(str(node.get("text") or ""))
+    ]
+    seen: set[str] = set()
+    deduped_rows: list[str] = []
+    for row in rows:
+        signature = _compact_text(row)
+        if signature and signature in seen:
+            continue
+        deduped_rows.append(row)
+        if signature:
+            seen.add(signature)
+    if not deduped_rows:
+        return
+    template["row_texts"] = deduped_rows
+    fields = [
+        {
+            "row_index": index,
+            "text": row,
+            "role": "field",
+            "label": row,
+            "value": None,
+            "data_population": "blank",
+        }
+        for index, row in enumerate(deduped_rows, start=1)
+        if (
+            _tabular_form_template_field_label_score(row)
+            or _blank_tabular_template_same_row_field_gap_text(row)
+            or row in {"位置", "卷 页码"}
+        )
+    ]
+    template["fields"] = fields
+    template["entry_count"] = len(fields) + len(template.get("sections", []) or [])
+    template["local_note_refs"] = _local_note_marker_anchor_refs(
+        [str(row or "") for row in template.get("row_texts", []) or []],
+        [dict(note) for note in template.get("note_blocks", []) or [] if isinstance(note, dict)],
+    )
 
 
 def _template_rows_have_study_metadata_anchor(rows: list[str]) -> bool:
@@ -5268,6 +9938,11 @@ def _attach_adjacent_matrix_headers_to_blank_templates(
         ],
         key=_node_physical_order_key,
     )
+    text_nodes_by_id = {
+        str(node.get("block_id") or "").strip(): node
+        for node in ordered_nodes
+        if str(node.get("block_id") or "").strip()
+    }
     for template in templates:
         if str(template.get("template_kind") or "") != "tabular_form":
             continue
@@ -5278,6 +9953,12 @@ def _attach_adjacent_matrix_headers_to_blank_templates(
         template_bbox = _template_body_bbox_for_adjacent_scan(template)
         if template_bbox is None:
             continue
+        title_bbox = None
+        title_source_block_id = str(template.get("title_source_block_id") or "").strip()
+        if title_source_block_id:
+            title_node = text_nodes_by_id.get(title_source_block_id)
+            if title_node is not None:
+                title_bbox = _coerce_bbox(title_node.get("bbox"))
 
         leading: list[dict[str, Any]] = []
         for node in reversed(ordered_nodes):
@@ -5287,6 +9968,8 @@ def _attach_adjacent_matrix_headers_to_blank_templates(
             bbox = _coerce_bbox(node.get("bbox"))
             if bbox is None:
                 continue
+            if title_bbox is not None and float(bbox[3]) <= float(title_bbox[1]) - 2.0:
+                break
             if float(bbox[3]) > float(template_bbox[1]) + 4.0:
                 continue
             vertical_gap = float(template_bbox[1]) - float(bbox[3])
@@ -5434,6 +10117,221 @@ def _build_text_tabular_form_templates(
         )
         next_template_index += 1
     return templates, next_template_index
+
+
+def _page_bottom_tabular_form_heading_text(text: str) -> bool:
+    compact = _clean_text(text)
+    if not compact or not _starts_new_noncontinuation_ind_section_or_template(compact):
+        return False
+    return bool(
+        re.search(
+            r"(?:报告标题|供试品\s*[:：]|Report\s+title|Test\s+article)",
+            compact,
+            re.IGNORECASE,
+        )
+        or _text_has_any_term(compact, _STUDY_SUMMARY_TEMPLATE_DOMAIN_TERMS)
+    )
+
+
+def _build_page_bottom_tabular_form_header_fragments(
+    *,
+    page_number: int,
+    text_page_nodes: list[dict[str, Any]],
+    page_height: float,
+    next_template_index: int,
+) -> tuple[list[dict[str, Any]], int]:
+    ordered = [
+        node
+        for node in sorted(text_page_nodes or [], key=_node_physical_order_key)
+        if _clean_text(str(node.get("text") or ""))
+        and _coerce_bbox(node.get("bbox")) is not None
+        and str(node.get("semantic_role") or "").strip()
+        not in {"page_header", "page_footer", "page_number", "footnote", "footnote_continuation"}
+    ]
+    templates: list[dict[str, Any]] = []
+    consumed_ids: set[str] = set()
+    for title_index, title_node in enumerate(ordered):
+        title_id = str(title_node.get("block_id") or "").strip()
+        title_text = _clean_text(str(title_node.get("text") or ""))
+        title_bbox = _coerce_bbox(title_node.get("bbox"))
+        if (
+            not title_id
+            or title_id in consumed_ids
+            or title_bbox is None
+            or float(title_bbox[1]) < max(220.0, float(page_height) * 0.55)
+            or not _page_bottom_tabular_form_heading_text(title_text)
+        ):
+            continue
+
+        fragment_nodes = [title_node]
+        previous_bbox = title_bbox
+        for node in ordered[title_index + 1 :]:
+            block_id = str(node.get("block_id") or "").strip()
+            bbox = _coerce_bbox(node.get("bbox"))
+            text = _clean_text(str(node.get("text") or ""))
+            if not block_id or block_id in consumed_ids or bbox is None or not text:
+                continue
+            if float(bbox[1]) < float(title_bbox[1]) - 2.0:
+                continue
+            if _starts_new_noncontinuation_ind_section_or_template(text):
+                break
+            if float(bbox[1]) - float(title_bbox[3]) > 90.0:
+                break
+            gap = float(bbox[1]) - float(previous_bbox[3])
+            if gap > 30.0:
+                break
+            fragment_nodes.append(node)
+            previous_bbox = bbox
+
+        if len(fragment_nodes) < 5:
+            continue
+        content_nodes = fragment_nodes[1:]
+        visual_rows: list[list[dict[str, Any]]] = []
+        for node in content_nodes:
+            bbox = _coerce_bbox(node.get("bbox"))
+            if bbox is None:
+                continue
+            center_y = (float(bbox[1]) + float(bbox[3])) / 2.0
+            target: list[dict[str, Any]] | None = None
+            for row in visual_rows:
+                row_bbox = _bbox_union_loose([item.get("bbox") for item in row])
+                row_center = (float(row_bbox[1]) + float(row_bbox[3])) / 2.0
+                overlap = max(0.0, min(float(bbox[3]), float(row_bbox[3])) - max(float(bbox[1]), float(row_bbox[1])))
+                overlap_floor = min(float(bbox[3]) - float(bbox[1]), float(row_bbox[3]) - float(row_bbox[1])) * 0.45
+                if abs(center_y - row_center) <= 4.0 or overlap >= overlap_floor:
+                    target = row
+                    break
+            if target is None:
+                visual_rows.append([node])
+            else:
+                target.append(node)
+
+        lattice_row: list[dict[str, Any]] | None = None
+        for row in visual_rows:
+            row = sorted(row, key=lambda node: float((_coerce_bbox(node.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[0]))
+            field_nodes = [
+                node
+                for node in row
+                if _tabular_form_template_field_label_score(_clean_text(str(node.get("text") or "")))
+            ]
+            companion_nodes = [node for node in row if node not in field_nodes]
+            if len(field_nodes) < 2 or not companion_nodes:
+                continue
+            row_bboxes = [_coerce_bbox(node.get("bbox")) for node in row]
+            if any(bbox is None for bbox in row_bboxes):
+                continue
+            typed_bboxes = [bbox for bbox in row_bboxes if bbox is not None]
+            if any(
+                _horizontal_overlap_ratio(left, right) >= 0.05
+                for index, left in enumerate(typed_bboxes)
+                for right in typed_bboxes[index + 1 :]
+            ):
+                continue
+            x_positions = sorted(float(bbox[0]) for bbox in typed_bboxes)
+            if any(right - left < 40.0 for left, right in zip(x_positions, x_positions[1:])):
+                continue
+            lattice_row = row
+            break
+        if lattice_row is None:
+            continue
+
+        lattice_top = min(float((_coerce_bbox(node.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1]) for node in lattice_row)
+        local_title_nodes = [
+            node
+            for node in content_nodes
+            if float((_coerce_bbox(node.get("bbox")) or (0.0, 9999.0, 0.0, 0.0))[1]) < lattice_top - 1.0
+            and not _tabular_form_template_field_label_score(_clean_text(str(node.get("text") or "")))
+        ]
+        if not local_title_nodes:
+            continue
+        local_form_title = _clean_text(str(local_title_nodes[0].get("text") or ""))
+        pseudo_table = {
+            "table_id": f"page_bottom_template_header_fragment_p{page_number}_{next_template_index}",
+            "page": page_number,
+            "bbox": _structure_template_cluster_bbox(None, fragment_nodes, []),
+            "title": title_text,
+            "row_texts": [_clean_text(str(node.get("text") or "")) for node in fragment_nodes],
+            "owned_text_block_ids": [
+                str(node.get("block_id") or "").strip()
+                for node in fragment_nodes
+                if str(node.get("block_id") or "").strip()
+            ],
+            "detection_source": "page_bottom_template_header_fragment",
+        }
+        template = _build_tabular_form_template_from_table(
+            pseudo_table,
+            page_number=page_number,
+            template_index=next_template_index,
+        )
+        template["local_form_title"] = local_form_title
+        template["is_page_bottom_template_header_fragment"] = True
+        signals = dict(template.get("semantic_signals") or {})
+        signals["detection_source"] = "page_bottom_template_header_fragment"
+        signals["page_bottom_template_header_fragment"] = True
+        signals["same_row_field_anchor_count"] = sum(
+            1
+            for node in lattice_row
+            if _tabular_form_template_field_label_score(_clean_text(str(node.get("text") or "")))
+        )
+        signals["same_row_companion_count"] = len(lattice_row) - int(signals["same_row_field_anchor_count"])
+        signals["page_bottom_header_column_anchors"] = [
+            round(float((_coerce_bbox(node.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[0]), 2)
+            for node in sorted(
+                lattice_row,
+                key=lambda node: float((_coerce_bbox(node.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[0]),
+            )
+        ]
+        template["semantic_signals"] = signals
+        templates.append(template)
+        consumed_ids.update(template.get("owned_text_block_ids", []) or [])
+        next_template_index += 1
+    return templates, next_template_index
+
+
+def _link_page_top_template_to_previous_bottom_fragment(
+    templates: list[dict[str, Any]],
+    previous_template: dict[str, Any] | None,
+) -> None:
+    if not templates or not isinstance(previous_template, dict):
+        return
+    previous_signals = dict(previous_template.get("semantic_signals") or {})
+    if not (
+        previous_template.get("is_page_bottom_template_header_fragment")
+        or previous_signals.get("page_bottom_template_header_fragment")
+    ):
+        return
+    previous_page = int(previous_template.get("page", 0) or 0)
+    previous_id = str(previous_template.get("structure_template_id") or "").strip()
+    previous_title = _clean_text(str(previous_template.get("title") or ""))
+    if not previous_page or not previous_id or not previous_title:
+        return
+    candidates = sorted(
+        [
+            template
+            for template in templates
+            if int(template.get("page", 0) or 0) == previous_page + 1
+            and str(template.get("template_kind") or "") == "tabular_form"
+            and not _clean_text(str(template.get("title") or ""))
+            and not template.get("continued_from_structure_template_id")
+            and (_coerce_bbox(template.get("bbox")) or (0.0, 9999.0, 0.0, 0.0))[1] <= 175.0
+            and len(template.get("fields", []) or []) >= 4
+        ],
+        key=lambda template: (_coerce_bbox(template.get("bbox")) or (0.0, 9999.0, 0.0, 0.0))[1],
+    )
+    if not candidates:
+        return
+    continuation = candidates[0]
+    continuation["is_structure_template_continuation"] = True
+    continuation["continued_from_structure_template_id"] = previous_id
+    continuation["continued_from_page"] = previous_page
+    continuation["continued_from_title"] = previous_title
+    previous_title_source_id = str(previous_template.get("title_source_block_id") or "").strip()
+    if previous_title_source_id:
+        continuation["continued_from_title_source_block_id"] = previous_title_source_id
+    signals = dict(continuation.get("semantic_signals") or {})
+    signals["cross_page_template_relinked"] = True
+    signals["cross_page_template_relink_source"] = "previous_page_bottom_template_header_fragment"
+    continuation["semantic_signals"] = signals
 
 
 def _page_top_template_header_continuation_text(text: str) -> bool:
@@ -5838,6 +10736,224 @@ def _study_metadata_key_value(text: str) -> tuple[str, str]:
     if not label:
         return "", ""
     return label, value
+
+
+def _study_context_fact_key(label: str, value: str) -> str:
+    return f"{_compact_text(label)}={_compact_text(value)}"
+
+
+def _study_context_fact_record(
+    label: str,
+    value: str,
+    *,
+    display_text: str,
+    source_ref: str,
+    source_owner: str,
+    source_kind: str,
+    page: int,
+    bbox: Any = None,
+) -> dict[str, Any] | None:
+    clean_label = _clean_text(label)
+    clean_value = _clean_text(value)
+    if not clean_label or not clean_value:
+        return None
+    return {
+        "label": clean_label,
+        "value": clean_value,
+        "fact_key": _study_context_fact_key(clean_label, clean_value),
+        "display_text": _clean_text(display_text),
+        "source_ref": source_ref,
+        "source_owner": source_owner,
+        "source_kind": source_kind,
+        "page": page,
+        "bbox": (
+            _bbox_to_list(normalized_bbox)
+            if (normalized_bbox := _coerce_bbox(bbox)) is not None
+            else []
+        ),
+    }
+
+
+def _study_context_fact_records_from_positioned_items(
+    items: list[dict[str, Any]],
+    *,
+    source_ref: str,
+    source_owner: str,
+    page: int,
+) -> list[dict[str, Any]]:
+    positioned: list[tuple[dict[str, Any], tuple[float, float, float, float]]] = []
+    for item in items:
+        if not isinstance(item, dict) or not _clean_text(str(item.get("text") or "")):
+            continue
+        bbox = _coerce_bbox(item.get("bbox"))
+        if bbox is not None:
+            positioned.append((item, bbox))
+    positioned.sort(key=lambda entry: (entry[1][0], entry[1][1]))
+    if len(positioned) < 2:
+        return []
+
+    gaps = [
+        max(0.0, positioned[index][1][0] - positioned[index - 1][1][2])
+        for index in range(1, len(positioned))
+    ]
+    positive_gaps = sorted(gap for gap in gaps if gap > 0.0)
+    if not positive_gaps:
+        return []
+    ordinary_sample = positive_gaps[: max(1, (len(positive_gaps) + 1) // 2)]
+    ordinary_gap = ordinary_sample[len(ordinary_sample) // 2]
+    row_height = _median_word_row_height([item for item, _ in positioned])
+    split_gap = max(14.0, row_height * 2.0, ordinary_gap * 4.0)
+
+    clusters: list[list[tuple[dict[str, Any], tuple[float, float, float, float]]]] = [[]]
+    for index, entry in enumerate(positioned):
+        if index and gaps[index - 1] >= split_gap:
+            clusters.append([])
+        clusters[-1].append(entry)
+    if len(clusters) < 2:
+        return []
+
+    records: list[dict[str, Any]] = []
+    for fact_index, cluster in enumerate(clusters, start=1):
+        text = _clean_text(" ".join(str(item.get("text") or "") for item, _ in cluster))
+        label, value = _study_metadata_key_value(text)
+        if not label or not _study_metadata_populated_value(value):
+            return []
+        cluster_bbox = _bbox_union_loose([bbox for _, bbox in cluster])
+        record = _study_context_fact_record(
+            label,
+            value,
+            display_text=text,
+            source_ref=f"{source_ref}:fact:{fact_index}",
+            source_owner=source_owner,
+            source_kind="positioned_word_cluster",
+            page=page,
+            bbox=cluster_bbox,
+        )
+        if record is not None:
+            records.append(record)
+    return records if len(records) >= 2 else []
+
+
+_STUDY_CONTEXT_EXPLICIT_FIELD_LABEL_PATTERN = (
+    r"(?:检测的诱导作用|给药方案|试验编号|种属/品系|采样时间|CTD\s*中?的位置|"
+    r"(?:初始)?年龄|给药方法|评价的细胞|溶媒/剂型|GLP\s*依从性|"
+    r"每只动物分析细胞数量|给药日期|特殊情况|毒性/细胞毒性作用|"
+    r"遗传毒性作用|暴露的证据|"
+    r"(?:剖腹产|受孕|终止妊娠|采样|给药(?:起始|结束|首剂|末次)?|"
+    r"首次给药|末次给药|出生|检查|观察|恢复)(?:日|日期|期))"
+)
+
+
+def _study_context_explicit_field_label(label: str) -> bool:
+    return bool(
+        re.fullmatch(
+            _STUDY_CONTEXT_EXPLICIT_FIELD_LABEL_PATTERN,
+            _clean_text(label),
+            re.IGNORECASE,
+        )
+    )
+
+
+def _study_context_label_spans(text: str) -> list[tuple[int, int, str]]:
+    clean = _clean_text(text)
+    colon_positions = [match.start() for match in re.finditer(r"[:：]", clean)]
+    spans: list[tuple[int, int, str]] = []
+    lower_bound = 0
+    for colon in colon_positions:
+        starts = [lower_bound]
+        starts.extend(
+            lower_bound + match.end()
+            for match in re.finditer(r"\s+", clean[lower_bound:colon])
+        )
+        candidates: list[tuple[int, int, str]] = []
+        for start in sorted(set(starts)):
+            label = _clean_text(clean[start:colon])
+            if not label or len(label) > 42 or re.search(r"\d", label):
+                continue
+            score = max(
+                int(_tabular_form_template_field_label_score(label) or 0),
+                int(_sparse_tabular_form_field_score(label) or 0),
+            )
+            if _study_summary_template_field_text(label):
+                score += 4
+            if _study_context_explicit_field_label(label):
+                score += 8
+            if re.fullmatch(r"[A-Za-z][A-Za-z /_-]{0,31}", label):
+                score += 1
+            if score > 0:
+                candidates.append((score, start, label))
+        if not candidates:
+            continue
+        _, start, label = max(candidates, key=lambda item: (item[0], item[1]))
+        spans.append((start, colon, label))
+        lower_bound = colon + 1
+    return spans
+
+
+def _study_context_fact_records(
+    text: str,
+    *,
+    source_ref: str,
+    source_owner: str,
+    page: int,
+) -> list[dict[str, Any]]:
+    clean = _clean_text(text)
+    spans = _study_context_label_spans(clean)
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, (start, colon, label) in enumerate(spans):
+        value_end = spans[index + 1][0] if index + 1 < len(spans) else len(clean)
+        value = _clean_text(clean[colon + 1 : value_end])
+        if not value:
+            continue
+        fact_key = _study_context_fact_key(label, value)
+        if not fact_key or fact_key in seen:
+            continue
+        seen.add(fact_key)
+        record = _study_context_fact_record(
+            label,
+            value,
+            display_text=_clean_text(clean[start:value_end]),
+            source_ref=source_ref,
+            source_owner=source_owner,
+            source_kind="text_fallback",
+            page=page,
+        )
+        if record is not None:
+            records.append(record)
+    return records
+
+
+def _valid_study_context_fact_records(value: Any) -> bool:
+    return bool(value) and all(
+        isinstance(fact, dict)
+        and bool(_clean_text(str(fact.get("label") or "")))
+        and bool(_clean_text(str(fact.get("value") or "")))
+        and str(fact.get("fact_key") or "").strip()
+        == _study_context_fact_key(
+            str(fact.get("label") or ""),
+            str(fact.get("value") or ""),
+        )
+        for fact in value
+    )
+
+
+def _ensure_study_context_fact_records(table: dict[str, Any]) -> None:
+    table_id = str(table.get("table_id") or "table").strip()
+    page = int(table.get("page", 0) or 0)
+    for index, block in enumerate(table.get("study_context_blocks", []) or [], start=1):
+        if not isinstance(block, dict):
+            continue
+        source_ref = str(block.get("source_ref") or f"{table_id}:study_context:{index}")
+        block["source_ref"] = source_ref
+        if _valid_study_context_fact_records(block.get("study_context_facts")):
+            continue
+        block["study_context_facts"] = _study_context_fact_records(
+            str(block.get("text") or ""),
+            source_ref=source_ref,
+            source_owner=table_id,
+            page=page,
+        )
 
 
 def _study_metadata_populated_value(value: str) -> bool:
@@ -6275,24 +11391,81 @@ def _study_panel_row_text_from_line(line_nodes: list[dict[str, Any]]) -> str:
     return joined
 
 
-def _build_panel_metadata_rows_from_nodes(nodes: list[dict[str, Any]]) -> list[str]:
-    rows: list[str] = []
+def _build_panel_metadata_row_records_from_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     previous_field_index: int | None = None
     for line_nodes in _line_groups_from_nodes(nodes):
         row = _study_panel_row_text_from_line(line_nodes)
         if not row:
             continue
+        source_block_ids = [
+            str(node.get("block_id") or "").strip()
+            for node in line_nodes
+            if str(node.get("block_id") or "").strip()
+        ]
+        source_blocks = [
+            {
+                "block_id": str(node.get("block_id") or "").strip(),
+                "text": _clean_text(str(node.get("text") or "")),
+                "bbox": list(node.get("bbox", []) or []),
+                "page": node.get("page"),
+                "source": node.get("source"),
+            }
+            for node in line_nodes
+            if str(node.get("block_id") or "").strip()
+        ]
+        source_bboxes = [
+            bbox
+            for node in line_nodes
+            if (bbox := _coerce_bbox(node.get("bbox"))) is not None
+        ]
+        record = {
+            "text": row,
+            "source_block_ids": list(dict.fromkeys(source_block_ids)),
+            "source_blocks": source_blocks,
+            "bbox": _bbox_to_list(_bbox_union_loose(source_bboxes)) if source_bboxes else [],
+        }
         label, value = _study_metadata_key_value(row)
         if label:
-            rows.append(row)
+            rows.append(record)
             previous_field_index = len(rows) - 1
             continue
         if previous_field_index is not None and len(row) <= 48 and not re.search(r"[。；;]$", row):
-            rows[previous_field_index] = _clean_text(f"{rows[previous_field_index]} / {row}")
+            previous = rows[previous_field_index]
+            previous["text"] = _clean_text(f"{previous.get('text') or ''} / {row}")
+            previous["source_block_ids"] = _append_unique_strings(
+                previous.get("source_block_ids"),
+                record.get("source_block_ids"),
+            )
+            merged_source_blocks = [dict(item) for item in previous.get("source_blocks", []) or [] if isinstance(item, dict)]
+            seen_source_ids = {str(item.get("block_id") or "").strip() for item in merged_source_blocks}
+            for source_block in record.get("source_blocks", []) or []:
+                if not isinstance(source_block, dict):
+                    continue
+                source_id = str(source_block.get("block_id") or "").strip()
+                if not source_id or source_id in seen_source_ids:
+                    continue
+                merged_source_blocks.append(dict(source_block))
+                seen_source_ids.add(source_id)
+            previous["source_blocks"] = merged_source_blocks
+            merged_bboxes = [
+                bbox
+                for value in (previous.get("bbox"), record.get("bbox"))
+                if (bbox := _coerce_bbox(value)) is not None
+            ]
+            previous["bbox"] = _bbox_to_list(_bbox_union_loose(merged_bboxes)) if merged_bboxes else []
             continue
-        rows.append(row)
+        rows.append(record)
         previous_field_index = None
     return rows
+
+
+def _build_panel_metadata_rows_from_nodes(nodes: list[dict[str, Any]]) -> list[str]:
+    return [
+        str(record.get("text") or "")
+        for record in _build_panel_metadata_row_records_from_nodes(nodes)
+        if str(record.get("text") or "").strip()
+    ]
 
 
 def _build_study_metadata_template_from_rows(
@@ -6305,12 +11478,26 @@ def _build_study_metadata_template_from_rows(
     note_nodes: list[dict[str, Any]],
     signal: dict[str, Any],
     source: str,
+    row_sources: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    normalized_row_sources = [
+        dict(record)
+        for record in row_sources or []
+        if isinstance(record, dict) and str(record.get("text") or "").strip()
+    ]
+    if len(normalized_row_sources) != len(row_texts):
+        normalized_row_sources = []
     fields: list[dict[str, Any]] = []
     sections: list[dict[str, Any]] = []
     for row_index, text in enumerate(row_texts, start=1):
         if row_index == 1:
             continue
+        source_record = normalized_row_sources[row_index - 1] if normalized_row_sources else {}
+        source_payload = {
+            "source_block_ids": list(source_record.get("source_block_ids", []) or []),
+            "bbox": list(source_record.get("bbox", []) or []),
+        }
+        source_payload = {key: value for key, value in source_payload.items() if value}
         label, value = _study_metadata_key_value(text)
         if label:
             fields.append(
@@ -6321,6 +11508,7 @@ def _build_study_metadata_template_from_rows(
                     "label": label,
                     "value": value or None,
                     "data_population": "populated" if _study_metadata_populated_value(value) else "blank",
+                    **source_payload,
                 }
             )
             continue
@@ -6330,6 +11518,7 @@ def _build_study_metadata_template_from_rows(
                 "text": text,
                 "role": "section",
                 "data_population": "populated" if _tabular_form_template_data_score(text) else "partial",
+                **source_payload,
             }
         )
 
@@ -6372,6 +11561,7 @@ def _build_study_metadata_template_from_rows(
         "fields": fields,
         "sections": sections,
         "row_texts": row_texts,
+        "row_sources": normalized_row_sources,
         "note_blocks": note_blocks,
         "local_note_refs": _local_note_marker_anchor_refs(row_texts, note_blocks),
         "entry_count": len(fields) + len(sections),
@@ -6450,11 +11640,272 @@ def _attach_study_panel_note_refs_to_table_from_metadata(
         table["cell_note_refs"] = refs
 
 
+def _study_panel_terminal_marker_occurrences(text: str, marker: str) -> list[str]:
+    cleaned = _clean_text(text)
+    marker = _clean_text(marker)
+    if not cleaned or not marker:
+        return []
+    occurrences: list[str] = []
+    for token in re.split(r"\s+", cleaned):
+        stripped = token.strip("，,；;。()（）[]【】")
+        if not stripped.endswith(marker) or len(stripped) <= len(marker):
+            continue
+        anchor = stripped[: -len(marker)].strip("，,；;。()（）[]【】")
+        if anchor and anchor not in occurrences:
+            occurrences.append(anchor)
+    return occurrences
+
+
+def _study_panel_table_marker_occurrence_count(table: dict[str, Any], marker: str) -> int:
+    marker_norm = _compact_text(marker).lower()
+    if not marker_norm:
+        return 0
+    for key in ("semantic_grid", "display_grid", "raw_grid", "grid"):
+        grid = table.get(key)
+        if not isinstance(grid, list):
+            continue
+        count = sum(
+            1
+            for row in grid
+            if isinstance(row, list)
+            for cell in row
+            if _compact_text(str(cell or "")).lower() == marker_norm
+        )
+        if count:
+            return count
+    return 0
+
+
+def _resolve_study_panel_cross_component_note_refs(
+    structure_templates: list[dict[str, Any]],
+    table_nodes: list[dict[str, Any]],
+) -> None:
+    templates_by_table_id: dict[str, dict[str, Any]] = {}
+    for template in structure_templates:
+        if str(template.get("template_kind") or "") != "study_metadata":
+            continue
+        signals = template.get("semantic_signals") if isinstance(template.get("semantic_signals"), dict) else {}
+        table_id = str(template.get("source_table_id") or (signals or {}).get("source_table_id") or "").strip()
+        if table_id:
+            templates_by_table_id[table_id] = template
+
+    for table in table_nodes:
+        table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+        template = templates_by_table_id.get(table_id)
+        if template is None:
+            continue
+        template_id = str(template.get("structure_template_id") or "").strip()
+        panel_id = f"study_panel:{template_id}:{table_id}"
+        refs: list[dict[str, Any]] = []
+        notes = [dict(note) for note in table.get("note_blocks", []) or [] if isinstance(note, dict)]
+        for note_index, note in enumerate(notes):
+            marker = _clean_text(str(note.get("marker") or ""))
+            body = _clean_text(str(note.get("body") or ""))
+            if not marker:
+                marker, body = _study_panel_note_marker_parts(str(note.get("text") or ""))
+                if marker:
+                    note["marker"] = marker
+                    note["body"] = body or None
+            if not marker:
+                continue
+            note_text = _clean_text(str(note.get("text") or ""))
+            note_ref = str(note.get("source_row_ref") or note.get("source_block_id") or "").strip()
+            resolved_for_note: list[dict[str, Any]] = []
+            for field in template.get("fields", []) or []:
+                if not isinstance(field, dict):
+                    continue
+                field_text = _clean_text(str(field.get("text") or ""))
+                occurrences = _study_panel_terminal_marker_occurrences(field_text, marker)
+                if not occurrences:
+                    continue
+                resolved_for_note.append(
+                    {
+                        "marker": marker,
+                        "anchor_status": "explicit_cross_component_marker_anchor",
+                        "anchor_owner_type": "structure_template",
+                        "anchor_owner_id": template_id,
+                        "anchor_field_label": field.get("label"),
+                        "anchor_text": field_text,
+                        "anchor_occurrences": occurrences,
+                        "note_owner_type": "table",
+                        "note_owner_id": table_id,
+                        "note_text": note_text,
+                        "note_source_ref": note_ref or None,
+                        "relation": "study_panel_template_field_note_marker",
+                        "confidence": 0.94,
+                    }
+                )
+            table_occurrence_count = _study_panel_table_marker_occurrence_count(table, marker)
+            if table_occurrence_count:
+                resolved_for_note.append(
+                    {
+                        "marker": marker,
+                        "anchor_status": "explicit_table_definition_anchor",
+                        "anchor_owner_type": "table",
+                        "anchor_owner_id": table_id,
+                        "anchor_text": marker,
+                        "anchor_occurrences": [marker],
+                        "anchor_occurrence_count": table_occurrence_count,
+                        "note_owner_type": "table",
+                        "note_owner_id": table_id,
+                        "note_text": note_text,
+                        "note_source_ref": note_ref or None,
+                        "relation": "study_panel_table_definition_note_marker",
+                        "confidence": 0.92,
+                    }
+                )
+            if resolved_for_note:
+                note["anchor_status"] = "resolved"
+                note["resolved_anchor_count"] = len(resolved_for_note)
+                refs.extend(resolved_for_note)
+            else:
+                note["anchor_status"] = "unresolved"
+                note["resolved_anchor_count"] = 0
+            notes[note_index] = note
+        if not refs and not any(str(note.get("marker") or "").strip() for note in notes):
+            continue
+        table["note_blocks"] = notes
+        resolved_notes_by_text = {
+            _compact_text(str(note.get("text") or "")): note
+            for note in notes
+            if _compact_text(str(note.get("text") or ""))
+        }
+        table["content_segments"] = [
+            {
+                **dict(segment),
+                **dict(resolved_notes_by_text.get(_compact_text(str(segment.get("text") or "")), {})),
+            }
+            if isinstance(segment, dict)
+            else segment
+            for segment in table.get("content_segments", []) or []
+        ]
+        table["study_panel_id"] = panel_id
+        template["study_panel_id"] = panel_id
+        table["context_structure_template_id"] = template_id
+        table["cross_component_note_refs"] = refs
+        template["cross_component_note_refs"] = [
+            dict(ref) for ref in refs
+            if ref.get("anchor_owner_type") == "structure_template"
+        ]
+        unresolved = [
+            note for note in notes
+            if str(note.get("marker") or "").strip() and note.get("anchor_status") == "unresolved"
+        ]
+        if unresolved:
+            diagnostics = dict(table.get("diagnostics", {}) or {})
+            diagnostics["unresolved_study_panel_note_anchors"] = [dict(note) for note in unresolved]
+            table["diagnostics"] = diagnostics
+            table["review_required"] = True
+        _refresh_table_composite_object(table)
+        _refresh_structure_template_composite_object(template)
+
+
+def _partition_study_metadata_panel_parent_header_nodes(
+    panel_nodes: list[dict[str, Any]],
+    *,
+    table: dict[str, Any],
+    page_words: list[Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if len(panel_nodes) < 2 or not page_words:
+        return list(panel_nodes), []
+    grid = _pre_table_parent_header_base_grid(table)
+    header = [_clean_text(str(cell or "")) for cell in grid[0]] if grid else []
+    bbox_candidates = [
+        bbox
+        for value in (
+            table.get("bbox"),
+            _visual_study_table_effective_matrix_bbox(table),
+        )
+        if (bbox := _coerce_bbox(value)) is not None
+    ]
+    table_bbox = bbox_candidates[0] if bbox_candidates else None
+    anchors: list[tuple[float, float, float, float]] = []
+    if _table_header_can_receive_pre_table_parent_headers(header):
+        for bbox in bbox_candidates:
+            candidate_anchors = _adjacent_pre_table_header_word_anchors(header, bbox, page_words)
+            if len(candidate_anchors) == len(header):
+                table_bbox = bbox
+                anchors = candidate_anchors
+                break
+    if table_bbox is None:
+        return list(panel_nodes), []
+
+    released_indices: set[int] = set()
+    released_nodes: list[dict[str, Any]] = []
+    table_top = float(table_bbox[1])
+    for index in range(len(panel_nodes) - 1, 0, -1):
+        node = panel_nodes[index]
+        text = _clean_text(str(node.get("text") or ""))
+        bbox = _coerce_bbox(node.get("bbox"))
+        if not text or bbox is None:
+            break
+        if _study_metadata_key_value(text)[0]:
+            break
+        if float(bbox[3]) < table_top - 30.0 or float(bbox[3]) > table_top + 2.0:
+            break
+        if not _looks_like_terminal_pre_table_parent_header_text(text):
+            break
+        if not (
+            _study_panel_terminal_measurement_header_text(text)
+            or _study_panel_parent_header_has_multicolumn_support(bbox, anchors)
+        ):
+            break
+        released_indices.add(index)
+        released_nodes.append(node)
+
+    if not released_indices:
+        return list(panel_nodes), []
+    metadata_nodes = [
+        node for index, node in enumerate(panel_nodes)
+        if index not in released_indices
+    ]
+    released_nodes.reverse()
+    return metadata_nodes, released_nodes
+
+
+def _study_panel_terminal_measurement_header_text(text: str) -> bool:
+    compact = _clean_text(text)
+    if _low_text_ruled_table_context_row(compact):
+        return True
+    return bool(
+        re.fullmatch(
+            r"(?:concentration|result|time|dose|unit|parameter|percentage|content)\s*[（(][^）)]+[）)]",
+            compact,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _study_panel_parent_header_has_multicolumn_support(
+    bbox: tuple[float, float, float, float],
+    anchors: list[tuple[float, float, float, float]],
+) -> bool:
+    if len(anchors) < 3:
+        return False
+    column_range = _adjacent_parent_header_column_range(bbox, anchors)
+    if column_range is not None:
+        start_col, end_col = column_range
+        if start_col >= 1 and end_col > start_col:
+            return True
+    first_data = anchors[1]
+    last_data = anchors[-1]
+    data_x0 = float(first_data[0])
+    data_x1 = float(last_data[2])
+    data_width = max(data_x1 - data_x0, 1.0)
+    candidate_center = (float(bbox[0]) + float(bbox[2])) / 2.0
+    data_center = (data_x0 + data_x1) / 2.0
+    return (
+        data_x0 <= candidate_center <= data_x1
+        and abs(candidate_center - data_center) <= max(18.0, data_width * 0.12)
+    )
+
+
 def _build_study_metadata_panels_around_business_tables(
     *,
     page_number: int,
     text_page_nodes: list[dict[str, Any]],
     page_tables: list[dict[str, Any]],
+    page_words: list[Any],
     next_template_index: int,
 ) -> tuple[list[dict[str, Any]], int]:
     ordered = [
@@ -6497,6 +11948,11 @@ def _build_study_metadata_panels_around_business_tables(
         if not section_indices:
             continue
         panel_nodes = preceding[section_indices[-1] :]
+        panel_nodes, released_parent_header_nodes = _partition_study_metadata_panel_parent_header_nodes(
+            panel_nodes,
+            table=table,
+            page_words=page_words,
+        )
         title_text = _clean_text(str(panel_nodes[0].get("text") or ""))
         title_bbox = _coerce_bbox(panel_nodes[0].get("bbox"))
         if title_bbox is None:
@@ -6510,8 +11966,17 @@ def _build_study_metadata_panels_around_business_tables(
             and float((_coerce_bbox(node.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1]) - table_bottom <= 70.0
             and _study_panel_metadata_anchor_text(str(node.get("text") or ""))
         ]
-        row_nodes = [*panel_nodes, *trailing]
-        row_texts = _build_panel_metadata_rows_from_nodes(row_nodes)
+        row_nodes = [*panel_nodes, *released_parent_header_nodes, *trailing]
+        row_sources = [
+            *_build_panel_metadata_row_records_from_nodes(panel_nodes),
+            *[
+                record
+                for node in released_parent_header_nodes
+                for record in _build_panel_metadata_row_records_from_nodes([node])
+            ],
+            *_build_panel_metadata_row_records_from_nodes(trailing),
+        ]
+        row_texts = [str(record.get("text") or "") for record in row_sources]
         signal = _low_text_ruled_populated_study_metadata_signal(row_texts)
         if not signal.get("is_populated_study_metadata"):
             continue
@@ -6526,10 +11991,12 @@ def _build_study_metadata_panels_around_business_tables(
             signal={
                 **signal,
                 "source_table_id": table.get("table_id"),
-                "pre_table_row_count": len(panel_nodes),
+                "pre_table_row_count": len(panel_nodes) + len(released_parent_header_nodes),
                 "post_table_row_count": len(trailing),
+                "typed_parent_header_candidate_count": len(released_parent_header_nodes),
             },
             source="study_metadata_panel_around_business_table",
+            row_sources=row_sources,
         )
         templates.append(template)
         for note in template.get("note_blocks", []) or []:
@@ -6587,14 +12054,31 @@ def _build_study_summary_continuation_tabular_form_templates(
         and _numbered_study_template_continuation_title_text(str(node.get("text") or ""))
         and _numbered_continuation_title_splits_leading_notes_from_matrix(ordered, index)
     }
+    explicit_title_node: dict[str, Any] | None = None
+    explicit_title_source_block_id = ""
     for index in numbered_continuation_title_indices:
         ordered[index]["semantic_role"] = "structure_template_title"
         ordered[index]["unit_role"] = "heading"
-    scan_ordered = [
-        node
-        for index, node in enumerate(ordered)
-        if index not in numbered_continuation_title_indices
-    ]
+    if numbered_continuation_title_indices:
+        explicit_title_index = min(numbered_continuation_title_indices)
+        explicit_title_node = ordered[explicit_title_index]
+        explicit_title_source_block_id = str(explicit_title_node.get("block_id") or "").strip()
+        prelude_nodes = [
+            ordered[explicit_title_index - 1]
+        ] if (
+            explicit_title_index > 0
+            and _standalone_continuation_marker_text(str(ordered[explicit_title_index - 1].get("text") or ""))
+        ) else []
+        scan_ordered = [
+            *prelude_nodes,
+            *ordered[explicit_title_index + 1 :],
+        ]
+    else:
+        scan_ordered = [
+            node
+            for index, node in enumerate(ordered)
+            if index not in numbered_continuation_title_indices
+        ]
     if not scan_ordered:
         return [], next_template_index
     continuation_boundary_index = next(
@@ -6633,7 +12117,9 @@ def _build_study_summary_continuation_tabular_form_templates(
     if value_like >= max(3, field_like // 2):
         return [], next_template_index
 
-    owned_text_block_ids = [
+    owned_text_block_ids = (
+        [explicit_title_source_block_id] if explicit_title_source_block_id else []
+    ) + [
         str(node.get("block_id") or "").strip()
         for node in ordered
         if str(node.get("block_id") or "").strip()
@@ -6661,7 +12147,8 @@ def _build_study_summary_continuation_tabular_form_templates(
         "page_target_policy": "no_page_targets",
         "page": page_number,
         "bbox": _structure_template_cluster_bbox(None, ordered, []),
-        "title": str((previous_structure_template or {}).get("title") or ""),
+        "title": _clean_text(str((explicit_title_node or {}).get("text") or "")) or str((previous_structure_template or {}).get("title") or ""),
+        "title_source_block_id": explicit_title_source_block_id or None,
         "fields": fields,
         "sections": [],
         "row_texts": rows,
@@ -6703,6 +12190,17 @@ def _numbered_continuation_title_splits_leading_notes_from_matrix(
     title_index: int,
 ) -> bool:
     if title_index <= 0 or title_index >= len(ordered_nodes) - 1:
+        return False
+    preceding_body_texts = [
+        _clean_text(str(node.get("text") or ""))
+        for node in ordered_nodes[: max(0, title_index - 4)]
+        if _clean_text(str(node.get("text") or ""))
+    ]
+    if any(
+        _blank_template_matrix_header_or_field_text(text)
+        or any(_blank_template_matrix_header_or_field_text(part) for part in _split_study_template_matrix_row_text(text))
+        for text in preceding_body_texts
+    ):
         return False
     leading_texts = [
         _clean_text(str(node.get("text") or ""))
@@ -7721,12 +13219,33 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                 if str(node.get("block_id") or "").strip() not in owned_float_text_block_ids
             ]
 
-        page_structure_templates, next_structure_template_index = _build_page_structure_templates(
+        (
+            page_structure_templates,
+            next_structure_template_index,
+        ) = _build_page_structure_templates(
             page_number=page_number,
             text_page_nodes=text_page_nodes,
             next_template_index=next_structure_template_index,
             previous_structure_template=structure_templates[-1] if structure_templates else None,
         )
+        existing_structure_template_owned_ids = {
+            str(block_id).strip()
+            for template in page_structure_templates
+            for block_id in template.get("owned_text_block_ids", []) or []
+            if str(block_id).strip()
+        }
+        page_bottom_header_fragments, next_structure_template_index = _build_page_bottom_tabular_form_header_fragments(
+            page_number=page_number,
+            text_page_nodes=[
+                node
+                for node in text_page_nodes
+                if str(node.get("block_id") or "").strip() not in existing_structure_template_owned_ids
+            ],
+            page_height=float(page_payload["height"]),
+            next_template_index=next_structure_template_index,
+        )
+        if page_bottom_header_fragments:
+            page_structure_templates = page_structure_templates + page_bottom_header_fragments
         existing_structure_template_owned_ids = {
             str(block_id).strip()
             for template in page_structure_templates
@@ -7794,6 +13313,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                 if str(node.get("block_id") or "").strip() not in existing_structure_template_owned_ids
             ],
             page_tables=list(page_payload.get("tables", []) or []),
+            page_words=list(page_payload.get("page_words", []) or []),
             next_template_index=next_structure_template_index,
         )
         if table_adjacent_study_templates:
@@ -7823,8 +13343,18 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
             if str(block_id).strip()
         }
         continuation_template: list[dict[str, Any]] = []
-        if not page_structure_templates:
-            continuation_template, next_structure_template_index = _build_study_summary_continuation_tabular_form_templates(
+        has_non_bottom_fragment_template = any(
+            not (
+                template.get("is_page_bottom_template_header_fragment")
+                or (template.get("semantic_signals") or {}).get("page_bottom_template_header_fragment")
+            )
+            for template in page_structure_templates
+        )
+        if not has_non_bottom_fragment_template:
+            (
+                continuation_template,
+                next_structure_template_index,
+            ) = _build_study_summary_continuation_tabular_form_templates(
                 page_number=page_number,
                 text_page_nodes=[
                     node
@@ -7835,7 +13365,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                 next_template_index=next_structure_template_index,
             )
         if continuation_template:
-            page_structure_templates = page_structure_templates + continuation_template
+            page_structure_templates = continuation_template + page_structure_templates
         if page_tabular_form_templates:
             tabular_form_template_source_table_ids.update(
                 str(template.get("source_table_id") or "").strip()
@@ -7843,6 +13373,10 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                 if str(template.get("source_table_id") or "").strip()
             )
             page_structure_templates = page_tabular_form_templates + page_structure_templates
+        _link_page_top_template_to_previous_bottom_fragment(
+            page_structure_templates,
+            structure_templates[-1] if structure_templates else None,
+        )
         if page_structure_templates:
             changed_previous_templates = _attach_leading_continuation_notes_to_previous_template(
                 page_structure_templates,
@@ -7859,14 +13393,41 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                 previous_structure_template=structure_templates[-1] if structure_templates else None,
             )
             _attach_adjacent_matrix_headers_to_blank_templates(page_structure_templates, text_page_nodes)
-            page_structure_templates = _merge_same_page_fragmented_blank_template_regions(page_structure_templates)
+            page_structure_templates = _merge_same_page_fragmented_blank_template_regions(
+                page_structure_templates,
+                page_drawings=list(page_payload.get("page_drawings", []) or []),
+                text_nodes_by_id={
+                    str(node.get("block_id") or "").strip(): node
+                    for node in text_page_nodes
+                    if str(node.get("block_id") or "").strip()
+                },
+            )
             page_structure_templates = _merge_same_page_blank_template_continuation_tails(
                 page_structure_templates,
                 page_words=list(page_payload.get("page_words", []) or []),
             )
             _normalize_blank_study_summary_template_profiles(page_structure_templates, text_page_nodes)
+            _absorb_same_row_field_gaps_in_blank_tabular_templates(page_structure_templates, text_page_nodes)
+            _apply_blank_template_header_grid_projections(
+                page_structure_templates,
+                text_page_nodes,
+                page_words=list(page_payload.get("page_words", []) or []),
+                page_drawings=list(page_payload.get("page_drawings", []) or []),
+            )
+            _mark_blank_template_internal_matrix_text_ownership(page_structure_templates, text_page_nodes)
             _move_same_page_tail_notes_between_structure_templates(page_structure_templates, text_page_nodes)
-            _ensure_structure_template_terminal_additional_info_notes(page_structure_templates)
+            _ensure_structure_template_terminal_additional_info_notes(page_structure_templates, text_page_nodes)
+            page_structure_templates = _split_same_page_continuation_templates_after_tail_notes(
+                page_structure_templates,
+                text_page_nodes,
+            )
+            _apply_blank_template_header_grid_projections(
+                page_structure_templates,
+                text_page_nodes,
+                page_words=list(page_payload.get("page_words", []) or []),
+                page_drawings=list(page_payload.get("page_drawings", []) or []),
+            )
+            _apply_inline_multifield_form_row_projections(page_structure_templates, text_page_nodes)
             _refresh_structure_template_composite_objects(page_structure_templates)
             _clear_template_internal_scan_state(page_structure_templates)
         changed_previous_templates_from_page_top = _attach_page_top_template_tail_notes_to_previous_template(
@@ -7895,6 +13456,12 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                         "ownership_domain": template.get("ownership_domain"),
                         "data_population": template.get("data_population"),
                         "title": template.get("title"),
+                        "title_source_block_id": template.get("title_source_block_id"),
+                        "parent_section_title": template.get("parent_section_title"),
+                        "form_instance_group_id": template.get("form_instance_group_id"),
+                        "form_instance_index": template.get("form_instance_index"),
+                        "form_instance_count": template.get("form_instance_count"),
+                        "local_form_title": template.get("local_form_title"),
                         "entry_count": int(template.get("entry_count", 0) or 0),
                         "page_target_policy": template.get("page_target_policy"),
                         "entries": deepcopy(template.get("entries", []) or []),
@@ -7906,6 +13473,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
                         "local_note_refs": deepcopy(template.get("local_note_refs", []) or []),
                         "composite_object": deepcopy(template.get("composite_object", {}) or {}),
                         "owned_text_block_ids": list(template.get("owned_text_block_ids", []) or []),
+                        "semantic_projection_v2": deepcopy(template.get("semantic_projection_v2", {}) or {}),
                         "is_structure_template_continuation": bool(template.get("is_structure_template_continuation", False)),
                         "continued_from_structure_template_id": template.get("continued_from_structure_template_id"),
                         "continued_from_page": template.get("continued_from_page"),
@@ -8236,6 +13804,18 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
     _refine_study_table_panels_after_ast(
         structure_templates=structure_templates,
         table_nodes=table_nodes,
+        page_words_by_page={
+            int(page_payload.get("page_number", 0) or 0): list(page_payload.get("page_words", []) or [])
+            for page_payload in state.page_payloads
+        },
+        text_nodes_by_id={
+            str(block.get("block_id") or "").strip(): block
+            for page in document_ast_pages
+            for block in page.get("blocks", []) or []
+            if isinstance(block, dict)
+            and str(block.get("block_type") or "").strip().lower() == "text"
+            and str(block.get("block_id") or "").strip()
+        },
     )
     _attach_study_metadata_columnar_condition_projections(
         structure_templates=structure_templates,
@@ -8257,7 +13837,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
         _preserve_reclaimed_trailing_structural_label_rows(table)
         _preserve_top_aligned_continuation_evidence_semantics(table)
         _preserve_reclaimed_record_rows_in_semantic_grid(table)
-    _bind_study_context_result_matrices(
+    _project_pre_table_parent_headers_from_study_metadata(
         structure_templates=structure_templates,
         table_nodes=table_nodes,
     )
@@ -8265,6 +13845,16 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
         int(page_payload.get("page_number", 0) or 0): list(page_payload.get("page_words", []) or [])
         for page_payload in state.page_payloads
     }
+    _bind_study_context_result_matrices(
+        structure_templates=structure_templates,
+        table_nodes=table_nodes,
+        page_words_by_page=page_words_by_page,
+    )
+    _project_adjacent_pre_table_text_semantics(
+        document_ast_pages=document_ast_pages,
+        table_nodes=table_nodes,
+        page_words_by_page=page_words_by_page,
+    )
     _upgrade_borderless_tables_from_word_schema_rows(
         table_nodes,
         page_words_by_page=page_words_by_page,
@@ -8314,11 +13904,19 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
         table_nodes,
         page_words_by_page=page_words_by_page,
     )
+    _reconcile_explicit_cross_page_result_matrix_note_ownership(
+        table_nodes=table_nodes,
+        structure_templates=structure_templates,
+    )
     _recover_and_project_toxicology_summary_schema_tables(
         table_nodes,
         page_words_by_page=page_words_by_page,
         document_ast_pages=document_ast_pages,
     )
+    _project_grouped_multilevel_headers_from_column_groups(table_nodes)
+    _resolve_final_semantic_row_groups(table_nodes)
+    _project_source_body_row_groups_to_presentation_spans(table_nodes)
+    _project_canonical_table_cell_spans(table_nodes)
     _absorb_populated_templates_owned_by_projected_business_tables(
         structure_templates=structure_templates,
         table_nodes=table_nodes,
@@ -8344,6 +13942,7 @@ def build_pdf_parse_result(path: Path, state: PdfPipelineState) -> dict[str, Any
         document_ast_pages=document_ast_pages,
         content_evidence=content_evidence,
     )
+    _annotate_colon_introduced_unmarked_list_items(document_ast_pages)
     continuation_tables = [t for t in table_nodes if t.get("is_continuation")]
     review_required_tables = [t for t in table_nodes if t.get("review_required")]
     low_confidence_tables = [t for t in table_nodes if float(t.get("confidence", 0.0) or 0.0) < 0.75]
@@ -11845,11 +17444,7 @@ def _extend_borderless_table_with_aligned_text_rows(
         table["content_segments"] = _merge_float_owned_segments(table.get("content_segments"), note_segments)
         table["content_text"] = _join_unique_segment_texts_for_float(table["content_segments"])
         _attach_table_header_note_refs(table, note_segments)
-        owned.update(
-            str(block.get("block_id") or "").strip()
-            for block in note_nodes
-            if str(block.get("block_id") or "").strip()
-        )
+        owned.update(_float_owned_source_block_ids(note_nodes))
         note_bboxes = [list(segment.get("bbox", [])) for segment in note_segments if segment.get("bbox")]
         if note_bboxes:
             table["owned_text_bboxes"] = list(table.get("owned_text_bboxes", []) or []) + note_bboxes
@@ -12743,6 +18338,11 @@ def _attach_table_adjacent_text_blocks(
         if text_bbox is None:
             continue
         gap = text_bbox[1] - table_bbox[3]
+        if (
+            note_blocks
+            and _looks_like_following_study_metadata_panel_boundary(text)
+        ):
+            break
         marker = _extract_table_note_marker(text)
         has_marker_note_ref = bool(marker and _table_grid_has_terminal_marker(table, marker))
         allowed_gap_below = max_gap_below
@@ -12794,11 +18394,14 @@ def _attach_table_adjacent_text_blocks(
             layout_profile=layout_profile,
             already_owned=already_owned | owned,
         )
-        owned.update(
-            str(block.get("block_id") or "").strip()
-            for block in note_blocks
-            if str(block.get("block_id") or "").strip()
+        _mark_interleaved_marker_notes_for_main_flow_rendering(
+            table,
+            note_blocks,
+            text_nodes,
+            table_bbox=table_bbox,
+            layout_profile=layout_profile,
         )
+        owned.update(_float_owned_source_block_ids(note_blocks))
 
     if note_blocks:
         note_segments = [
@@ -12809,12 +18412,162 @@ def _attach_table_adjacent_text_blocks(
         _attach_table_header_note_refs(table, note_segments)
         table["content_segments"] = _merge_float_owned_segments(table.get("content_segments"), note_segments)
         table["content_text"] = _join_unique_segment_texts_for_float(table["content_segments"])
-        table["owned_text_block_ids"] = _append_unique_strings(table.get("owned_text_block_ids"), list(owned))
-        owned_bboxes = [list(segment.get("bbox", [])) for segment in note_segments if segment.get("bbox")]
+        main_flow_note_ids = {
+            str(block.get("block_id") or "").strip()
+            for block in note_blocks
+            if _float_owned_note_renders_in_main_flow(block)
+            and str(block.get("block_id") or "").strip()
+        }
+        table["owned_text_block_ids"] = _append_unique_strings(
+            table.get("owned_text_block_ids"),
+            [block_id for block_id in owned if block_id not in main_flow_note_ids],
+        )
+        owned_bboxes = [
+            list(segment.get("bbox", []))
+            for segment in note_segments
+            if segment.get("bbox") and not _float_owned_note_renders_in_main_flow(segment)
+        ]
         if owned_bboxes:
             table["owned_text_bboxes"] = list(table.get("owned_text_bboxes", []) or []) + owned_bboxes
             table["presentation_bbox"] = _bbox_to_list(_bbox_union_loose([table_bbox, *owned_bboxes]))
+        owned.difference_update(main_flow_note_ids)
     return owned
+
+
+def _float_owned_source_block_ids(blocks: list[dict[str, Any]]) -> set[str]:
+    return set(_ordered_float_owned_source_block_ids(blocks))
+
+
+def _ordered_float_owned_source_block_ids(blocks: list[dict[str, Any]]) -> list[str]:
+    source_ids: list[str] = []
+    for block in blocks:
+        block_id = str(block.get("block_id") or "").strip()
+        if block_id and block_id not in source_ids:
+            source_ids.append(block_id)
+        for source_id in block.get("source_block_ids", []) or []:
+            source_id = str(source_id or "").strip()
+            if source_id and source_id not in source_ids:
+                source_ids.append(source_id)
+    return source_ids
+
+
+def _mark_interleaved_marker_notes_for_main_flow_rendering(
+    table: dict[str, Any],
+    note_blocks: list[dict[str, Any]],
+    text_nodes: list[dict[str, Any]],
+    *,
+    table_bbox: tuple[float, float, float, float],
+    layout_profile: dict[str, Any] | None,
+) -> None:
+    if len(note_blocks) < 2:
+        return
+    ordered_notes = sorted(
+        [block for block in note_blocks if isinstance(block, dict)],
+        key=_node_physical_order_key,
+    )
+    note_ids = {
+        str(block.get("block_id") or "").strip()
+        for block in ordered_notes
+        if str(block.get("block_id") or "").strip()
+    }
+    last_label_bbox: tuple[float, float, float, float] | None = None
+    for note in ordered_notes:
+        text = _clean_text(str(note.get("text") or ""))
+        bbox = _coerce_bbox(note.get("bbox"))
+        if not text or bbox is None:
+            continue
+        if _looks_like_table_note_title_or_label(text):
+            last_label_bbox = bbox
+            continue
+        marker = _extract_table_note_marker(text)
+        if not marker or not _table_grid_has_terminal_marker(table, marker):
+            continue
+        if last_label_bbox is None:
+            continue
+        if not _has_main_flow_text_between_table_note_label_and_marker(
+            text_nodes,
+            table_bbox=table_bbox,
+            label_bbox=last_label_bbox,
+            marker_bbox=bbox,
+            note_ids=note_ids,
+            layout_profile=layout_profile,
+        ):
+            continue
+        note["float_render_policy"] = "main_flow_at_source"
+        note["render_policy"] = "main_flow_at_source"
+        signals = note.get("semantic_signals")
+        if not isinstance(signals, dict):
+            signals = {}
+        signals["table_note_visible_order"] = "main_flow_after_intervening_body"
+        signals["table_note_ownership"] = "linked_note_source_preserves_physical_render_order"
+        note["semantic_signals"] = signals
+
+
+def _has_main_flow_text_between_table_note_label_and_marker(
+    text_nodes: list[dict[str, Any]],
+    *,
+    table_bbox: tuple[float, float, float, float],
+    label_bbox: tuple[float, float, float, float],
+    marker_bbox: tuple[float, float, float, float],
+    note_ids: set[str],
+    layout_profile: dict[str, Any] | None,
+) -> bool:
+    for text_node in sorted(text_nodes, key=_node_physical_order_key):
+        block_id = str(text_node.get("block_id") or "").strip()
+        if block_id and block_id in note_ids:
+            continue
+        text = _clean_text(str(text_node.get("text") or ""))
+        if not text:
+            continue
+        text_bbox = _coerce_bbox(text_node.get("bbox"))
+        if text_bbox is None:
+            continue
+        if float(text_bbox[1]) <= float(label_bbox[3]) + 0.5:
+            continue
+        if float(text_bbox[1]) >= float(marker_bbox[1]) - 0.5:
+            break
+        if not _float_text_lane_compatible({"bbox": table_bbox}, text_node, layout_profile):
+            continue
+        left_aligned = abs(float(text_bbox[0]) - float(table_bbox[0])) <= 24.0
+        if _horizontal_overlap_ratio(text_bbox, table_bbox) < 0.05 and not left_aligned:
+            continue
+        if _looks_like_explicit_figure_caption_text(text) or _TABLE_LABEL_RE.match(text):
+            continue
+        if _extract_table_note_marker(text) or _looks_like_table_note_title_or_label(text):
+            continue
+        gap = float(text_bbox[1]) - float(table_bbox[3])
+        if _looks_like_body_or_heading_after_table(text_node, gap=gap):
+            return True
+        if not _looks_like_table_note_text(text) and not _looks_like_table_proximity_note_text(
+            text,
+            text_bbox=text_bbox,
+            table_bbox=table_bbox,
+            gap=gap,
+        ):
+            return True
+    return False
+
+
+def _float_owned_note_renders_in_main_flow(block: dict[str, Any]) -> bool:
+    return str(block.get("float_render_policy") or block.get("render_policy") or "").strip() == "main_flow_at_source"
+
+
+def _looks_like_following_study_metadata_panel_boundary(text: str) -> bool:
+    label, value = _study_metadata_key_value(text)
+    if not label or not _study_metadata_populated_value(value):
+        return False
+    label_norm = _compact_text(label)
+    return label_norm in {
+        "ctd中的位置",
+        "ctd中位置",
+        "ctd位置",
+        "试验编号",
+        "报告编号",
+        "报告标题",
+        "供试品",
+        "试验标题",
+        "试验名称",
+    }
 
 
 def _collect_explicit_table_note_blocks(
@@ -12983,6 +18736,13 @@ def _extend_table_note_continuations(
         return []
 
     ordered_notes = sorted(note_blocks, key=_node_physical_order_key)
+    ordered_notes = _merge_labeled_table_note_continuations(
+        ordered_notes,
+        text_nodes,
+        table_bbox=table_bbox,
+        layout_profile=layout_profile,
+        already_owned=already_owned,
+    )
     result = list(ordered_notes)
     last_bbox = _coerce_bbox(result[-1].get("bbox"))
     if last_bbox is None:
@@ -13012,12 +18772,16 @@ def _extend_table_note_continuations(
             continue
         if _looks_like_explicit_figure_caption_text(text) or _TABLE_LABEL_RE.match(text):
             break
+        if _looks_like_following_study_metadata_panel_boundary(text):
+            break
         if _looks_like_new_paragraph_after_table_note(text):
             break
         result.append(text_node)
         last_bbox = text_bbox
 
     if len(result) <= 1:
+        return result
+    if _table_note_blocks_should_remain_separate(result):
         return result
     merged = dict(result[0])
     merged_text = _clean_text(" ".join(_clean_text(str(block.get("text") or "")) for block in result)) or ""
@@ -13026,11 +18790,117 @@ def _extend_table_note_continuations(
     merged["bbox"] = _bbox_to_list(_bbox_union_loose([_coerce_bbox(block.get("bbox")) for block in result if _coerce_bbox(block.get("bbox"))]))
     merged["block_id"] = str(result[0].get("block_id") or "").strip()
     merged["source_block_ids"] = [
-        str(block.get("block_id") or "").strip()
-        for block in result
-        if str(block.get("block_id") or "").strip()
+        source_id
+        for source_id in _ordered_float_owned_source_block_ids(result)
     ]
     return [merged]
+
+
+def _merge_labeled_table_note_continuations(
+    ordered_notes: list[dict[str, Any]],
+    text_nodes: list[dict[str, Any]],
+    *,
+    table_bbox: tuple[float, float, float, float],
+    layout_profile: dict[str, Any] | None,
+    already_owned: set[str],
+) -> list[dict[str, Any]]:
+    if not ordered_notes:
+        return []
+
+    note_ids = {
+        str(block.get("block_id") or "").strip()
+        for block in ordered_notes
+        if str(block.get("block_id") or "").strip()
+    }
+    candidates = sorted(text_nodes, key=_node_physical_order_key)
+    expanded: list[dict[str, Any]] = []
+    for note_index, note in enumerate(ordered_notes):
+        note_text = _clean_text(str(note.get("text") or ""))
+        note_bbox = _coerce_bbox(note.get("bbox"))
+        if not _looks_like_table_note_title_or_label(note_text) or note_bbox is None:
+            expanded.append(note)
+            continue
+
+        next_note_bbox = None
+        if note_index + 1 < len(ordered_notes):
+            next_note_bbox = _coerce_bbox(ordered_notes[note_index + 1].get("bbox"))
+        grouped = [note]
+        last_bbox = note_bbox
+        for text_node in candidates:
+            block_id = str(text_node.get("block_id") or "").strip()
+            if not block_id or block_id in already_owned or block_id in note_ids:
+                continue
+            text = _clean_text(str(text_node.get("text") or ""))
+            text_bbox = _coerce_bbox(text_node.get("bbox"))
+            if not text or text_bbox is None:
+                continue
+            if float(text_bbox[1]) < float(last_bbox[3]) - 1.0:
+                continue
+            if next_note_bbox is not None and float(text_bbox[1]) >= float(next_note_bbox[1]) - 1.0:
+                break
+            gap = float(text_bbox[1]) - float(last_bbox[3])
+            if gap < -1.0 or gap > 18.0:
+                break
+            if not _float_text_lane_compatible({"bbox": table_bbox}, text_node, layout_profile):
+                break
+            overlaps_table = _horizontal_overlap_ratio(text_bbox, table_bbox) >= 0.05
+            overlaps_previous = _horizontal_overlap_ratio(text_bbox, last_bbox) >= 0.05
+            adjacent_to_table_left = abs(float(text_bbox[0]) - float(table_bbox[0])) <= 28.0
+            if not (overlaps_table or overlaps_previous or adjacent_to_table_left):
+                break
+            if (
+                _looks_like_explicit_figure_caption_text(text)
+                or _TABLE_LABEL_RE.match(text)
+                or _looks_like_following_study_metadata_panel_boundary(text)
+                or _extract_table_note_marker(text)
+                or _looks_like_new_paragraph_after_table_note(text)
+            ):
+                break
+            grouped.append(text_node)
+            last_bbox = text_bbox
+
+        if len(grouped) == 1:
+            expanded.append(note)
+            continue
+        merged = dict(grouped[0])
+        merged["text"] = _repair_cjk_note_line_join_spacing(
+            _clean_text(" ".join(_clean_text(str(block.get("text") or "")) for block in grouped)) or ""
+        )
+        merged["bbox"] = _bbox_to_list(
+            _bbox_union_loose(
+                [_coerce_bbox(block.get("bbox")) for block in grouped if _coerce_bbox(block.get("bbox"))]
+            )
+        )
+        merged["block_id"] = str(grouped[0].get("block_id") or "").strip()
+        merged["source_block_ids"] = list(
+            _ordered_float_owned_source_block_ids(grouped)
+        )
+        merged["semantic_signals"] = {
+            **dict(merged.get("semantic_signals", {}) or {}),
+            "table_note_label_continuation": True,
+        }
+        expanded.append(merged)
+    return expanded
+
+
+def _table_note_blocks_should_remain_separate(note_blocks: list[dict[str, Any]]) -> bool:
+    has_explicit_label = False
+    has_marker_note = False
+    for block in note_blocks:
+        text = _clean_text(str(block.get("text") or ""))
+        if not text:
+            continue
+        if (
+            _looks_like_table_note_title_or_label(text)
+            or bool((block.get("semantic_signals") or {}).get("table_note_label_continuation"))
+        ):
+            has_explicit_label = True
+            continue
+        if _table_definition_note_profile(text):
+            continue
+        if _extract_table_note_marker(text):
+            has_marker_note = True
+    return has_explicit_label and has_marker_note
 
 
 def _repair_cjk_note_line_join_spacing(text: str) -> str:
@@ -13171,8 +19041,7 @@ def _attach_table_header_note_refs(
             (
                 str(item.get("marker") or ""),
                 int(item.get("header_col", -1) or -1),
-                str(item.get("note_source_block_id") or ""),
-                str(item.get("note_text") or ""),
+                _compact_text(str(item.get("note_text") or "")),
             )
             for item in existing
         }
@@ -13180,8 +19049,7 @@ def _attach_table_header_note_refs(
             key = (
                 str(ref.get("marker") or ""),
                 int(ref.get("header_col", -1) or -1),
-                str(ref.get("note_source_block_id") or ""),
-                str(ref.get("note_text") or ""),
+                _compact_text(str(ref.get("note_text") or "")),
             )
             if key not in seen:
                 existing.append(ref)
@@ -13195,8 +19063,7 @@ def _attach_table_header_note_refs(
                 str(item.get("marker") or ""),
                 int(item.get("data_row", -1) or -1),
                 int(item.get("data_col", -1) or -1),
-                str(item.get("note_source_block_id") or ""),
-                str(item.get("note_text") or ""),
+                _compact_text(str(item.get("note_text") or "")),
             )
             for item in existing_cells
         }
@@ -13205,8 +19072,7 @@ def _attach_table_header_note_refs(
                 str(ref.get("marker") or ""),
                 int(ref.get("data_row", -1) or -1),
                 int(ref.get("data_col", -1) or -1),
-                str(ref.get("note_source_block_id") or ""),
-                str(ref.get("note_text") or ""),
+                _compact_text(str(ref.get("note_text") or "")),
             )
             if key not in seen_cells:
                 existing_cells.append(ref)
@@ -13287,6 +19153,8 @@ def _extract_table_note_marker_segments(text: str) -> list[tuple[str, str]]:
     cleaned = _clean_text(text)
     if not cleaned:
         return []
+    if _table_definition_note_profile(cleaned):
+        return []
     marker_pattern = r"[#\$]|\*+|[+\u2020\u2021]|[a-zA-Z]|\d{1,3}"
     pattern = re.compile(
         rf"(?P<marker>{marker_pattern})\s*[-–—－:：.)、]\s*"
@@ -13307,6 +19175,188 @@ def _extract_table_note_marker_segments(text: str) -> list[tuple[str, str]]:
     if marker:
         return [(marker, cleaned)]
     return []
+
+
+def _table_definition_note_profile(text: str) -> dict[str, str] | None:
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return None
+    match = re.match(
+        r"^\s*(?P<term>(?:[%A-Za-z][%A-Za-z0-9%/_+\-.]{0,24}|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9%/_+\-.]{0,24}))\s*[=＝]\s*(?P<definition>.+?)\s*$",
+        cleaned,
+    )
+    if not match:
+        return None
+    term = _clean_text(str(match.group("term") or ""))
+    definition = _clean_text(str(match.group("definition") or ""))
+    if not term or not definition:
+        return None
+    compact_term = _compact_text(term)
+    if len(compact_term) < 2 and "%" not in compact_term and not re.search(r"[\u4e00-\u9fff]", compact_term):
+        return None
+    return {
+        "profile_type": "definition_note",
+        "term": term,
+        "definition": definition,
+    }
+
+
+def _apply_table_definition_note_profiles(table: dict[str, Any]) -> None:
+    for key in ("note_blocks", "content_segments", "caption_blocks"):
+        profiled: list[Any] = []
+        changed = False
+        for segment in table.get(key, []) or []:
+            if not isinstance(segment, dict):
+                profiled.append(segment)
+                continue
+            updated = dict(segment)
+            profile = _table_definition_note_profile(str(updated.get("text") or ""))
+            if profile:
+                updated["note_profile"] = profile
+                changed = True
+            profiled.append(updated)
+        if changed:
+            table[key] = profiled
+
+
+def _table_definition_note_segments(table: dict[str, Any]) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for segment in list(table.get("note_blocks", []) or []) + list(table.get("content_segments", []) or []):
+        if not isinstance(segment, dict):
+            continue
+        role = str(segment.get("role") or "").strip()
+        if role and role not in {"note", "table_note", "legend"}:
+            continue
+        text = _clean_text(str(segment.get("text") or ""))
+        profile = segment.get("note_profile") if isinstance(segment.get("note_profile"), dict) else None
+        if not profile:
+            profile = _table_definition_note_profile(text)
+        if not isinstance(profile, dict) or profile.get("profile_type") != "definition_note":
+            continue
+        key = (
+            _compact_text(str(profile.get("term") or "")),
+            _compact_text(str(profile.get("definition") or "")),
+            str(segment.get("source_block_id") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        updated = dict(segment)
+        updated["note_profile"] = dict(profile)
+        segments.append(updated)
+    return segments
+
+
+def _attach_table_header_definition_refs(
+    table: dict[str, Any],
+    note_segments: list[dict[str, Any]],
+    *,
+    note_owner_table: dict[str, Any] | None = None,
+    relation: str = "header_definition_ref",
+    source: str = "table_definition_note_ref",
+) -> None:
+    header_cells = _table_definition_ref_header_cells(table)
+    if not header_cells or not note_segments:
+        return
+    owner = note_owner_table if isinstance(note_owner_table, dict) else table
+    owner_id = str(owner.get("table_id") or owner.get("block_id") or "").strip()
+    refs: list[dict[str, Any]] = []
+    for note_segment in note_segments:
+        profile = note_segment.get("note_profile") if isinstance(note_segment.get("note_profile"), dict) else None
+        if not profile:
+            profile = _table_definition_note_profile(str(note_segment.get("text") or ""))
+        if not isinstance(profile, dict) or profile.get("profile_type") != "definition_note":
+            continue
+        term = _clean_text(str(profile.get("term") or ""))
+        definition = _clean_text(str(profile.get("definition") or ""))
+        if not term or not definition:
+            continue
+        for header_cell in header_cells:
+            header_text = _clean_text(str(header_cell.get("text") or ""))
+            if not _table_definition_term_matches_header(term, header_text):
+                continue
+            one_based_col = int(header_cell.get("col", 0) or 0)
+            refs.append(
+                {
+                    "term": term,
+                    "definition": definition,
+                    "header_row": int(header_cell.get("row", 0) or 0),
+                    "header_col": max(0, one_based_col - 1),
+                    "header_col_1based": one_based_col,
+                    "header_text": header_text,
+                    "note_text": _clean_text(str(note_segment.get("text") or "")),
+                    "note_source_block_id": str(note_segment.get("source_block_id") or "").strip(),
+                    "note_source_table_id": owner_id,
+                    "note_source_page": note_segment.get("page", owner.get("page")),
+                    "relation": relation,
+                    "source": source,
+                }
+            )
+    if refs:
+        _append_table_header_definition_refs(table, refs)
+
+
+def _table_definition_term_matches_header(term: str, header_text: str) -> bool:
+    clean_term = _clean_text(term)
+    clean_header = _clean_text(header_text)
+    if not clean_term or not clean_header:
+        return False
+    if re.search(r"[\u4e00-\u9fff]", clean_term):
+        return clean_term in clean_header
+    escaped = re.escape(clean_term)
+    return bool(re.search(rf"(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])", clean_header))
+
+
+def _append_table_header_definition_refs(table: dict[str, Any], refs: list[dict[str, Any]]) -> None:
+    existing = [dict(item) for item in table.get("header_definition_refs", []) or [] if isinstance(item, dict)]
+    seen = {
+        (
+            str(item.get("term") or ""),
+            int(item.get("header_col", -1) or -1),
+            str(item.get("definition") or ""),
+            str(item.get("note_source_table_id") or ""),
+        )
+        for item in existing
+    }
+    for ref in refs:
+        key = (
+            str(ref.get("term") or ""),
+            int(ref.get("header_col", -1) or -1),
+            str(ref.get("definition") or ""),
+            str(ref.get("note_source_table_id") or ""),
+        )
+        if key in seen:
+            continue
+        existing.append(dict(ref))
+        seen.add(key)
+    table["header_definition_refs"] = existing
+
+
+def _table_definition_ref_header_cells(table: dict[str, Any]) -> list[dict[str, Any]]:
+    cells: list[dict[str, Any]] = []
+    seen: set[tuple[int, int, str]] = set()
+    semantic_grid = table.get("semantic_grid")
+    if isinstance(semantic_grid, list) and semantic_grid and isinstance(semantic_grid[0], list):
+        for col_index, raw_cell in enumerate(semantic_grid[0], start=1):
+            text = _clean_text(str(raw_cell or ""))
+            if not text:
+                continue
+            key = (0, col_index, text)
+            if key in seen:
+                continue
+            cells.append({"row": 0, "col": col_index, "text": text})
+            seen.add(key)
+    for header_cell in _table_note_ref_header_cells(table):
+        text = _clean_text(str(header_cell.get("text") or ""))
+        one_based_col = int(header_cell.get("col", 0) or 0)
+        row_index = int(header_cell.get("row", 0) or 0)
+        key = (row_index, one_based_col, text)
+        if not text or one_based_col <= 0 or key in seen:
+            continue
+        cells.append({"row": row_index, "col": one_based_col, "text": text})
+        seen.add(key)
+    return cells
 
 
 def _extract_table_note_marker(text: str) -> str | None:
@@ -13858,6 +19908,9 @@ def _float_owned_text_segment(
         "relation": relation,
         "gap": round(float(gap), 2),
     }
+    page = int(block.get("page", 0) or 0)
+    if page > 0:
+        segment["page"] = page
     source_block_ids = [
         str(value or "").strip()
         for value in block.get("source_block_ids", []) or []
@@ -13865,6 +19918,13 @@ def _float_owned_text_segment(
     ]
     if source_block_ids:
         segment["source_block_ids"] = source_block_ids
+    for key in ("float_render_policy", "render_policy"):
+        value = str(block.get(key) or "").strip()
+        if value:
+            segment[key] = value
+    semantic_signals = block.get("semantic_signals")
+    if isinstance(semantic_signals, dict) and semantic_signals:
+        segment["semantic_signals"] = dict(semantic_signals)
     return segment
 
 
@@ -20254,6 +26314,18 @@ def _build_table_content_evidence(table_ast: dict[str, Any]) -> dict[str, Any]:
         evidence["owned_text_block_ids"] = list(table_ast.get("owned_text_block_ids", []) or [])
     if table_ast.get("note_blocks"):
         evidence["note_blocks"] = [dict(item) for item in table_ast.get("note_blocks", []) or []]
+    if table_ast.get("note_groups"):
+        evidence["note_groups"] = [dict(item) for item in table_ast.get("note_groups", []) or []]
+    if table_ast.get("cross_component_note_refs"):
+        evidence["cross_component_note_refs"] = [
+            dict(item)
+            for item in table_ast.get("cross_component_note_refs", []) or []
+            if isinstance(item, dict)
+        ]
+    if table_ast.get("study_panel_id"):
+        evidence["study_panel_id"] = table_ast.get("study_panel_id")
+    if table_ast.get("context_structure_template_id"):
+        evidence["context_structure_template_id"] = table_ast.get("context_structure_template_id")
     _copy_metadata_reference_edges_to_evidence(evidence, table_ast)
     _project_owned_text_metadata_reference_edges(
         evidence,
@@ -20619,11 +26691,20 @@ def _study_panel_metadata_anchor_text(text: str) -> bool:
 def _rebuild_populated_study_metadata_fields(template: dict[str, Any]) -> None:
     rows = [_clean_text(str(row or "")) for row in template.get("row_texts", []) or []]
     rows = [row for row in rows if row]
+    row_sources = [dict(record) for record in template.get("row_sources", []) or [] if isinstance(record, dict)]
+    if len(row_sources) != len(rows):
+        row_sources = []
     fields: list[dict[str, Any]] = []
     sections: list[dict[str, Any]] = []
     for row_index, row in enumerate(rows, start=1):
         if row_index == 1:
             continue
+        source_record = row_sources[row_index - 1] if row_sources else {}
+        source_payload = {
+            "source_block_ids": list(source_record.get("source_block_ids", []) or []),
+            "bbox": list(source_record.get("bbox", []) or []),
+        }
+        source_payload = {key: value for key, value in source_payload.items() if value}
         label, value = _study_metadata_key_value(row)
         if label:
             fields.append(
@@ -20634,6 +26715,7 @@ def _rebuild_populated_study_metadata_fields(template: dict[str, Any]) -> None:
                     "label": label,
                     "value": value or None,
                     "data_population": "populated" if _study_metadata_populated_value(value) else "blank",
+                    **source_payload,
                 }
             )
         else:
@@ -20643,6 +26725,7 @@ def _rebuild_populated_study_metadata_fields(template: dict[str, Any]) -> None:
                     "text": row,
                     "role": "section",
                     "data_population": "populated" if _tabular_form_template_data_score(row) else "partial",
+                    **source_payload,
                 }
             )
     template["fields"] = fields
@@ -20701,10 +26784,25 @@ def _annotate_cross_page_table_note_ownership(
     return annotated
 
 
-def _replace_open_table_note_with_continuation(table: dict[str, Any], note_texts: list[str], *, page: int) -> None:
-    compact_note_texts = [_clean_text(text) for text in note_texts if _clean_text(text)]
-    if not compact_note_texts:
+def _replace_open_table_note_with_continuation(
+    table: dict[str, Any],
+    note_rows: list[str | dict[str, Any]],
+    *,
+    page: int,
+) -> None:
+    normalized_rows: list[dict[str, Any]] = []
+    for row in note_rows:
+        if isinstance(row, dict):
+            text = _clean_text(str(row.get("text") or ""))
+            source = dict(row)
+        else:
+            text = _clean_text(str(row or ""))
+            source = {}
+        if text:
+            normalized_rows.append({**source, "text": text})
+    if not normalized_rows:
         return
+
     notes = [dict(note) for note in table.get("note_blocks", []) or [] if isinstance(note, dict)]
     notes = [
         note
@@ -20712,29 +26810,71 @@ def _replace_open_table_note_with_continuation(table: dict[str, Any], note_texts
         if _study_panel_note_start_text(str(note.get("text") or ""))
         or _looks_like_table_note_text(str(note.get("text") or ""))
     ]
-    if notes and _study_panel_note_start_text(str(notes[-1].get("text") or "")):
-        joined = " ".join([str(notes[-1].get("text") or ""), *compact_note_texts])
-        notes[-1]["text"] = _clean_text(joined)
-        notes[-1]["relation"] = "cross_page_note_continuation"
-        notes[-1]["continued_on_page"] = page
-        notes[-1]["continuation_page"] = page
-        notes[-1] = _annotate_cross_page_table_note_ownership(table, notes[-1], physical_page=page)
-    else:
-        notes.append(
-            _annotate_cross_page_table_note_ownership(
-                table,
-                {
-                    "role": "note",
-                    "text": _clean_text(" ".join(compact_note_texts)),
-                    "relation": "cross_page_note_continuation",
-                    "page": page,
-                    "continuation_page": page,
-                    "source_type": "study_panel_ownership_refinement",
-                },
-                physical_page=page,
+    table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+    label_note = next(
+        (note for note in reversed(notes) if _study_panel_note_start_text(str(note.get("text") or ""))),
+        None,
+    )
+    if label_note is not None:
+        group_id = str(label_note.get("note_group_id") or "").strip()
+        if not group_id:
+            label_count = sum(
+                1 for note in notes
+                if _study_panel_note_start_text(str(note.get("text") or ""))
             )
-        )
+            group_id = f"{table_id}:note_group:{label_count}"
+            label_note["note_group_id"] = group_id
+        label_note["note_component_role"] = "label"
+        label_note["note_line_index"] = 0
+        label_note["presentation_mode"] = "lines"
+        label_note.setdefault("page", int(table.get("page", 0) or 0))
+    else:
+        group_id = f"{table_id}:note_group:{len(table.get('note_groups', []) or []) + 1}"
+
+    existing_texts = {_compact_text(str(note.get("text") or "")) for note in notes}
+    next_line_index = max((int(note.get("note_line_index", 0) or 0) for note in notes), default=0) + 1
+    for source_row in normalized_rows:
+        note_text = _clean_text(str(source_row.get("text") or ""))
+        if not note_text or _compact_text(note_text) in existing_texts:
+            continue
+        marker, body = _study_panel_note_marker_parts(note_text)
+        note = {
+            "role": "note",
+            "text": note_text,
+            "marker": marker or None,
+            "body": body or None,
+            "relation": "cross_page_note_continuation",
+            "page": page,
+            "continuation_page": page,
+            "source_type": "study_panel_ownership_refinement",
+            "source": "study_panel_cross_page_note_line",
+            "source_row_ref": source_row.get("source_row_ref"),
+            "source_table_id": source_row.get("source_table_id"),
+            "bbox": list(source_row.get("bbox", []) or []),
+            "note_group_id": group_id,
+            "note_component_role": "continuation",
+            "note_line_index": next_line_index,
+            "presentation_mode": "lines",
+        }
+        notes.append(_annotate_cross_page_table_note_ownership(table, note, physical_page=page))
+        existing_texts.add(_compact_text(note_text))
+        next_line_index += 1
     table["note_blocks"] = notes
+    panel_note_norms = {_compact_text(str(note.get("text") or "")) for note in notes}
+    retained_segments: list[dict[str, Any]] = []
+    for segment in table.get("content_segments", []) or []:
+        if not isinstance(segment, dict):
+            continue
+        role = str(segment.get("role") or "").strip()
+        segment_norm = _compact_text(str(segment.get("text") or ""))
+        is_panel_note = role in {"note", "table_note"} and (
+            _study_panel_note_start_text(str(segment.get("text") or ""))
+            or any(note_norm and note_norm in segment_norm for note_norm in panel_note_norms)
+        )
+        if not is_panel_note:
+            retained_segments.append(dict(segment))
+    table["content_segments"] = [*retained_segments, *[dict(note) for note in notes]]
+    _refresh_study_panel_note_groups(table)
 
 
 def _nearest_business_table_on_page(table_nodes: list[dict[str, Any]], page: int, bbox: list[float]) -> dict[str, Any] | None:
@@ -20789,7 +26929,57 @@ def _move_terminal_template_notes_to_tables(
             )
 
 
-def _split_repeated_study_metadata_templates(structure_templates: list[dict[str, Any]]) -> None:
+def _study_metadata_owned_source_bbox(
+    owned_text_block_ids: list[str],
+    text_nodes_by_id: dict[str, dict[str, Any]],
+) -> list[float] | None:
+    bboxes = [
+        _coerce_bbox((text_nodes_by_id.get(str(block_id or "").strip()) or {}).get("bbox"))
+        for block_id in owned_text_block_ids
+        if str(block_id or "").strip()
+    ]
+    bboxes = [bbox for bbox in bboxes if bbox is not None]
+    if not bboxes:
+        return None
+    return _bbox_to_list(_bbox_union_loose(bboxes))
+
+
+def _refresh_split_study_metadata_record(
+    template: dict[str, Any],
+    *,
+    local_owned_text_block_ids: list[str],
+    text_nodes_by_id: dict[str, dict[str, Any]],
+    record_index: int,
+    record_count: int,
+    source: str,
+) -> None:
+    _rebuild_populated_study_metadata_fields(template)
+    local_bbox = _study_metadata_owned_source_bbox(local_owned_text_block_ids, text_nodes_by_id)
+    if local_bbox is not None:
+        template["bbox"] = local_bbox
+    refreshed_signal = _low_text_ruled_populated_study_metadata_signal(
+        [_clean_text(str(row or "")) for row in template.get("row_texts", []) or []]
+    )
+    signals = {
+        **dict(template.get("semantic_signals", {}) or {}),
+        **refreshed_signal,
+        "source": source,
+        "repeated_study_record_index": record_index,
+        "repeated_study_record_count": record_count,
+    }
+    if local_owned_text_block_ids:
+        signals["physical_anchor_source_block_id"] = local_owned_text_block_ids[0]
+    if local_bbox is not None:
+        signals["split_record_bbox_source"] = "owned_text_block_geometry"
+    template["semantic_signals"] = signals
+    _refresh_structure_template_composite_object(template)
+
+
+def _split_repeated_study_metadata_templates(
+    structure_templates: list[dict[str, Any]],
+    *,
+    text_nodes_by_id: dict[str, dict[str, Any]],
+) -> None:
     additions: list[dict[str, Any]] = []
     for template in list(structure_templates):
         if template.get("template_kind") != "study_metadata":
@@ -20817,22 +27007,36 @@ def _split_repeated_study_metadata_templates(structure_templates: list[dict[str,
         second_rows = [rows[0], *rows[split_at:]]
         template["row_texts"] = first_rows
         owned_ids = list(template.get("owned_text_block_ids", []) or [])
+        first_local_owned_ids: list[str] = []
+        second_local_owned_ids: list[str] = []
         if len(owned_ids) == len(rows):
-            template["owned_text_block_ids"] = owned_ids[:split_at]
-        _rebuild_populated_study_metadata_fields(template)
+            first_local_owned_ids = owned_ids[:split_at]
+            second_local_owned_ids = owned_ids[split_at:]
+            template["owned_text_block_ids"] = first_local_owned_ids
         new_template = deepcopy(template)
         new_template["structure_template_id"] = f"{template.get('structure_template_id')}_part2"
         new_template["row_texts"] = second_rows
         if len(owned_ids) == len(rows):
-            new_template["owned_text_block_ids"] = [owned_ids[0], *owned_ids[split_at:]]
+            new_template["owned_text_block_ids"] = [owned_ids[0], *second_local_owned_ids]
         new_template["continued_from_structure_template_id"] = template.get("structure_template_id")
         new_template["continued_from_title"] = template.get("title")
         new_template["is_structure_template_continuation"] = True
-        new_template["semantic_signals"] = {
-            **dict(new_template.get("semantic_signals", {}) or {}),
-            "source": "study_metadata_repeated_record_split",
-        }
-        _rebuild_populated_study_metadata_fields(new_template)
+        _refresh_split_study_metadata_record(
+            template,
+            local_owned_text_block_ids=first_local_owned_ids,
+            text_nodes_by_id=text_nodes_by_id,
+            record_index=1,
+            record_count=2,
+            source="study_metadata_repeated_record_split_primary",
+        )
+        _refresh_split_study_metadata_record(
+            new_template,
+            local_owned_text_block_ids=second_local_owned_ids,
+            text_nodes_by_id=text_nodes_by_id,
+            record_index=2,
+            record_count=2,
+            source="study_metadata_repeated_record_split_continuation",
+        )
         additions.append(new_template)
     if additions:
         structure_templates.extend(additions)
@@ -20859,8 +27063,897 @@ def _split_embedded_study_metadata_from_table_notes(table_nodes: list[dict[str, 
             table["note_blocks"] = kept
 
 
+def _project_pre_table_parent_headers_from_study_metadata(
+    *,
+    structure_templates: list[dict[str, Any]],
+    table_nodes: list[dict[str, Any]],
+) -> None:
+    if not structure_templates or not table_nodes:
+        return
+    tables_by_page: dict[int, list[dict[str, Any]]] = {}
+    for table in table_nodes:
+        if str(table.get("semantic_role") or "business_table") != "business_table":
+            continue
+        tables_by_page.setdefault(int(table.get("page", 0) or 0), []).append(table)
+    for page_tables in tables_by_page.values():
+        page_tables.sort(key=_node_physical_order_key)
+
+    for template in structure_templates:
+        if str(template.get("template_kind") or "") != "study_metadata":
+            continue
+        candidates = _terminal_pre_table_parent_header_candidates(template)
+        if not candidates:
+            continue
+        target = _following_adjacent_business_table_for_parent_headers(
+            template,
+            tables_by_page.get(int(template.get("page", 0) or 0), []),
+        )
+        if target is None:
+            continue
+        grid = _pre_table_parent_header_base_grid(target)
+        if len(grid) < 2:
+            continue
+        header = [_clean_text(str(cell or "")) for cell in grid[0]]
+        if not _table_header_can_receive_pre_table_parent_headers(header):
+            continue
+        groups = _infer_pre_table_parent_header_groups(candidates, header)
+        if not groups:
+            continue
+        semantic_grid = _pre_table_parent_header_semantic_grid(grid, groups)
+        if not semantic_grid:
+            continue
+        _apply_pre_table_parent_header_projection(
+            target,
+            template=template,
+            candidates=candidates,
+            groups=groups,
+            semantic_grid=semantic_grid,
+        )
+        _release_pre_table_parent_header_rows_from_template(template, candidates)
+
+
+def _project_adjacent_pre_table_text_semantics(
+    *,
+    document_ast_pages: list[dict[str, Any]],
+    table_nodes: list[dict[str, Any]],
+    page_words_by_page: dict[int, list[Any]],
+) -> None:
+    pages_by_number = {
+        int(page.get("page", 0) or 0): page
+        for page in document_ast_pages or []
+        if isinstance(page, dict)
+    }
+    for table in table_nodes or []:
+        if str(table.get("semantic_role") or "business_table") != "business_table":
+            continue
+        projection = table.get("semantic_projection_v2")
+        projection = projection if isinstance(projection, dict) else {}
+        if isinstance(projection.get("pre_table_parent_header_projection"), dict):
+            continue
+        page_number = int(table.get("page", 0) or 0)
+        page = pages_by_number.get(page_number)
+        table_bbox = _coerce_bbox(table.get("bbox"))
+        grid = _pre_table_parent_header_base_grid(table)
+        if page is None or table_bbox is None or len(grid) < 2:
+            continue
+        header = [_clean_text(str(cell or "")) for cell in grid[0]]
+        if len(header) < 4:
+            continue
+        header_anchors = _adjacent_pre_table_header_word_anchors(
+            header,
+            table_bbox,
+            page_words_by_page.get(page_number, []),
+        )
+        if len(header_anchors) != len(header):
+            continue
+        nearby_blocks = _adjacent_pre_table_text_blocks(page, table_bbox)
+        if not nearby_blocks:
+            continue
+        header_candidates = [
+            block
+            for block in nearby_blocks
+            if (_coerce_bbox(block.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[3] >= float(table_bbox[1]) - 26.0
+            and not re.search(r"[:：]", _clean_text(str(block.get("text") or "")))
+        ]
+        updated_header = list(header)
+        consumed_blocks: list[dict[str, Any]] = []
+        consumed_ids: set[str] = set()
+        for block in sorted(header_candidates, key=_node_physical_order_key):
+            block_bbox = _coerce_bbox(block.get("bbox"))
+            prefix = _clean_text(str(block.get("text") or ""))
+            if block_bbox is None or not prefix:
+                continue
+            leaf_index = _adjacent_wrapped_leaf_header_index(prefix, block_bbox, updated_header, header_anchors)
+            if leaf_index is None:
+                continue
+            updated_header[leaf_index] = _clean_text(f"{prefix}{updated_header[leaf_index]}")
+            consumed_blocks.append(block)
+            consumed_ids.add(str(block.get("block_id") or "").strip())
+
+        parent_groups: list[dict[str, Any]] = []
+        for block in sorted(header_candidates, key=_node_physical_order_key):
+            block_id = str(block.get("block_id") or "").strip()
+            if block_id in consumed_ids:
+                continue
+            block_bbox = _coerce_bbox(block.get("bbox"))
+            text = _clean_text(str(block.get("text") or ""))
+            if block_bbox is None or not text or len(text) > 48:
+                continue
+            column_range = _adjacent_parent_header_column_range(block_bbox, header_anchors)
+            if column_range is None:
+                continue
+            start_col, end_col = column_range
+            parent_groups.append(
+                {
+                    "text": text,
+                    "start_col": start_col,
+                    "end_col": end_col,
+                    "colspan": end_col - start_col + 1,
+                    "source": "adjacent_pre_table_text_projection",
+                    "source_block_id": block_id,
+                }
+            )
+            consumed_blocks.append(block)
+            consumed_ids.add(block_id)
+        if not parent_groups:
+            _annotate_compact_pre_table_context_fields(nearby_blocks, header_candidates)
+            continue
+
+        semantic_grid = _pre_table_parent_header_semantic_grid(
+            [[*updated_header], *[list(row) for row in grid[1:]]],
+            parent_groups,
+        )
+        if not semantic_grid:
+            continue
+        candidates = [
+            {
+                "text": _clean_text(str(block.get("text") or "")),
+                "source_block_id": str(block.get("block_id") or "").strip(),
+            }
+            for block in consumed_blocks
+        ]
+        _apply_pre_table_parent_header_projection(
+            table,
+            template={},
+            candidates=candidates,
+            groups=parent_groups,
+            semantic_grid=semantic_grid,
+        )
+        table["header"] = [
+            {"col": index + 1, "text": text, "source": "adjacent_pre_table_text_projection"}
+            for index, text in enumerate(updated_header)
+        ]
+        table["semantic_header"] = [dict(item) for item in table["header"]]
+        pre_table_projection = dict((table.get("semantic_projection_v2") or {}).get("pre_table_parent_header_projection") or {})
+        pre_table_projection["source"] = "adjacent_pre_table_text_projection"
+        pre_table_projection["wrapped_leaf_headers"] = [
+            {
+                "text": updated_header[index],
+                "col": index,
+            }
+            for index, original in enumerate(header)
+            if updated_header[index] != original
+        ]
+        full_projection = dict(table.get("semantic_projection_v2") or {})
+        full_projection["pre_table_parent_header_projection"] = pre_table_projection
+        table["semantic_projection_v2"] = full_projection
+        table["owned_text_block_ids"] = _append_unique_strings(
+            table.get("owned_text_block_ids"),
+            [str(block.get("block_id") or "").strip() for block in consumed_blocks],
+        )
+        for block in consumed_blocks:
+            block["semantic_role"] = "business_table_header"
+            block["unit_role"] = "metadata"
+            block["owned_by_table_id"] = table.get("table_id")
+        _annotate_compact_pre_table_context_fields(nearby_blocks, header_candidates)
+
+
+def _adjacent_pre_table_header_word_anchors(
+    header: list[str],
+    table_bbox: tuple[float, float, float, float],
+    page_words: list[Any],
+) -> list[tuple[float, float, float, float]]:
+    words = [
+        word
+        for word in _normalize_page_words_for_projection(page_words)
+        if (_coerce_bbox(word.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1] >= float(table_bbox[1]) - 3.0
+        and (_coerce_bbox(word.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[1] <= float(table_bbox[1]) + 20.0
+    ]
+    words.sort(key=lambda item: float((_coerce_bbox(item.get("bbox")) or (0.0, 0.0, 0.0, 0.0))[0]))
+    anchors: list[tuple[float, float, float, float]] = []
+    cursor = 0
+    for header_text in header:
+        target = _compact_text(header_text)
+        matched: list[dict[str, Any]] = []
+        for start in range(cursor, len(words)):
+            combined = ""
+            for end in range(start, min(len(words), start + 4)):
+                combined += _compact_text(str(words[end].get("text") or ""))
+                if combined == target:
+                    matched = words[start : end + 1]
+                    cursor = end + 1
+                    break
+                if len(combined) > len(target):
+                    break
+            if matched:
+                break
+        if not matched:
+            return []
+        anchors.append(_bbox_union_loose([word.get("bbox") for word in matched]))
+    return anchors
+
+
+def _adjacent_pre_table_text_blocks(
+    page: dict[str, Any],
+    table_bbox: tuple[float, float, float, float],
+) -> list[dict[str, Any]]:
+    excluded_roles = {
+        "page_header",
+        "page_footer",
+        "page_number",
+        "section_heading",
+        "structure_template_entry",
+        "structure_template_title",
+        "structure_template_note",
+        "business_table_header",
+    }
+    blocks: list[dict[str, Any]] = []
+    for block in page.get("blocks", []) or []:
+        bbox = _coerce_bbox(block.get("bbox"))
+        text = _clean_text(str(block.get("text") or ""))
+        if (
+            str(block.get("block_type") or "") != "text"
+            or str(block.get("semantic_role") or "").strip() in excluded_roles
+            or not text
+            or bbox is None
+            or float(bbox[3]) >= float(table_bbox[1]) + 2.0
+            or float(bbox[3]) < float(table_bbox[1]) - 90.0
+            or _horizontal_overlap_ratio(bbox, table_bbox) < 0.02
+        ):
+            continue
+        blocks.append(block)
+    return sorted(blocks, key=_node_physical_order_key)
+
+
+def _adjacent_wrapped_leaf_header_index(
+    prefix: str,
+    prefix_bbox: tuple[float, float, float, float],
+    header: list[str],
+    anchors: list[tuple[float, float, float, float]],
+) -> int | None:
+    if re.search(r"[:：。；;]", prefix) or len(prefix) > 12:
+        return None
+    prefix_center = (float(prefix_bbox[0]) + float(prefix_bbox[2])) / 2.0
+    best_index = min(
+        range(len(anchors)),
+        key=lambda index: abs(prefix_center - ((float(anchors[index][0]) + float(anchors[index][2])) / 2.0)),
+    )
+    anchor = anchors[best_index]
+    anchor_center = (float(anchor[0]) + float(anchor[2])) / 2.0
+    anchor_width = max(float(anchor[2]) - float(anchor[0]), 1.0)
+    prefix_width = float(prefix_bbox[2]) - float(prefix_bbox[0])
+    if abs(prefix_center - anchor_center) > max(18.0, anchor_width * 0.8):
+        return None
+    if prefix_width > anchor_width * 1.8:
+        return None
+    leaf = _clean_text(str(header[best_index] or ""))
+    if not re.fullmatch(r"(?:编号|名称|类型|方法|日期|时间|位置|页码)", leaf):
+        return None
+    combined = _clean_text(f"{prefix}{leaf}")
+    if len(combined) > 20 or not re.search(r"[\u4e00-\u9fffA-Za-z]", combined):
+        return None
+    return best_index
+
+
+def _adjacent_parent_header_column_range(
+    bbox: tuple[float, float, float, float],
+    anchors: list[tuple[float, float, float, float]],
+) -> tuple[int, int] | None:
+    if len(anchors) < 2:
+        return None
+    center = (float(bbox[0]) + float(bbox[2])) / 2.0
+    best: tuple[float, int, int] | None = None
+    for start in range(len(anchors) - 1):
+        for end in range(start + 1, len(anchors)):
+            range_x0 = float(anchors[start][0])
+            range_x1 = float(anchors[end][2])
+            if not (range_x0 - 24.0 <= center <= range_x1 + 24.0):
+                continue
+            range_center = (range_x0 + range_x1) / 2.0
+            score = abs(center - range_center) + ((end - start - 1) * 8.0)
+            candidate = (score, start, end)
+            if best is None or candidate < best:
+                best = candidate
+    if best is None or best[0] > 34.0:
+        return None
+    return best[1], best[2]
+
+
+def _annotate_compact_pre_table_context_fields(
+    nearby_blocks: list[dict[str, Any]],
+    header_candidates: list[dict[str, Any]],
+) -> None:
+    header_ids = {str(block.get("block_id") or "").strip() for block in header_candidates}
+    fields = [
+        block
+        for block in nearby_blocks
+        if str(block.get("block_id") or "").strip() not in header_ids
+        and re.search(r"[:：]", _clean_text(str(block.get("text") or "")))
+    ]
+    runs: list[list[dict[str, Any]]] = []
+    for block in fields:
+        bbox = _coerce_bbox(block.get("bbox"))
+        if bbox is None:
+            continue
+        if not runs:
+            runs.append([block])
+            continue
+        previous_bbox = _coerce_bbox(runs[-1][-1].get("bbox"))
+        if (
+            previous_bbox is not None
+            and float(bbox[1]) - float(previous_bbox[3]) <= 12.0
+            and abs(float(bbox[0]) - float(previous_bbox[0])) <= 18.0
+        ):
+            runs[-1].append(block)
+        else:
+            runs.append([block])
+    for run in runs:
+        if len(run) < 2:
+            continue
+        for index, block in enumerate(run, start=1):
+            block["semantic_role"] = "body_list_item"
+            block["unit_role"] = "body"
+            block["list_style"] = "unmarked_indented"
+            block["list_role"] = "compact_pre_table_study_context_field"
+            block["list_item_index"] = index
+
+
+def _terminal_pre_table_parent_header_candidates(template: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = [_clean_text(str(row or "")) for row in template.get("row_texts", []) or []]
+    if len(rows) < 2:
+        return []
+    owned_ids = [str(block_id or "").strip() for block_id in template.get("owned_text_block_ids", []) or []]
+    row_sources = [dict(record) for record in template.get("row_sources", []) or [] if isinstance(record, dict)]
+    has_source_records = len(row_sources) == len(rows)
+    if not has_source_records and len(owned_ids) != len(rows):
+        return []
+    candidates_reversed: list[dict[str, Any]] = []
+    for row_index in range(len(rows) - 1, 0, -1):
+        text = rows[row_index]
+        if not _looks_like_terminal_pre_table_parent_header_text(text):
+            break
+        source_block_ids = (
+            [str(block_id or "").strip() for block_id in row_sources[row_index].get("source_block_ids", []) or []]
+            if has_source_records
+            else [owned_ids[row_index]]
+        )
+        source_block_ids = [block_id for block_id in source_block_ids if block_id]
+        if not source_block_ids:
+            break
+        candidates_reversed.append(
+            {
+                "row_index": row_index,
+                "text": text,
+                "source_block_id": source_block_ids[0],
+                "source_block_ids": source_block_ids,
+                "source_blocks": [
+                    dict(source_block)
+                    for source_block in row_sources[row_index].get("source_blocks", []) or []
+                    if isinstance(source_block, dict)
+                ] if has_source_records else [],
+                "bbox": list(row_sources[row_index].get("bbox", []) or []) if has_source_records else [],
+            }
+        )
+        if len(candidates_reversed) >= 3:
+            break
+    return list(reversed(candidates_reversed))
+
+
+def _looks_like_terminal_pre_table_parent_header_text(text: str) -> bool:
+    compact = _clean_text(text)
+    if not compact:
+        return False
+    if len(compact) > 48:
+        return False
+    if _study_metadata_key_value(compact)[0]:
+        return False
+    if _study_panel_note_start_text(compact) or _study_panel_definition_note_text(compact):
+        return False
+    if _looks_like_table_note_text(compact) or _looks_like_table_note_title_or_label(compact):
+        return False
+    if parse_outline_heading(compact) is not None:
+        return False
+    if re.search(r"[。.!?！？；;:：]", compact):
+        return False
+    if re.fullmatch(r"[-+*/=()\d\s.,<>%]+", compact):
+        return False
+    token_count = len([token for token in re.split(r"\s+", compact) if token])
+    if token_count > 6:
+        return False
+    return True
+
+
+def _following_adjacent_business_table_for_parent_headers(
+    template: dict[str, Any],
+    page_tables: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    template_bbox = _coerce_bbox(template.get("bbox"))
+    if template_bbox is None:
+        return None
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for table in page_tables:
+        table_bbox = _coerce_bbox(table.get("bbox"))
+        if table_bbox is None:
+            continue
+        vertical_gap = float(table_bbox[1]) - float(template_bbox[3])
+        if vertical_gap < -8.0 or vertical_gap > 32.0:
+            continue
+        if _horizontal_overlap_ratio(template_bbox, table_bbox) < 0.35:
+            continue
+        candidates.append((abs(vertical_gap), table))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], _node_physical_order_key(item[1])))
+    return candidates[0][1]
+
+
+def _pre_table_parent_header_base_grid(table: dict[str, Any]) -> list[list[str]]:
+    for key in ("semantic_grid", "display_grid", "raw_grid", "grid", "data_grid"):
+        grid = table.get(key)
+        if not isinstance(grid, list) or not grid:
+            continue
+        rows = [
+            [_clean_text(str(cell or "")) for cell in row]
+            for row in grid
+            if isinstance(row, list) and any(_clean_text(str(cell or "")) for cell in row)
+        ]
+        if rows:
+            col_count = max((len(row) for row in rows), default=0)
+            if col_count:
+                return [_normalize_table_row_width(row, col_count) for row in rows]
+    return []
+
+
+def _table_header_can_receive_pre_table_parent_headers(header: list[str]) -> bool:
+    if len(header) < 4:
+        return False
+    stub = _clean_text(str(header[0] or ""))
+    data_headers = [_clean_text(str(cell or "")) for cell in header[1:]]
+    populated_data = [cell for cell in data_headers if cell]
+    if not stub or len(populated_data) < 2:
+        return False
+    if _looks_like_numeric_value(stub):
+        return False
+    numeric_or_measurement = 0
+    for cell in populated_data:
+        if _looks_like_numeric_value(cell) or re.search(r"\d|%|/|[A-Za-z]", cell):
+            numeric_or_measurement += 1
+    return numeric_or_measurement >= max(2, len(populated_data) // 2)
+
+
+def _infer_pre_table_parent_header_groups(
+    candidates: list[dict[str, Any]],
+    header: list[str],
+) -> list[dict[str, Any]]:
+    if not candidates or len(header) < 3:
+        return []
+    last_col = len(header) - 1
+    if len(candidates) == 1:
+        return [
+            {
+                "text": candidates[0]["text"],
+                "start_col": 1,
+                "end_col": last_col,
+                "colspan": last_col,
+                "source": "pre_table_parent_header_projection",
+                "source_block_id": candidates[0]["source_block_id"],
+            }
+        ]
+
+    boundaries = _pre_table_repeated_leaf_group_boundaries(header)[: max(0, len(candidates) - 1)]
+    if not boundaries:
+        return []
+    starts = [1, *boundaries]
+    groups: list[dict[str, Any]] = []
+    for index, candidate in enumerate(candidates):
+        if index >= len(starts):
+            break
+        start_col = starts[index]
+        if index + 1 < len(starts):
+            end_col = starts[index + 1] - 1
+        else:
+            end_col = _pre_table_last_group_end_before_standalone_summary(header, start_col)
+        if end_col < start_col:
+            continue
+        groups.append(
+            {
+                "text": candidate["text"],
+                "start_col": start_col,
+                "end_col": end_col,
+                "colspan": end_col - start_col + 1,
+                "source": "pre_table_parent_header_projection",
+                "source_block_id": candidate["source_block_id"],
+            }
+        )
+    return groups if len(groups) == len(candidates) else []
+
+
+def _pre_table_repeated_leaf_group_boundaries(header: list[str]) -> list[int]:
+    seen: dict[str, int] = {}
+    boundaries: list[int] = []
+    for col_index, raw_text in enumerate(header[1:], start=1):
+        text = _compact_text(str(raw_text or "")).lower()
+        if not text:
+            continue
+        if text in seen and col_index - seen[text] >= 2:
+            boundaries.append(col_index)
+        else:
+            seen.setdefault(text, col_index)
+    return boundaries[:2]
+
+
+def _pre_table_last_group_end_before_standalone_summary(header: list[str], start_col: int) -> int:
+    end_col = len(header) - 1
+    while end_col >= start_col and _pre_table_standalone_summary_leaf(str(header[end_col] or "")):
+        end_col -= 1
+    return end_col
+
+
+def _pre_table_standalone_summary_leaf(text: str) -> bool:
+    compact = _clean_text(text)
+    if not compact:
+        return False
+    return bool(
+        re.fullmatch(
+            r"(?:AUC(?:0[-–]?(?:t|inf))?|Cmax|Tmax|t\s*1/2|t½|half[-\s]?life|CL|Vd)(?:\s*\([^)]*\))?",
+            compact,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _pre_table_parent_header_semantic_grid(
+    grid: list[list[str]],
+    groups: list[dict[str, Any]],
+) -> list[list[str]]:
+    if not grid or not groups:
+        return []
+    header = [_clean_text(str(cell or "")) for cell in grid[0]]
+    col_count = len(header)
+    parent_row = ["" for _ in range(col_count)]
+    leaf_row = ["" for _ in range(col_count)]
+    parent_row[0] = header[0]
+    covered: set[int] = set()
+    for group in groups:
+        text = _clean_text(str(group.get("text") or ""))
+        start_col = int(group.get("start_col", 0) or 0)
+        end_col = int(group.get("end_col", -1) or -1)
+        if not text or start_col < 1 or end_col < start_col or end_col >= col_count:
+            return []
+        for col_index in range(start_col, end_col + 1):
+            parent_row[col_index] = text
+            leaf_row[col_index] = header[col_index]
+            covered.add(col_index)
+    for col_index in range(1, col_count):
+        if col_index in covered:
+            continue
+        parent_row[col_index] = header[col_index]
+    body_rows = [_normalize_table_row_width(row, col_count) for row in grid[1:]]
+    return [parent_row, leaf_row, *body_rows]
+
+
+def _apply_pre_table_parent_header_projection(
+    table: dict[str, Any],
+    *,
+    template: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    groups: list[dict[str, Any]],
+    semantic_grid: list[list[str]],
+) -> None:
+    existing_groups = [
+        dict(group)
+        for group in table.get("header_column_groups", []) or []
+        if isinstance(group, dict)
+    ]
+    seen_groups = {
+        (
+            _compact_text(str(group.get("text") or "")),
+            int(group.get("start_col", -1) or -1),
+            int(group.get("end_col", -1) or -1),
+        )
+        for group in existing_groups
+    }
+    merged_groups = list(existing_groups)
+    for group in groups:
+        key = (
+            _compact_text(str(group.get("text") or "")),
+            int(group.get("start_col", -1) or -1),
+            int(group.get("end_col", -1) or -1),
+        )
+        if key in seen_groups:
+            continue
+        seen_groups.add(key)
+        merged_groups.append(dict(group))
+    table["header_column_groups"] = merged_groups
+    table["semantic_header_column_groups"] = [dict(group) for group in merged_groups]
+
+    span_cells = [
+        dict(item)
+        for item in table.get("span_header_cells", []) or []
+        if isinstance(item, dict)
+    ]
+    seen_spans = {
+        (
+            _compact_text(str(item.get("text") or "")),
+            int(item.get("row", -1) or -1),
+            int(item.get("col", -1) or -1),
+            int(item.get("colspan", 0) or 0),
+        )
+        for item in span_cells
+    }
+    for group in groups:
+        span = {
+            "row": 0,
+            "col": int(group.get("start_col", 0) or 0),
+            "colspan": int(group.get("colspan", 0) or 0),
+            "text": group.get("text"),
+            "source": "pre_table_parent_header_projection",
+            "source_block_id": group.get("source_block_id"),
+        }
+        key = (
+            _compact_text(str(span.get("text") or "")),
+            int(span.get("row", -1) or -1),
+            int(span.get("col", -1) or -1),
+            int(span.get("colspan", 0) or 0),
+        )
+        if key in seen_spans:
+            continue
+        seen_spans.add(key)
+        span_cells.append(span)
+    table["span_header_cells"] = span_cells
+
+    table["semantic_grid"] = [list(row) for row in semantic_grid]
+    table["semantic_display_grid"] = [list(row) for row in semantic_grid]
+    source_ids = list(
+        dict.fromkeys(
+            str(block_id or "").strip()
+            for candidate in candidates
+            for block_id in (
+                candidate.get("source_block_ids")
+                or [candidate.get("source_block_id")]
+            )
+            if str(block_id or "").strip()
+        )
+    )
+    table["owned_text_block_ids"] = _append_unique_strings(table.get("owned_text_block_ids"), source_ids)
+    projection = dict(table.get("semantic_projection_v2") or {})
+    projection["pre_table_parent_header_projection"] = {
+        "source": "pre_table_parent_header_projection",
+        "semantic_profile": "pre_table_multilevel_parent_header",
+        "source_structure_template_id": str(template.get("structure_template_id") or "").strip() or None,
+        "source_block_ids": source_ids,
+        "header_column_groups": [dict(group) for group in groups],
+        "logical_column_count": len(semantic_grid[0]) if semantic_grid else 0,
+        "logical_row_count": len(semantic_grid),
+        "coverage_audit": _semantic_projection_coverage_audit(
+            table,
+            semantic_grid=semantic_grid,
+            source="pre_table_parent_header_projection",
+        ),
+    }
+    table["semantic_projection_v2"] = projection
+    table.setdefault("semantic_repairs", []).append(
+        {
+            "repair": "pre_table_parent_headers_projected_from_study_metadata",
+            "source_structure_template_id": str(template.get("structure_template_id") or "").strip() or None,
+            "source_block_ids": source_ids,
+            "group_count": len(groups),
+            "confidence": 0.86,
+        }
+    )
+
+
+def _release_pre_table_parent_header_rows_from_template(
+    template: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> None:
+    rows = list(template.get("row_texts", []) or [])
+    owned_ids = list(template.get("owned_text_block_ids", []) or [])
+    row_sources = [dict(record) for record in template.get("row_sources", []) or [] if isinstance(record, dict)]
+    remove_indices = {int(candidate.get("row_index", -1) or -1) for candidate in candidates}
+    has_source_records = len(row_sources) == len(rows)
+    if not rows or not remove_indices:
+        return
+    if not has_source_records and len(rows) != len(owned_ids):
+        return
+    template["row_texts"] = [row for index, row in enumerate(rows) if index not in remove_indices]
+    if has_source_records:
+        released_source_ids = {
+            str(block_id or "").strip()
+            for candidate in candidates
+            for block_id in (candidate.get("source_block_ids") or [candidate.get("source_block_id")])
+            if str(block_id or "").strip()
+        }
+        template["row_sources"] = [
+            record for index, record in enumerate(row_sources) if index not in remove_indices
+        ]
+        template["owned_text_block_ids"] = [
+            block_id for block_id in owned_ids if str(block_id or "").strip() not in released_source_ids
+        ]
+        remaining_bboxes = [
+            bbox
+            for record in template.get("row_sources", []) or []
+            if isinstance(record, dict)
+            and (bbox := _coerce_bbox(record.get("bbox"))) is not None
+        ]
+        if remaining_bboxes:
+            template["bbox"] = _bbox_to_list(_bbox_union_loose(remaining_bboxes))
+    else:
+        template["owned_text_block_ids"] = [
+            block_id for index, block_id in enumerate(owned_ids) if index not in remove_indices
+        ]
+    _rebuild_populated_study_metadata_fields(template)
+    semantic_projection = dict(template.get("semantic_projection_v2") or {})
+    semantic_projection["pre_table_parent_header_rows_released"] = {
+        "source": "pre_table_parent_header_projection",
+        "released_row_count": len(remove_indices),
+        "source_block_ids": list(
+            dict.fromkeys(
+                str(block_id or "").strip()
+                for candidate in candidates
+                for block_id in (candidate.get("source_block_ids") or [candidate.get("source_block_id")])
+                if str(block_id or "").strip()
+            )
+        ),
+    }
+    template["semantic_projection_v2"] = semantic_projection
+    template.setdefault("semantic_repairs", []).append(
+        {
+            "repair": "terminal_pre_table_parent_header_rows_released",
+            "released_row_count": len(remove_indices),
+            "confidence": 0.86,
+        }
+    )
+
+
 def _grid_row_text(row: list[Any]) -> str:
     return _clean_text(" ".join(str(cell or "") for cell in row))
+
+
+def _annotate_colon_introduced_unmarked_list_items(document_ast_pages: list[dict[str, Any]]) -> None:
+    for page in document_ast_pages or []:
+        blocks = [block for block in page.get("blocks", []) or [] if isinstance(block, dict)]
+        index = 0
+        while index < len(blocks):
+            introducer = blocks[index]
+            if not _colon_introduced_unmarked_list_intro_block(introducer):
+                index += 1
+                continue
+            run = _collect_colon_introduced_unmarked_list_run(blocks, index)
+            if len(run) < 3:
+                index += 1
+                continue
+            intro_text = _clean_text(str(introducer.get("display_text") or introducer.get("text") or ""))
+            intro_id = str(introducer.get("block_id") or introducer.get("source_id") or "").strip()
+            for ordinal, item in enumerate(run, start=1):
+                item["semantic_role"] = "body_list_item"
+                item["unit_role"] = "body"
+                item["list_style"] = "unmarked_indented"
+                item["list_role"] = "colon_introduced_item"
+                item["list_item_index"] = ordinal
+                item["list_introducer_text"] = intro_text
+                if intro_id:
+                    item["list_introducer_block_id"] = intro_id
+                item.setdefault("semantic_repairs", []).append(
+                    {
+                        "repair": "colon_introduced_unmarked_list_item_annotation",
+                        "source": "document_ast_text_flow",
+                        "confidence": 0.84,
+                    }
+                )
+            index += len(run) + 1
+
+
+def _colon_introduced_unmarked_list_intro_block(block: dict[str, Any]) -> bool:
+    if str(block.get("block_type") or "").strip().lower() != "text":
+        return False
+    role = str(block.get("semantic_role") or "").strip()
+    if role in {
+        "section_heading",
+        "reference_heading",
+        "toc_entry",
+        "footnote",
+        "footnote_continuation",
+        "page_header",
+        "page_footer",
+        "page_number",
+    }:
+        return False
+    text = _clean_text(str(block.get("display_text") or block.get("text") or ""))
+    if not text or not re.search(r"[:：]\s*$", text):
+        return False
+    if len(text) > 120:
+        return False
+    return bool(re.search(r"[\u4e00-\u9fffA-Za-z]", text))
+
+
+def _collect_colon_introduced_unmarked_list_run(
+    blocks: list[dict[str, Any]],
+    intro_index: int,
+) -> list[dict[str, Any]]:
+    introducer_bbox = _coerce_bbox(blocks[intro_index].get("bbox"))
+    if introducer_bbox is None:
+        return []
+    run: list[dict[str, Any]] = []
+    expected_x0: float | None = None
+    previous_bbox = introducer_bbox
+    for candidate in blocks[intro_index + 1 : intro_index + 12]:
+        if str(candidate.get("block_type") or "").strip().lower() != "text":
+            if run:
+                break
+            continue
+        candidate_bbox = _coerce_bbox(candidate.get("bbox"))
+        if candidate_bbox is None:
+            break
+        vertical_gap = float(candidate_bbox[1]) - float(previous_bbox[3])
+        if vertical_gap < -3.0 or vertical_gap > 36.0:
+            break
+        if not _colon_introduced_unmarked_list_item_candidate(candidate):
+            break
+        x0 = float(candidate_bbox[0])
+        if expected_x0 is None:
+            expected_x0 = x0
+            if x0 < float(introducer_bbox[0]) - 4.0:
+                break
+        elif abs(x0 - expected_x0) > 6.0:
+            break
+        run.append(candidate)
+        previous_bbox = candidate_bbox
+    return run
+
+
+def _colon_introduced_unmarked_list_item_candidate(block: dict[str, Any]) -> bool:
+    role = str(block.get("semantic_role") or "").strip()
+    if role in {
+        "section_heading",
+        "reference_heading",
+        "toc_entry",
+        "reference_entry",
+        "footnote",
+        "footnote_continuation",
+        "page_header",
+        "page_footer",
+        "page_number",
+        "structure_template_entry",
+        "structure_template_title",
+        "table_note",
+    }:
+        return False
+    text = _clean_text(str(block.get("display_text") or block.get("text") or ""))
+    if not text:
+        return False
+    if re.match(
+        r"^\s*(?:(?:\d{1,4}|[ivxlcdmIVXLCDM]{1,12})[.)]\s+|"
+        r"[\u2022\u25cf\u25cb\u25aa\u25e6\u2219\uf06c\uf0b7\u00b7]|[-*]\s+)",
+        text,
+    ):
+        return False
+    if parse_outline_heading(text) is not None:
+        return False
+    if re.search(r"[:：]\s*$", text):
+        return False
+    if re.search(r"[。.!?！？；;，,、]", text):
+        return False
+    if _looks_like_table_note_text(text) or _looks_like_table_note_title_or_label(text):
+        return False
+    visible = re.sub(r"\s+", "", text)
+    if len(visible) > 24:
+        return False
+    if len(visible) < 2:
+        return False
+    if re.fullmatch(r"[-+*/=()\d\s.,<>%]+", visible):
+        return False
+    return bool(re.search(r"[\u4e00-\u9fffA-Za-z]", text))
 
 
 def _snapshot_evidence_grid_before_semantic_projection(table: dict[str, Any]) -> list[list[Any]]:
@@ -21195,11 +28288,366 @@ def _visual_table_study_section_start(grid: list[list[Any]]) -> int | None:
     return None
 
 
+def _visual_study_object_prelude_label(text: str) -> bool:
+    compact = _clean_text(text)
+    if not compact or len(compact) > 32:
+        return False
+    return bool(
+        re.fullmatch(r"(?:示例|实例|例)(?:\s*#?\s*\d+)?", compact, re.IGNORECASE)
+        or re.fullmatch(r"(?:Example|Examples)(?:\s*#?\s*\d+)?", compact, re.IGNORECASE)
+        or re.fullmatch(r"(?:替代\s*)?格式\s*[A-ZＡ-Ｚ0-9一二三四五六七八九十]+", compact, re.IGNORECASE)
+    )
+
+
+def _table_text_atoms_with_page_word_fallback(
+    table: dict[str, Any],
+    *,
+    page_words: list[Any] | None = None,
+    evidence_bbox: tuple[float, float, float, float] | None = None,
+) -> list[dict[str, Any]]:
+    atoms = _table_text_atoms_with_bbox(table, restrict_to_table_bbox=False)
+    if evidence_bbox is not None:
+        atoms = [
+            atom
+            for atom in atoms
+            if _bbox_center_inside(_coerce_bbox(atom.get("bbox")), evidence_bbox, tolerance=4.0)
+        ]
+    atom_signatures = {
+        (
+            _compact_text(str(atom.get("text") or "")),
+            tuple(round(float(value), 2) for value in (_coerce_bbox(atom.get("bbox")) or ())),
+        )
+        for atom in atoms
+        if _compact_text(str(atom.get("text") or "")) and _coerce_bbox(atom.get("bbox")) is not None
+    }
+    for word in page_words or []:
+        text = _clean_text(
+            str(
+                getattr(word, "text", "")
+                or (word.get("text") if isinstance(word, dict) else "")
+                or ""
+            )
+        )
+        bbox = _word_bbox_tuple(word)
+        if not text or bbox is None:
+            continue
+        if evidence_bbox is not None and not _bbox_center_inside(bbox, evidence_bbox, tolerance=4.0):
+            continue
+        signature = (
+            _compact_text(text),
+            tuple(round(float(value), 2) for value in bbox),
+        )
+        if signature in atom_signatures:
+            continue
+        atoms.append({"text": text, "bbox": _bbox_to_list(bbox), "source": "page_word"})
+        atom_signatures.add(signature)
+    return atoms
+
+
+def _visual_study_word_row_records(
+    table: dict[str, Any],
+    *,
+    page_words: list[Any] | None = None,
+) -> list[dict[str, Any]]:
+    table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+    records: list[dict[str, Any]] = []
+    panel_bbox = (
+        _coerce_bbox(table.get("visual_study_panel_original_bbox"))
+        or _coerce_bbox(table.get("presentation_bbox"))
+        or _coerce_bbox(table.get("bbox"))
+    )
+    atoms = _table_text_atoms_with_page_word_fallback(
+        table,
+        page_words=page_words,
+        evidence_bbox=panel_bbox,
+    )
+    for row_index, row_nodes in enumerate(_cluster_items_by_y(atoms), start=1):
+        text = _clean_text(" ".join(str(node.get("text") or "") for node in row_nodes))
+        bbox = _bbox_union_loose([node.get("bbox") for node in row_nodes])
+        if not text or bbox == (0.0, 0.0, 0.0, 0.0):
+            continue
+        records.append(
+            {
+                "text": text,
+                "bbox": _bbox_to_list(bbox),
+                "source_block_ids": [],
+                "source_blocks": [
+                    {
+                        "text": str(node.get("text") or ""),
+                        "bbox": list(node.get("bbox", []) or []),
+                        "source": str(node.get("source") or "table_word_evidence"),
+                    }
+                    for node in row_nodes
+                ],
+                "source_table_id": table_id or None,
+                "source_row_ref": (
+                    f"{table_id}:word_row:{row_index}"
+                    if table_id
+                    else f"word_row:{row_index}"
+                ),
+            }
+        )
+    return records
+
+
+def _visual_study_matching_word_row_record(
+    text: str,
+    word_row_records: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    target = _compact_text(text)
+    if not target:
+        return None
+    exact = [
+        record
+        for record in word_row_records
+        if _compact_text(str(record.get("text") or "")) == target
+    ]
+    if exact:
+        return dict(exact[0])
+    compatible = [
+        record
+        for record in word_row_records
+        if (
+            (candidate := _compact_text(str(record.get("text") or "")))
+            and min(len(target), len(candidate)) >= 4
+            and (target in candidate or candidate in target)
+        )
+    ]
+    if not compatible:
+        return None
+    return dict(
+        min(
+            compatible,
+            key=lambda record: abs(
+                len(_compact_text(str(record.get("text") or ""))) - len(target)
+            ),
+        )
+    )
+
+
+def _visual_study_source_row_record(
+    table: dict[str, Any],
+    *,
+    row_index: int,
+    text: str,
+    word_row_records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+    bbox = _table_cells_bbox_for_original_row_range(table, row_index, row_index + 1)
+    if bbox is not None:
+        return {
+            "text": text,
+            "bbox": _bbox_to_list(bbox),
+            "source_block_ids": [],
+            "source_blocks": [],
+            "source_table_id": table_id or None,
+            "source_row_ref": (
+                f"{table_id}:row:{row_index + 1}"
+                if table_id
+                else f"row:{row_index + 1}"
+            ),
+        }
+    matched = _visual_study_matching_word_row_record(text, word_row_records)
+    if matched is not None:
+        matched["text"] = text
+        return matched
+    return {
+        "text": text,
+        "bbox": [],
+        "source_block_ids": [],
+        "source_blocks": [],
+        "source_table_id": table_id or None,
+        "source_row_ref": (
+            f"{table_id}:row:{row_index + 1}"
+            if table_id
+            else f"row:{row_index + 1}"
+        ),
+    }
+
+
+def _visual_study_leading_row_evidence(
+    table: dict[str, Any],
+    *,
+    page_number: int,
+    section_start: int,
+    page_words: list[Any] | None = None,
+) -> list[dict[str, Any]]:
+    grid = table.get("display_grid") or table.get("raw_grid") or []
+    if not isinstance(grid, list) or section_start <= 0:
+        return []
+    table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+    word_row_records = _visual_study_word_row_records(table, page_words=page_words)
+    rows: list[dict[str, Any]] = []
+    for row_index, row in enumerate(grid[:section_start]):
+        if not isinstance(row, list):
+            continue
+        text = _grid_row_text(row)
+        if not text:
+            continue
+        source_record = _visual_study_source_row_record(
+            table,
+            row_index=row_index,
+            text=text,
+            word_row_records=word_row_records,
+        )
+        if _study_panel_note_start_text(text) or _study_panel_definition_note_text(text):
+            role = "previous_table_note"
+        elif _visual_study_object_prelude_label(text):
+            role = "next_object_prelude"
+        else:
+            role = "unresolved_leading_row"
+        rows.append(
+            {
+                "text": text,
+                "role": role,
+                "page": page_number,
+                "bbox": list(source_record.get("bbox", []) or []),
+                "source_table_id": table_id or None,
+                "source_row_index": row_index,
+                "source_row_ref": source_record.get("source_row_ref")
+                or (f"{table_id}:row:{row_index + 1}" if table_id else f"page:{page_number}:row:{row_index + 1}"),
+                "source_type": "visual_study_panel_leading_row",
+            }
+        )
+    return rows
+
+
+def _attach_visual_study_template_preludes(
+    template: dict[str, Any],
+    prelude_rows: list[dict[str, Any]],
+) -> None:
+    if not prelude_rows:
+        return
+    template_id = str(template.get("structure_template_id") or "").strip()
+    existing = [
+        dict(block)
+        for block in template.get("prelude_blocks", []) or []
+        if isinstance(block, dict) and str(block.get("text") or "").strip()
+    ]
+    seen = {_compact_text(str(block.get("text") or "")) for block in existing}
+    for row in sorted(prelude_rows, key=_node_physical_order_key):
+        text = _clean_text(str(row.get("text") or ""))
+        norm = _compact_text(text)
+        if not norm or norm in seen:
+            continue
+        prelude = {
+            **dict(row),
+            "role": "object_prelude",
+            "owner_type": "structure_template",
+            "owner_structure_template_id": template_id or None,
+            "ownership_source": "visual_study_panel_leading_row_plan",
+        }
+        existing.append(prelude)
+        seen.add(norm)
+    if not existing:
+        return
+    template["prelude_blocks"] = existing
+    template_bbox = _coerce_bbox(template.get("bbox"))
+    prelude_bboxes = [
+        bbox
+        for block in existing
+        if (bbox := _coerce_bbox(block.get("bbox"))) is not None
+    ]
+    if template_bbox is not None and prelude_bboxes:
+        template["bbox"] = _bbox_to_list(_bbox_union_loose([template_bbox, *prelude_bboxes]))
+    signals = dict(template.get("semantic_signals", {}) or {})
+    signals["prelude_block_count"] = len(existing)
+    signals["prelude_ownership_source"] = "visual_study_panel_leading_row_plan"
+    template["semantic_signals"] = signals
+    _refresh_structure_template_composite_object(template)
+
+
+def _commit_visual_study_leading_row_ownership(
+    table: dict[str, Any],
+    leading_rows: list[dict[str, Any]],
+    *,
+    previous_table: dict[str, Any] | None,
+    metadata_template: dict[str, Any] | None,
+) -> None:
+    if not leading_rows:
+        return
+    prelude_rows = [row for row in leading_rows if row.get("role") == "next_object_prelude"]
+    if metadata_template is not None and prelude_rows:
+        _attach_visual_study_template_preludes(metadata_template, prelude_rows)
+    previous_table_id = str((previous_table or {}).get("table_id") or "").strip()
+    template_id = str((metadata_template or {}).get("structure_template_id") or "").strip()
+    plan: list[dict[str, Any]] = []
+    for row in leading_rows:
+        role = str(row.get("role") or "")
+        planned = dict(row)
+        if role == "previous_table_note" and previous_table_id:
+            planned.update(
+                {
+                    "owner_type": "table",
+                    "owner_id": previous_table_id,
+                    "action": "transfer_to_previous_table_note",
+                    "confidence": 0.92,
+                }
+            )
+        elif role == "next_object_prelude" and template_id:
+            planned.update(
+                {
+                    "owner_type": "structure_template",
+                    "owner_id": template_id,
+                    "action": "transfer_to_next_object_prelude",
+                    "confidence": 0.94,
+                }
+            )
+        else:
+            planned.update(
+                {
+                    "owner_type": None,
+                    "owner_id": None,
+                    "action": "legacy_unresolved_leading_row",
+                    "confidence": 0.0,
+                }
+            )
+        plan.append(planned)
+    table["leading_row_ownership_plan"] = plan
+    unassigned_preludes = [
+        row for row in plan
+        if row.get("role") == "next_object_prelude" and not row.get("owner_id")
+    ]
+    if unassigned_preludes:
+        diagnostics = dict(table.get("diagnostics", {}) or {})
+        diagnostics["unassigned_object_prelude_rows"] = [dict(row) for row in unassigned_preludes]
+        table["diagnostics"] = diagnostics
+        table["review_required"] = True
+
+
+def _mark_visual_study_transfer_uncommitted(
+    table: dict[str, Any],
+    *,
+    section_start: int,
+    matrix_start: int,
+) -> None:
+    diagnostics = dict(table.get("diagnostics", {}) or {})
+    diagnostics["visual_study_metadata_transfer_uncommitted"] = True
+    diagnostics["visual_study_metadata_section_start"] = section_start
+    diagnostics["visual_study_metadata_matrix_start"] = matrix_start
+    table["diagnostics"] = diagnostics
+    table["review_required"] = True
+
+
 def _table_grid_study_context_boundary(grid: list[list[Any]]) -> int | None:
     for index, row in enumerate(grid):
         text = _grid_row_text(row)
         if not text:
             continue
+        if _visual_study_object_prelude_label(text):
+            next_meaningful_index = next(
+                (
+                    candidate_index
+                    for candidate_index in range(index + 1, min(len(grid), index + 4))
+                    if _grid_row_text(grid[candidate_index])
+                ),
+                None,
+            )
+            if (
+                next_meaningful_index is not None
+                and _study_panel_section_start_text(_grid_row_text(grid[next_meaningful_index]))
+            ):
+                continue
         if _study_panel_section_start_text(text) or _ind_result_matrix_hard_boundary(text):
             return index
     return None
@@ -21238,6 +28686,7 @@ def _move_mixed_table_leading_tail_to_previous_owner(
     structure_templates: list[dict[str, Any]],
     tables_by_page: dict[int, list[dict[str, Any]]],
     page: int,
+    page_words: list[Any] | None = None,
 ) -> None:
     grid = [list(row) for row in table.get("display_grid", []) or table.get("raw_grid", []) or [] if isinstance(row, list)]
     if len(grid) < 6:
@@ -21254,33 +28703,64 @@ def _move_mixed_table_leading_tail_to_previous_owner(
     matrix_start += section_start
     if matrix_start <= section_start:
         return
-    leading_texts = [_grid_row_text(row) for row in grid[:section_start]]
+    leading_rows = _visual_study_leading_row_evidence(
+        table,
+        page_number=page,
+        section_start=section_start,
+        page_words=page_words,
+    )
+    leading_texts = [str(row.get("text") or "") for row in leading_rows]
     if not _row_texts_look_like_previous_table_tail(leading_texts):
         return
     previous_table = _nearest_previous_business_table(tables_by_page, page)
-    if previous_table is not None:
-        note_texts = [
-            text
-            for text in leading_texts
-            if _clean_text(text) and (_ind_result_matrix_note_row(text) or _study_panel_definition_note_text(text))
-        ]
-        if note_texts:
-            _replace_open_table_note_with_continuation(previous_table, note_texts, page=page)
-    metadata_template = _build_visual_study_metadata_template_from_rows(
-        structure_templates=structure_templates,
-        table=table,
+    title_text = _grid_row_text(grid[section_start])
+    metadata_owner = _structure_template_for_visual_study_table(
+        structure_templates,
+        table_id=str(table.get("table_id") or ""),
         page_number=page,
-        section_start=section_start,
-        matrix_start=matrix_start,
+        title_text=title_text,
     )
-    if metadata_template is None:
-        metadata_template = _build_visual_study_metadata_template_from_word_rows(
+    metadata_template: dict[str, Any] | None = None
+    if metadata_owner is None:
+        metadata_template = _build_visual_study_metadata_template_from_rows(
             structure_templates=structure_templates,
             table=table,
             page_number=page,
+            section_start=section_start,
+            matrix_start=matrix_start,
+            page_words=page_words,
         )
+        if metadata_template is None:
+            metadata_template = _build_visual_study_metadata_template_from_word_rows(
+                structure_templates=structure_templates,
+                table=table,
+                page_number=page,
+                page_words=page_words,
+            )
+        metadata_owner = metadata_template
+    if not _visual_study_metadata_template_is_committable(metadata_owner):
+        _mark_visual_study_transfer_uncommitted(
+            table,
+            section_start=section_start,
+            matrix_start=matrix_start,
+        )
+        return
     if metadata_template is not None:
         structure_templates.append(metadata_template)
+    if previous_table is not None:
+        note_rows = [
+            row
+            for row in leading_rows
+            if row.get("role") == "previous_table_note"
+        ]
+        if note_rows:
+            _replace_open_table_note_with_continuation(previous_table, note_rows, page=page)
+    _commit_visual_study_leading_row_ownership(
+        table,
+        leading_rows,
+        previous_table=previous_table,
+        metadata_template=metadata_owner,
+    )
     _crop_visual_study_table(table, matrix_start)
     table.pop("is_continuation", None)
     table.pop("continued_from_table_id", None)
@@ -21388,13 +28868,13 @@ def _visual_table_matrix_header_text(text: str) -> bool:
     )
 
 
-def _structure_template_exists_for_visual_study_table(
+def _structure_template_for_visual_study_table(
     structure_templates: list[dict[str, Any]],
     *,
     table_id: str,
     page_number: int,
     title_text: str,
-) -> bool:
+) -> dict[str, Any] | None:
     normalized_title = _clean_text(title_text)
     for template in structure_templates or []:
         if int(template.get("page", 0) or 0) != page_number:
@@ -21403,11 +28883,61 @@ def _structure_template_exists_for_visual_study_table(
             continue
         signals = template.get("semantic_signals") or {}
         if isinstance(signals, dict) and table_id and str(signals.get("source_table_id") or "") == table_id:
-            return True
+            return template
         rows = [_clean_text(str(row or "")) for row in template.get("row_texts", []) or []]
         if normalized_title and normalized_title in rows:
-            return True
-    return False
+            return template
+    return None
+
+
+def _structure_template_exists_for_visual_study_table(
+    structure_templates: list[dict[str, Any]],
+    *,
+    table_id: str,
+    page_number: int,
+    title_text: str,
+) -> bool:
+    return _structure_template_for_visual_study_table(
+        structure_templates,
+        table_id=table_id,
+        page_number=page_number,
+        title_text=title_text,
+    ) is not None
+
+
+def _visual_study_metadata_template_is_committable(template: dict[str, Any] | None) -> bool:
+    if not isinstance(template, dict):
+        return False
+    if not _clean_text(str(template.get("title") or "")):
+        return False
+    rows = [
+        _clean_text(str(row or ""))
+        for row in template.get("row_texts", []) or []
+        if _clean_text(str(row or ""))
+    ]
+    if len(rows) < 4 or not (template.get("fields") or template.get("sections")):
+        return False
+    if _coerce_bbox(template.get("bbox")) is None:
+        return False
+    signals = template.get("semantic_signals") if isinstance(template.get("semantic_signals"), dict) else {}
+    source_table_id = str(template.get("source_table_id") or (signals or {}).get("source_table_id") or "").strip()
+    if not source_table_id:
+        return False
+    row_sources = [
+        record
+        for record in template.get("row_sources", []) or []
+        if isinstance(record, dict) and str(record.get("text") or "").strip()
+    ]
+    complete_row_geometry = (
+        len(row_sources) == len(rows)
+        and all(_coerce_bbox(record.get("bbox")) is not None for record in row_sources)
+    )
+    owned_ids = {
+        str(block_id or "").strip()
+        for block_id in template.get("owned_text_block_ids", []) or []
+        if str(block_id or "").strip()
+    }
+    return complete_row_geometry or bool(owned_ids)
 
 
 def _build_visual_study_metadata_template_from_rows(
@@ -21417,6 +28947,7 @@ def _build_visual_study_metadata_template_from_rows(
     page_number: int,
     section_start: int,
     matrix_start: int,
+    page_words: list[Any] | None = None,
 ) -> dict[str, Any] | None:
     grid = table.get("display_grid") or table.get("raw_grid") or []
     if not isinstance(grid, list) or matrix_start <= section_start:
@@ -21439,10 +28970,18 @@ def _build_visual_study_metadata_template_from_rows(
         title_text=row_texts[0],
     ):
         return None
+    word_row_records = _visual_study_word_row_records(table, page_words=page_words)
     nodes: list[dict[str, Any]] = []
+    row_sources: list[dict[str, Any]] = []
     for row_index, row_text in enumerate(row_texts):
         original_row_index = section_start + row_index
-        row_bbox = _table_cells_bbox_for_original_row_range(table, original_row_index, original_row_index + 1)
+        source_record = _visual_study_source_row_record(
+            table,
+            row_index=original_row_index,
+            text=row_text,
+            word_row_records=word_row_records,
+        )
+        row_sources.append(source_record)
         nodes.append(
             {
                 "block_type": "text",
@@ -21450,8 +28989,9 @@ def _build_visual_study_metadata_template_from_rows(
                 "unit_role": "structure_template",
                 "text": row_text,
                 "page": page_number,
-                "bbox": list(row_bbox) if row_bbox is not None else [],
+                "bbox": list(source_record.get("bbox", []) or []),
                 "source_table_id": table_id or None,
+                "source_row_ref": source_record.get("source_row_ref"),
                 "source": "visual_study_panel_leading_rows",
             }
         )
@@ -21470,9 +29010,10 @@ def _build_visual_study_metadata_template_from_rows(
             "source_detection_method": table.get("detection_method"),
         },
         source="visual_study_panel_leading_rows",
+        row_sources=row_sources,
     )
     template["source_table_id"] = table_id or None
-    return template
+    return template if _visual_study_metadata_template_is_committable(template) else None
 
 
 def _build_visual_study_metadata_template_from_word_rows(
@@ -21480,8 +29021,19 @@ def _build_visual_study_metadata_template_from_word_rows(
     structure_templates: list[dict[str, Any]],
     table: dict[str, Any],
     page_number: int,
+    page_words: list[Any] | None = None,
 ) -> dict[str, Any] | None:
+    table_id = str(table.get("table_id") or "")
     atoms = _table_text_atoms_with_bbox(table, restrict_to_table_bbox=False)
+    if page_words:
+        atoms = [
+            {
+                "text": str(record.get("text") or ""),
+                "bbox": list(record.get("bbox", []) or []),
+                "source": "visual_study_word_row_record",
+            }
+            for record in _visual_study_word_row_records(table, page_words=page_words)
+        ]
     if not atoms:
         return None
     visual_rows = _cluster_items_by_y(atoms)
@@ -21489,12 +29041,30 @@ def _build_visual_study_metadata_template_from_word_rows(
         return None
 
     row_entries: list[dict[str, Any]] = []
-    for row_nodes in visual_rows:
+    for row_index, row_nodes in enumerate(visual_rows, start=1):
         row_text = _clean_text(" ".join(str(node.get("text") or "") for node in row_nodes))
         row_bbox = _bbox_union_loose([node.get("bbox") for node in row_nodes])
         if not row_text or row_bbox == (0.0, 0.0, 0.0, 0.0):
             continue
-        row_entries.append({"text": row_text, "bbox": row_bbox})
+        row_entries.append(
+            {
+                "text": row_text,
+                "bbox": row_bbox,
+                "source_row_ref": (
+                    f"{table_id}:word_row:{row_index}"
+                    if table_id
+                    else f"word_row:{row_index}"
+                ),
+                "source_blocks": [
+                    {
+                        "text": str(node.get("text") or ""),
+                        "bbox": list(node.get("bbox", []) or []),
+                        "source": str(node.get("source") or "table_word_evidence"),
+                    }
+                    for node in row_nodes
+                ],
+            }
+        )
     if len(row_entries) < 6:
         return None
 
@@ -21523,7 +29093,6 @@ def _build_visual_study_metadata_template_from_word_rows(
     if not signal.get("is_populated_study_metadata"):
         return None
 
-    table_id = str(table.get("table_id") or "")
     if _structure_template_exists_for_visual_study_table(
         structure_templates,
         table_id=table_id,
@@ -21541,7 +29110,23 @@ def _build_visual_study_metadata_template_from_word_rows(
             "page": page_number,
             "bbox": _bbox_to_list(entry.get("bbox")) if _coerce_bbox(entry.get("bbox")) is not None else [],
             "source_table_id": table_id or None,
+            "source_row_ref": entry.get("source_row_ref"),
             "source": "visual_study_panel_word_evidence_rows",
+        }
+        for entry in row_entries
+    ]
+    row_sources = [
+        {
+            "text": str(entry.get("text") or ""),
+            "bbox": _bbox_to_list(entry.get("bbox")) if _coerce_bbox(entry.get("bbox")) is not None else [],
+            "source_block_ids": [],
+            "source_blocks": [
+                dict(block)
+                for block in entry.get("source_blocks", []) or []
+                if isinstance(block, dict)
+            ],
+            "source_table_id": table_id or None,
+            "source_row_ref": entry.get("source_row_ref"),
         }
         for entry in row_entries
     ]
@@ -21560,9 +29145,10 @@ def _build_visual_study_metadata_template_from_word_rows(
             "source_row_stop": matrix_start,
         },
         source="visual_study_panel_word_evidence_rows",
+        row_sources=row_sources,
     )
     template["source_table_id"] = table_id or None
-    return template
+    return template if _visual_study_metadata_template_is_committable(template) else None
 
 
 def _promote_data_header_templates_back_to_tables(
@@ -22655,11 +30241,11 @@ def _suppress_owned_table_note_text_nodes_after_refinement(
                 )
                 if isinstance(value, int) or (isinstance(value, str) and str(value).isdigit())
             }
-            note_pages.add(int(table.get("page", 0) or 0))
+            if not note_pages and table_page > 0:
+                note_pages.add(table_page)
             for note_page in note_pages:
                 if note_page > 0:
                     owned_note_texts_by_page.setdefault(note_page, set()).add(note_text)
-                    owned_note_texts_by_page.setdefault(note_page + 1, set()).add(note_text)
             for key in ("source_block_id", "block_id", "continuation_source_block_id"):
                 block_id = str(note.get(key) or "").strip()
                 if block_id:
@@ -22762,6 +30348,7 @@ def _close_table_cell_text_ownership_from_page_blocks(
         owned_ids: list[str] = []
         owned_texts: list[str] = []
         owned_bboxes: list[list[float]] = []
+        owned_header_block_count = 0
         for block in page.get("blocks", []) or []:
             if not isinstance(block, dict):
                 continue
@@ -22774,7 +30361,15 @@ def _close_table_cell_text_ownership_from_page_blocks(
                 continue
             if block_id == title_source_id or block_id in existing_owned_ids:
                 continue
-            if not _table_cell_text_block_spatially_owned(block_bbox, table_bbox):
+            semantic_header_group = _table_semantic_header_group_matching_text_block(
+                table,
+                block_text,
+                block_bbox,
+            )
+            if (
+                not _table_cell_text_block_spatially_owned(block_bbox, table_bbox)
+                and semantic_header_group is None
+            ):
                 continue
             if not _table_cell_text_surface_contains_block(block_text, table_surface, table_cell_tokens):
                 continue
@@ -22782,6 +30377,13 @@ def _close_table_cell_text_ownership_from_page_blocks(
             if _table_cell_owned_text_safe_for_text_surface_suppression(block_text):
                 owned_texts.append(block_text)
             owned_bboxes.append(_bbox_to_list(block_bbox))
+            if semantic_header_group is not None:
+                _record_table_semantic_header_source_ownership(
+                    table,
+                    block,
+                    semantic_header_group,
+                )
+                owned_header_block_count += 1
         if not owned_ids:
             continue
         table["owned_text_block_ids"] = _append_unique_strings(table.get("owned_text_block_ids"), owned_ids)
@@ -22791,6 +30393,7 @@ def _close_table_cell_text_ownership_from_page_blocks(
             {
                 "repair": "table_cell_text_ownership_closed_from_page_blocks",
                 "owned_text_block_count": len(owned_ids),
+                "owned_header_block_count": owned_header_block_count,
                 "confidence": 0.88,
             }
         )
@@ -22864,6 +30467,81 @@ def _table_cell_text_block_spatially_owned(
     if tx0 - 3.0 <= center_x <= tx1 + 3.0 and ty0 - 3.0 <= center_y <= ty1 + 3.0:
         return True
     return _bbox_overlap_ratio(block_bbox, table_bbox) >= 0.55
+
+
+def _table_semantic_header_group_matching_text_block(
+    table: dict[str, Any],
+    block_text: str,
+    block_bbox: tuple[float, float, float, float],
+) -> dict[str, Any] | None:
+    block_signature = _normalize_table_cell_ownership_surface(block_text)
+    if not block_signature:
+        return None
+    projection = table.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for payload in projection.values():
+        if not isinstance(payload, dict):
+            continue
+        for group in payload.get("header_column_groups", []) or []:
+            if not isinstance(group, dict):
+                continue
+            group_signature = _normalize_table_cell_ownership_surface(group.get("text") or "")
+            group_bbox = _coerce_bbox(group.get("bbox"))
+            if group_signature != block_signature or group_bbox is None:
+                continue
+            overlap = _bbox_overlap_ratio(block_bbox, group_bbox)
+            if overlap < 0.55:
+                continue
+            candidates.append((overlap, group))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def _record_table_semantic_header_source_ownership(
+    table: dict[str, Any],
+    block: dict[str, Any],
+    group: dict[str, Any],
+) -> None:
+    block_id = str(block.get("block_id") or "").strip()
+    if not block_id:
+        return
+    group["source_block_id"] = block_id
+    group["source_block_bbox"] = list(block.get("bbox") or [])
+    table["header_source_block_ids"] = _append_unique_strings(
+        table.get("header_source_block_ids"),
+        [block_id],
+    )
+    block["semantic_role"] = "business_table_header"
+    block["unit_role"] = "metadata"
+    block["owned_by_table_id"] = table.get("table_id")
+
+    group_text = _normalize_table_cell_ownership_surface(group.get("text") or "")
+    try:
+        group_start_value = group.get("start_leaf_col", group.get("start_col"))
+        group_start_col = int(group_start_value) if group_start_value is not None else -1
+        group_colspan = int(group.get("colspan", 1) or 1)
+    except (TypeError, ValueError):
+        group_start_col = -1
+        group_colspan = 1
+    for span in table.get("span_header_cells", []) or []:
+        if not isinstance(span, dict):
+            continue
+        span_text = _normalize_table_cell_ownership_surface(span.get("text") or "")
+        try:
+            span_col_value = span.get("col")
+            span_col = int(span_col_value) if span_col_value is not None else -1
+            span_colspan = int(span.get("colspan", 1) or 1)
+        except (TypeError, ValueError):
+            continue
+        if (
+            span_text == group_text
+            and span_col == group_start_col
+            and span_colspan == group_colspan
+        ):
+            span["source_block_id"] = block_id
+            span["source_block_bbox"] = list(block.get("bbox") or [])
 
 
 def _table_cell_text_surface_contains_block(text: str, table_surface: str, table_cell_tokens: set[str]) -> bool:
@@ -23243,14 +30921,20 @@ def _attach_result_matrix_statistical_notes_from_words(
             )
             _merge_result_matrix_statistical_notes(table, notes, repair="result_matrix_statistical_notes_attached")
 
-        previous_table = _previous_result_matrix_owner_for_cross_page_note(table_nodes, page_number)
-        if previous_table is None:
-            continue
         notes = _result_matrix_statistical_notes_before_first_boundary(
             row_infos=row_infos,
             page_number=page_number,
             first_table=_first_table_on_page(current_page_tables),
         )
+        if not notes:
+            continue
+        previous_table = _previous_result_matrix_owner_for_cross_page_note(
+            table_nodes,
+            page_number,
+            note_rows=notes,
+        )
+        if previous_table is None:
+            continue
         _merge_result_matrix_statistical_notes(
             previous_table,
             notes,
@@ -23455,6 +31139,99 @@ def _merge_result_matrix_statistical_notes(
     )
 
 
+def _reconcile_explicit_cross_page_result_matrix_note_ownership(
+    *,
+    table_nodes: list[dict[str, Any]],
+    structure_templates: list[dict[str, Any]],
+) -> None:
+    authoritative: dict[tuple[str, int], str] = {}
+    for table in table_nodes:
+        table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+        if not table_id:
+            continue
+        for note in table.get("note_blocks", []) or []:
+            if not isinstance(note, dict):
+                continue
+            if _looks_like_table_note_title_or_label(str(note.get("text") or "")):
+                continue
+            owner_id = str(note.get("owner_table_id") or "").strip()
+            note_scope = str(note.get("note_scope") or "").strip()
+            norm = _compact_text(str(note.get("text") or ""))
+            physical_page = int(note.get("physical_page") or note.get("page") or 0)
+            if owner_id == table_id and note_scope == "previous_table" and norm and physical_page > 0:
+                authoritative[(norm, physical_page)] = table_id
+    if not authoritative:
+        return
+    owners_by_norm: dict[str, set[str]] = {}
+    for (norm, _page), owner_id in authoritative.items():
+        owners_by_norm.setdefault(norm, set()).add(owner_id)
+    authoritative_by_norm = {
+        norm: next(iter(owner_ids))
+        for norm, owner_ids in owners_by_norm.items()
+        if len(owner_ids) == 1
+    }
+
+    def keep_for_table(
+        item: Any,
+        table_id: str,
+        table_page: int,
+        *,
+        allow_unpaged_reference_fallback: bool = False,
+    ) -> bool:
+        if not isinstance(item, dict):
+            return True
+        text = str(item.get("text") or item.get("note_text") or "")
+        if _looks_like_table_note_title_or_label(text):
+            return True
+        norm = _compact_text(text)
+        explicit_page = int(item.get("physical_page") or item.get("page") or 0)
+        evidence_page = explicit_page or table_page
+        owner_id = authoritative.get((norm, evidence_page)) if evidence_page > 0 else None
+        if (
+            not owner_id
+            and explicit_page <= 0
+            and allow_unpaged_reference_fallback
+            and not _looks_like_table_note_title_or_label(text)
+        ):
+            owner_id = authoritative_by_norm.get(norm)
+        return not owner_id or owner_id == table_id
+
+    for table in table_nodes:
+        table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+        if not table_id:
+            continue
+        table_page = int(table.get("page", 0) or 0)
+        for key in ("note_blocks", "content_segments"):
+            items = table.get(key)
+            if isinstance(items, list):
+                table[key] = [item for item in items if keep_for_table(item, table_id, table_page)]
+        for key in ("cell_note_refs", "header_note_refs"):
+            refs = table.get(key)
+            if isinstance(refs, list):
+                table[key] = [
+                    ref
+                    for ref in refs
+                    if keep_for_table(
+                        ref,
+                        table_id,
+                        table_page,
+                        allow_unpaged_reference_fallback=True,
+                    )
+                ]
+
+    for template in structure_templates:
+        page = int(template.get("page", 0) or 0)
+        notes = template.get("note_blocks")
+        if not isinstance(notes, list):
+            continue
+        template["note_blocks"] = [
+            note
+            for note in notes
+            if not isinstance(note, dict)
+            or (_compact_text(str(note.get("text") or "")), page) not in authoritative
+        ]
+
+
 def _next_table_on_same_page(table: dict[str, Any], page_tables: list[dict[str, Any]]) -> dict[str, Any] | None:
     table_bbox = _coerce_bbox(table.get("bbox"))
     if table_bbox is None:
@@ -23488,6 +31265,8 @@ def _first_table_on_page(page_tables: list[dict[str, Any]]) -> dict[str, Any] | 
 def _previous_result_matrix_owner_for_cross_page_note(
     table_nodes: list[dict[str, Any]],
     page_number: int,
+    *,
+    note_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     candidates: list[tuple[float, dict[str, Any]]] = []
     for table in table_nodes:
@@ -23503,12 +31282,61 @@ def _previous_result_matrix_owner_for_cross_page_note(
             continue
         near_bottom = bool(table.get("near_page_bottom")) or float(table_bbox[3]) >= 460.0
         has_continuation_state = bool(table.get("is_continuation") or table.get("continued_to") or table.get("continued_from_table_id") or table.get("continued_from"))
-        if not near_bottom and not has_continuation_state:
+        has_marker_anchor = _cross_page_note_rows_match_table_marker_anchor(table, note_rows or [])
+        if not near_bottom and not has_continuation_state and not has_marker_anchor:
             continue
         candidates.append((float(table_page) * 1000.0 + float(table_bbox[3]), table))
     if not candidates:
         return None
     return sorted(candidates, key=lambda item: item[0])[-1][1]
+
+
+def _cross_page_note_rows_match_table_marker_anchor(
+    table: dict[str, Any],
+    note_rows: list[dict[str, Any]],
+) -> bool:
+    markers = {
+        marker.lower()
+        for note in note_rows
+        if isinstance(note, dict)
+        for marker, _note_text in _extract_table_note_marker_segments(str(note.get("text") or ""))
+        if marker
+    }
+    if not markers:
+        return False
+    anchor_texts = {
+        _clean_text(str(cell.get("text") or ""))
+        for cell in [
+        *_table_note_ref_header_cells(table),
+        *_table_note_ref_data_cells(table),
+        ]
+        if isinstance(cell, dict) and _clean_text(str(cell.get("text") or ""))
+    }
+    projection = table.get("semantic_projection_v2") or {}
+    if isinstance(projection, dict):
+        for payload in projection.values():
+            if not isinstance(payload, dict):
+                continue
+            for group_key in ("condition_groups", "header_group_rows", "study_groups"):
+                for group in payload.get(group_key, []) or []:
+                    if not isinstance(group, dict):
+                        continue
+                    descriptors = group.get("descriptors") or {}
+                    if not isinstance(descriptors, dict):
+                        continue
+                    anchor_texts.update(
+                        _clean_text(str(value or ""))
+                        for value in descriptors.values()
+                        if _clean_text(str(value or ""))
+                    )
+    return any(
+        _header_text_has_terminal_note_marker(
+            anchor_text,
+            marker,
+        )
+        for marker in markers
+        for anchor_text in anchor_texts
+    )
 
 
 def _upgrade_borderless_tables_from_word_schema_rows(
@@ -24152,6 +31980,64 @@ def _table_top_rows_text(table: dict[str, Any], *, max_rows: int) -> str:
     )
 
 
+def _promote_visual_study_trailing_note_label(table: dict[str, Any]) -> None:
+    display_grid = table.get("display_grid") or table.get("raw_grid") or []
+    if not isinstance(display_grid, list) or not display_grid:
+        return
+    trailing_row = display_grid[-1]
+    if not isinstance(trailing_row, list):
+        return
+    non_empty = [_clean_text(str(cell or "")) for cell in trailing_row if _clean_text(str(cell or ""))]
+    if len(non_empty) != 1 or not _study_panel_note_start_text(non_empty[0]):
+        return
+    note_text = non_empty[0]
+    trailing_row_number = len(display_grid)
+    trailing_bboxes = [
+        bbox
+        for cell in table.get("cells", []) or []
+        if isinstance(cell, dict)
+        and int(cell.get("row", 0) or 0) == trailing_row_number
+        and (bbox := _coerce_bbox(cell.get("bbox"))) is not None
+    ]
+    for key in ("display_grid", "raw_grid", "grid", "data_grid"):
+        grid = table.get(key)
+        if not isinstance(grid, list) or not grid:
+            continue
+        if _compact_text(_grid_row_text(grid[-1])) == _compact_text(note_text):
+            table[key] = [list(row) for row in grid[:-1] if isinstance(row, list)]
+    table["cells"] = [
+        cell
+        for cell in table.get("cells", []) or []
+        if not isinstance(cell, dict) or int(cell.get("row", 0) or 0) != trailing_row_number
+    ]
+    table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+    existing_notes = [dict(note) for note in table.get("note_blocks", []) or [] if isinstance(note, dict)]
+    if not any(_compact_text(str(note.get("text") or "")) == _compact_text(note_text) for note in existing_notes):
+        label_count = sum(
+            1 for note in existing_notes
+            if _study_panel_note_start_text(str(note.get("text") or ""))
+        ) + 1
+        existing_notes.append(
+            {
+                "role": "note",
+                "text": note_text,
+                "relation": "below",
+                "page": int(table.get("page", 0) or 0),
+                "bbox": _bbox_to_list(_bbox_union_loose(trailing_bboxes)) if trailing_bboxes else [],
+                "source": "study_panel_trailing_note_label",
+                "source_type": "study_panel_ownership_refinement",
+                "source_row_ref": f"{table_id}:trailing_note_label:{trailing_row_number}",
+                "note_group_id": f"{table_id}:note_group:{label_count}",
+                "note_component_role": "label",
+                "note_line_index": 0,
+                "presentation_mode": "lines",
+            }
+        )
+    table["note_blocks"] = existing_notes
+    table["trailing_note_rows_extracted"] = True
+    _refresh_study_panel_note_groups(table)
+
+
 def _crop_visual_study_table(table: dict[str, Any], start_index: int) -> None:
     if start_index <= 0:
         return
@@ -24187,6 +32073,7 @@ def _crop_visual_study_table(table: dict[str, Any], start_index: int) -> None:
                     "confidence": 0.88,
                 }
             )
+    _promote_visual_study_trailing_note_label(table)
     _refresh_row_texts_from_grid(table)
     table["row_count"] = len(table.get("display_grid") or table.get("raw_grid") or [])
     profile = table.get("table_structure_profile")
@@ -24205,8 +32092,13 @@ def _refine_study_table_panels_after_ast(
     *,
     structure_templates: list[dict[str, Any]],
     table_nodes: list[dict[str, Any]],
+    text_nodes_by_id: dict[str, dict[str, Any]],
+    page_words_by_page: dict[int, list[Any]] | None = None,
 ) -> None:
-    _split_repeated_study_metadata_templates(structure_templates)
+    _split_repeated_study_metadata_templates(
+        structure_templates,
+        text_nodes_by_id=text_nodes_by_id,
+    )
     _split_embedded_study_metadata_from_table_notes(table_nodes)
     _move_terminal_template_notes_to_tables(structure_templates, table_nodes)
 
@@ -24215,12 +32107,14 @@ def _refine_study_table_panels_after_ast(
         tables_by_page.setdefault(int(table.get("page", 0) or 0), []).append(table)
 
     for page in sorted(tables_by_page):
+        page_words = list((page_words_by_page or {}).get(page, []) or [])
         for table in tables_by_page[page]:
             _move_mixed_table_leading_tail_to_previous_owner(
                 table,
                 structure_templates=structure_templates,
                 tables_by_page=tables_by_page,
                 page=page,
+                page_words=page_words,
             )
             grid = table.get("display_grid") or table.get("raw_grid") or []
             if not isinstance(grid, list) or len(grid) < 4:
@@ -24229,36 +32123,75 @@ def _refine_study_table_panels_after_ast(
                 continue
             section_start = _visual_table_study_section_start(grid)
             matrix_start = _visual_table_study_matrix_start(grid)
-            leading_note_texts: list[str] = []
             if section_start is not None and section_start >= 0:
-                for leading_row in grid[:section_start]:
-                    leading_text = _grid_row_text(leading_row)
-                    if _study_panel_note_start_text(leading_text) or _study_panel_definition_note_text(leading_text):
-                        leading_note_texts.append(leading_text)
+                leading_rows = _visual_study_leading_row_evidence(
+                    table,
+                    page_number=page,
+                    section_start=section_start,
+                    page_words=page_words,
+                )
+                leading_note_rows = [
+                    row
+                    for row in leading_rows
+                    if row.get("role") == "previous_table_note"
+                ]
                 previous_page_tables = tables_by_page.get(page - 1, [])
-                if leading_note_texts and previous_page_tables:
+                previous_table: dict[str, Any] | None = None
+                if leading_note_rows and previous_page_tables:
                     previous_table = sorted(previous_page_tables, key=lambda item: (item.get("bbox") or [0, 0, 0, 0])[1])[-1]
-                    _replace_open_table_note_with_continuation(previous_table, leading_note_texts, page=page)
                 crop_start = section_start
+                metadata_template: dict[str, Any] | None = None
+                metadata_owner = _structure_template_for_visual_study_table(
+                    structure_templates,
+                    table_id=str(table.get("table_id") or ""),
+                    page_number=page,
+                    title_text=_grid_row_text(grid[section_start]),
+                )
                 if matrix_start is not None and matrix_start > section_start:
                     metadata_rows = grid[section_start:matrix_start]
                     if len(metadata_rows) >= 4 and any(_study_panel_metadata_anchor_text(_grid_row_text(row)) for row in metadata_rows):
-                        metadata_template = _build_visual_study_metadata_template_from_rows(
-                            structure_templates=structure_templates,
-                            table=table,
-                            page_number=page,
-                            section_start=section_start,
-                            matrix_start=matrix_start,
-                        )
+                        if metadata_owner is None:
+                            metadata_template = _build_visual_study_metadata_template_from_rows(
+                                structure_templates=structure_templates,
+                                table=table,
+                                page_number=page,
+                                section_start=section_start,
+                                matrix_start=matrix_start,
+                                page_words=page_words,
+                            )
+                            if metadata_template is None:
+                                metadata_template = _build_visual_study_metadata_template_from_word_rows(
+                                    structure_templates=structure_templates,
+                                    table=table,
+                                    page_number=page,
+                                    page_words=page_words,
+                                )
+                            metadata_owner = metadata_template
+                        if not _visual_study_metadata_template_is_committable(metadata_owner):
+                            _mark_visual_study_transfer_uncommitted(
+                                table,
+                                section_start=section_start,
+                                matrix_start=matrix_start,
+                            )
+                            continue
                         if metadata_template is not None:
                             structure_templates.append(metadata_template)
                         crop_start = matrix_start
+                if leading_note_rows and previous_table is not None:
+                    _replace_open_table_note_with_continuation(previous_table, leading_note_rows, page=page)
+                _commit_visual_study_leading_row_ownership(
+                    table,
+                    leading_rows,
+                    previous_table=previous_table,
+                    metadata_template=metadata_owner,
+                )
                 _crop_visual_study_table(table, crop_start)
             elif matrix_start is not None and matrix_start > 0:
                 _crop_visual_study_table(table, matrix_start)
             _repair_stale_header_from_display_grid(table)
             if table.get("note_blocks"):
                 _attach_table_header_note_refs(table, [dict(item) for item in table.get("note_blocks", []) or []])
+    _resolve_study_panel_cross_component_note_refs(structure_templates, table_nodes)
 
 
 def _attach_study_metadata_columnar_condition_projections(
@@ -24464,6 +32397,7 @@ def _bind_study_context_result_matrices(
     *,
     structure_templates: list[dict[str, Any]],
     table_nodes: list[dict[str, Any]],
+    page_words_by_page: dict[int, list[Any]] | None = None,
 ) -> None:
     templates_by_page: dict[int, list[dict[str, Any]]] = {}
     for template in structure_templates:
@@ -24483,7 +32417,11 @@ def _bind_study_context_result_matrices(
         template = _nearest_preceding_study_template_for_table(templates, table)
         if template is None:
             continue
-        binding = _build_study_context_result_matrix_binding(template, table)
+        binding = _build_study_context_result_matrix_binding(
+            template,
+            table,
+            page_words=list((page_words_by_page or {}).get(page, []) or []),
+        )
         if binding is None:
             continue
         table["semantic_context_binding"] = binding
@@ -24508,6 +32446,7 @@ def _bind_study_context_result_matrices(
             "leaf_headers": binding.get("leaf_headers", []),
             "condition_groups": binding.get("study_groups", []),
             "header_group_rows": binding.get("header_group_rows", []),
+            "matrix_header_rows": binding.get("matrix_header_rows", []),
             "span_rows": binding.get("trailing_colspan_rows", []),
             "note_rows": binding.get("note_rows", []),
             "context_template_id": binding.get("context_template_id"),
@@ -24552,8 +32491,20 @@ _PK_OVERVIEW_INVENTORY_SCHEMA_COLUMNS = [
     "部分",
 ]
 
+_TOXICOKINETIC_OVERVIEW_INVENTORY_SCHEMA_COLUMNS = [
+    "试验类型",
+    "试验系统",
+    "给药方法",
+    "剂量(mg/kg)",
+    "GLP依从性",
+    "试验编号",
+    "卷",
+    "页码",
+]
+
 _OVERVIEW_INVENTORY_PROFILE = "nonclinical_overview_inventory_table"
 _PK_OVERVIEW_INVENTORY_PROFILE = "pk_overview_inventory_table"
+_TOXICOKINETIC_OVERVIEW_INVENTORY_PROFILE = "toxicokinetic_overview_inventory_table"
 
 
 _DOSE_RESPONSE_VALUE_RE = re.compile(
@@ -24622,12 +32573,20 @@ def _project_genotoxicity_assay_matrix_tables(
             continue
         if isinstance(parent, dict) and parent_projection:
             _ensure_table_continuation_backlink(parent, table)
+            _inherit_genotoxicity_multilevel_header_spans(
+                table,
+                parent=parent,
+                assay_kind=assay_kind,
+                logical_column_count=len(semantic_grid[0]),
+            )
         _apply_genotoxicity_assay_matrix_projection(
             table,
             semantic_grid=semantic_grid,
             assay_kind=assay_kind or "dna_repair_matrix",
             continuation_schema_inherited=bool(parent_projection),
         )
+    _attach_genotoxicity_continuation_marker_note_refs(tables)
+    _attach_genotoxicity_definition_note_refs(tables)
     _bind_preceding_ctd_study_titles_to_genotoxicity_tables(
         tables,
         document_ast_pages=document_ast_pages,
@@ -24637,6 +32596,152 @@ def _project_genotoxicity_assay_matrix_tables(
         tables,
         document_ast_pages=document_ast_pages,
     )
+
+
+def _attach_genotoxicity_continuation_marker_note_refs(tables: list[dict[str, Any]]) -> None:
+    by_id = {
+        str(table.get("table_id") or "").strip(): table
+        for table in tables
+        if isinstance(table, dict) and str(table.get("table_id") or "").strip()
+    }
+    for child in tables:
+        if not isinstance(child, dict):
+            continue
+        child_projection = (child.get("semantic_projection_v2") or {}).get("genotoxicity_assay_matrix_projection")
+        if not isinstance(child_projection, dict):
+            continue
+        parent_id = str(child.get("continued_from_table_id") or child.get("continued_from") or "").strip()
+        parent = by_id.get(parent_id)
+        if not isinstance(parent, dict):
+            continue
+        parent_projection = (parent.get("semantic_projection_v2") or {}).get("genotoxicity_assay_matrix_projection")
+        if not isinstance(parent_projection, dict):
+            continue
+        note_segments = [
+            dict(note)
+            for note in child.get("note_blocks", []) or []
+            if isinstance(note, dict) and _extract_table_note_marker_segments(str(note.get("text") or ""))
+        ]
+        if not note_segments:
+            continue
+        refs = _genotoxicity_continuation_header_note_refs(parent, child, note_segments)
+        if not refs:
+            continue
+        _append_genotoxicity_continuation_header_note_refs(parent, refs)
+        _append_genotoxicity_continuation_header_note_refs(child, refs)
+
+
+def _genotoxicity_continuation_header_note_refs(
+    parent: dict[str, Any],
+    child: dict[str, Any],
+    note_segments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    header_cells = _table_note_ref_header_cells(parent)
+    if not header_cells:
+        return []
+    refs: list[dict[str, Any]] = []
+    child_id = str(child.get("table_id") or child.get("block_id") or "").strip()
+    for note_segment in note_segments:
+        note_text = _clean_text(str(note_segment.get("text") or ""))
+        for marker, marker_note_text in _extract_table_note_marker_segments(note_text):
+            if not re.fullmatch(r"[A-Za-z]|\d{1,3}", marker):
+                continue
+            for header_cell in header_cells:
+                header_text = _clean_text(str(header_cell.get("text") or ""))
+                if not _header_text_has_terminal_note_marker(header_text, marker):
+                    continue
+                one_based_col = int(header_cell.get("col", 0) or 0)
+                ref = {
+                    "marker": marker,
+                    "header_row": int(header_cell.get("row", 0) or 0),
+                    "header_col": max(0, one_based_col - 1),
+                    "header_col_1based": one_based_col,
+                    "header_text": header_text,
+                    "note_text": marker_note_text,
+                    "note_source_block_id": str(note_segment.get("source_block_id") or "").strip(),
+                    "note_source_table_id": child_id,
+                    "note_source_page": child.get("page"),
+                    "relation": "continuation_chain_header_note_ref",
+                    "source": "genotoxicity_continuation_marker_note_ref",
+                }
+                refs.append(ref)
+    return refs
+
+
+def _attach_genotoxicity_definition_note_refs(tables: list[dict[str, Any]]) -> None:
+    by_id = {
+        str(table.get("table_id") or "").strip(): table
+        for table in tables
+        if isinstance(table, dict) and str(table.get("table_id") or "").strip()
+    }
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        projection = (table.get("semantic_projection_v2") or {}).get("genotoxicity_assay_matrix_projection")
+        if not isinstance(projection, dict):
+            continue
+        _apply_table_definition_note_profiles(table)
+        definition_segments = _table_definition_note_segments(table)
+        if not definition_segments:
+            continue
+        _attach_table_header_definition_refs(
+            table,
+            definition_segments,
+            source="genotoxicity_definition_note_ref",
+        )
+        parent_id = str(table.get("continued_from_table_id") or table.get("continued_from") or "").strip()
+        parent = by_id.get(parent_id)
+        if not isinstance(parent, dict):
+            continue
+        parent_projection = (parent.get("semantic_projection_v2") or {}).get("genotoxicity_assay_matrix_projection")
+        if not isinstance(parent_projection, dict):
+            continue
+        _attach_table_header_definition_refs(
+            parent,
+            definition_segments,
+            note_owner_table=table,
+            relation="continuation_chain_header_definition_ref",
+            source="genotoxicity_continuation_definition_note_ref",
+        )
+        parent_refs = [
+            dict(ref)
+            for ref in parent.get("header_definition_refs", []) or []
+            if isinstance(ref, dict)
+            and str(ref.get("note_source_table_id") or "") == str(table.get("table_id") or "")
+        ]
+        if parent_refs:
+            _append_table_header_definition_refs(table, parent_refs)
+
+
+def _append_genotoxicity_continuation_header_note_refs(
+    table: dict[str, Any],
+    refs: list[dict[str, Any]],
+) -> None:
+    existing = [dict(item) for item in table.get("header_note_refs", []) or [] if isinstance(item, dict)]
+    seen = {
+        (
+            str(item.get("marker") or ""),
+            int(item.get("header_col", -1) or -1),
+            str(item.get("header_text") or ""),
+            str(item.get("note_text") or ""),
+            str(item.get("note_source_table_id") or ""),
+        )
+        for item in existing
+    }
+    for ref in refs:
+        key = (
+            str(ref.get("marker") or ""),
+            int(ref.get("header_col", -1) or -1),
+            str(ref.get("header_text") or ""),
+            str(ref.get("note_text") or ""),
+            str(ref.get("note_source_table_id") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        existing.append(dict(ref))
+    if existing:
+        table["header_note_refs"] = existing
 
 
 def _genotoxicity_bacterial_reverse_mutation_semantic_grid(table: dict[str, Any]) -> list[list[str]]:
@@ -24657,7 +32762,7 @@ def _genotoxicity_bacterial_reverse_mutation_semantic_grid(table: dict[str, Any]
         and "WP2" in text
     ):
         return []
-    header = ["代谢活化", "供试品", "剂量水平", "TA98", "TA100", "TA1535", "TA1537", "WP2uvrA"]
+    header, header_spans = _genotoxicity_bacterial_reverse_mutation_header_schema(rows)
     projected: list[list[str]] = [header]
     current_activation = ""
     current_subject = ""
@@ -24698,7 +32803,867 @@ def _genotoxicity_bacterial_reverse_mutation_semantic_grid(table: dict[str, Any]
             dose,
             *values[:5],
         ])
-    return projected if len(projected) >= 3 else []
+    if len(projected) < 3:
+        return []
+    if header_spans:
+        table["span_header_cells"] = _merge_genotoxicity_header_span_cells(
+            table.get("span_header_cells"),
+            header_spans,
+        )
+    return projected
+
+
+def _genotoxicity_bacterial_reverse_mutation_header_schema(
+    rows: list[list[str]],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    default_header = ["代谢活化", "供试品", "剂量水平", "TA98", "TA100", "TA1535", "TA1537", "WP2uvrA"]
+    header_rows = rows[: min(4, len(rows))]
+    leaf_row = next(
+        (
+            row
+            for row in header_rows
+            if "TA98" in row and "TA100" in row and any("WP2" in str(cell or "") for cell in row)
+        ),
+        [],
+    )
+    if not leaf_row:
+        return default_header, []
+    leaf_row_index = header_rows.index(leaf_row)
+    leaf_cols: list[tuple[int, str]] = []
+    for col_index, cell in enumerate(leaf_row):
+        text = _clean_text(str(cell or ""))
+        if text in {"TA98", "TA100", "TA1535", "TA1537", "WP2uvrA"}:
+            leaf_cols.append((col_index, text))
+    if len(leaf_cols) < 3:
+        return default_header, []
+    leaf_start = leaf_cols[0][0]
+    dose_col = _genotoxicity_header_column_index(header_rows, "剂量水平")
+    if dose_col is None:
+        dose_col = max(0, leaf_start - 2)
+    dose_label = _genotoxicity_header_text_at_column(header_rows, dose_col, {"剂量水平", "浓度"})
+    dose_unit = _genotoxicity_header_unit_at_column(header_rows, dose_col)
+    dose_header = _join_genotoxicity_header_label_and_unit(dose_label or "剂量水平", dose_unit)
+
+    leaf_headers = [text for _, text in leaf_cols]
+    header = ["代谢活化", "供试品", dose_header, *leaf_headers]
+    spans: list[dict[str, Any]] = [
+        {
+            "row": 0,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "text": header[0],
+            "source": "genotoxicity_multilevel_header_projection",
+        },
+        {
+            "row": 0,
+            "col": 1,
+            "rowspan": 2,
+            "colspan": 1,
+            "text": header[1],
+            "source": "genotoxicity_multilevel_header_projection",
+        },
+        {
+            "row": 0,
+            "col": 2,
+            "rowspan": 2,
+            "colspan": 1,
+            "text": dose_header,
+            "source": "genotoxicity_multilevel_header_projection",
+        }
+    ]
+    group_text = _genotoxicity_bacterial_result_group_header(header_rows[:leaf_row_index], leaf_start, leaf_cols[-1][0])
+    if group_text:
+        spans.append(
+            {
+                "row": 0,
+                "col": 3,
+                "rowspan": 1,
+                "colspan": len(leaf_headers),
+                "text": group_text,
+                "source": "genotoxicity_multilevel_header_projection",
+            }
+        )
+    return header, spans
+
+
+def _genotoxicity_header_column_index(rows: list[list[str]], needle: str) -> int | None:
+    for row in rows:
+        for col_index, cell in enumerate(row):
+            if needle in _clean_text(str(cell or "")):
+                return col_index
+    return None
+
+
+def _genotoxicity_header_text_at_column(
+    rows: list[list[str]],
+    col_index: int,
+    accepted_tokens: set[str],
+) -> str:
+    for row in rows:
+        if col_index >= len(row):
+            continue
+        text = _clean_text(str(row[col_index] or ""))
+        if text and any(token in text for token in accepted_tokens):
+            return text
+    return ""
+
+
+def _genotoxicity_header_unit_at_column(rows: list[list[str]], col_index: int) -> str:
+    for row in rows:
+        if col_index >= len(row):
+            continue
+        text = _clean_text(str(row[col_index] or ""))
+        if re.fullmatch(r"[（(][^)）]+[)）]", text):
+            return text
+    return ""
+
+
+def _join_genotoxicity_header_label_and_unit(label: str, unit: str) -> str:
+    label = _clean_text(label)
+    unit = _clean_text(unit)
+    if not unit or unit in label:
+        return label
+    return f"{label}{unit}"
+
+
+def _genotoxicity_bacterial_result_group_header(
+    rows: list[list[str]],
+    leaf_start_col: int,
+    leaf_end_col: int,
+) -> str:
+    parts: list[str] = []
+    for row in rows:
+        row_parts: list[str] = []
+        for col_index in range(leaf_start_col, min(leaf_end_col + 1, len(row))):
+            text = _clean_text(str(row[col_index] or ""))
+            if not text:
+                continue
+            if text in {"TA98", "TA100", "TA1535", "TA1537", "WP2uvrA"}:
+                continue
+            row_parts.append(text)
+        row_text = _clean_text(" ".join(row_parts))
+        if row_text and row_text not in parts:
+            parts.append(row_text)
+    return _clean_text(" ".join(parts))
+
+
+def _merge_genotoxicity_header_span_cells(
+    existing: Any,
+    spans: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = [
+        dict(item)
+        for item in existing or []
+        if isinstance(item, dict)
+    ]
+    seen = {
+        (
+            int(item.get("row", 0) or 0),
+            int(item.get("col", 0) or 0),
+            int(item.get("rowspan", 1) or 1),
+            int(item.get("colspan", 1) or 1),
+            _clean_text(str(item.get("text") or "")),
+        )
+        for item in merged
+    }
+    for span in spans:
+        key = (
+            int(span.get("row", 0) or 0),
+            int(span.get("col", 0) or 0),
+            int(span.get("rowspan", 1) or 1),
+            int(span.get("colspan", 1) or 1),
+            _clean_text(str(span.get("text") or "")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(dict(span))
+    return merged
+
+
+_SOURCE_BODY_ROW_GROUP_PRESENTATION_SOURCES = {
+    "sparse_body_rowspan_projection",
+    "leading_stub_word_rowspan_projection",
+    "final_semantic_row_group_resolution",
+}
+
+
+def _resolve_final_semantic_row_groups(
+    tables: list[dict[str, Any]],
+) -> None:
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        if table.get("semantic_grid_replaced"):
+            _invalidate_stale_body_spans_after_semantic_grid_replacement(table)
+        semantic_grid = [
+            [_clean_text(str(cell or "")) for cell in row]
+            for row in table.get("semantic_grid", []) or []
+            if isinstance(row, list)
+        ]
+        provenance = {
+            int(item.get("semantic_row", -1)): item
+            for item in table.get("semantic_row_provenance", []) or []
+            if isinstance(item, dict)
+            and isinstance(item.get("semantic_row"), int)
+        }
+        body_rows = sorted(
+            row_index
+            for row_index, item in provenance.items()
+            if str(item.get("role") or "").strip().lower() == "body"
+            and 0 <= row_index < len(semantic_grid)
+        )
+        if len(body_rows) < 2 or body_rows != list(range(body_rows[0], body_rows[-1] + 1)):
+            table.pop("semantic_row_groups", None)
+            continue
+        if not _semantic_rows_have_strict_source_order(provenance, body_rows):
+            table.pop("semantic_row_groups", None)
+            continue
+
+        col_count = max((len(row) for row in semantic_grid), default=0)
+        candidates: list[tuple[int, int, list[dict[str, Any]]]] = []
+        for key_col in range(col_count):
+            groups: list[dict[str, Any]] = []
+            anchors = [
+                row_index
+                for row_index in body_rows
+                if key_col < len(semantic_grid[row_index])
+                and _clean_text(str(semantic_grid[row_index][key_col] or ""))
+            ]
+            for anchor_index, start_row in enumerate(anchors):
+                end_row = (
+                    anchors[anchor_index + 1] - 1
+                    if anchor_index + 1 < len(anchors)
+                    else body_rows[-1]
+                )
+                if end_row <= start_row:
+                    continue
+                continuation_rows = list(range(start_row + 1, end_row + 1))
+                static_cols = [
+                    col
+                    for col in range(col_count)
+                    if col < len(semantic_grid[start_row])
+                    and _clean_text(str(semantic_grid[start_row][col] or ""))
+                    and all(
+                        col >= len(semantic_grid[row_index])
+                        or not _clean_text(str(semantic_grid[row_index][col] or ""))
+                        for row_index in continuation_rows
+                    )
+                ]
+                detail_cols = [
+                    col
+                    for col in range(col_count)
+                    if col not in static_cols
+                    and all(
+                        col < len(semantic_grid[row_index])
+                        and _clean_text(str(semantic_grid[row_index][col] or ""))
+                        for row_index in range(start_row, end_row + 1)
+                    )
+                ]
+                if (
+                    key_col not in static_cols
+                    or len(static_cols) < 2
+                    or not detail_cols
+                    or any(detail_col <= key_col for detail_col in detail_cols)
+                ):
+                    continue
+                if not all(
+                    any(
+                        col < len(semantic_grid[row_index])
+                        and _clean_text(str(semantic_grid[row_index][col] or ""))
+                        for col in detail_cols
+                    )
+                    for row_index in continuation_rows
+                ):
+                    continue
+                source_refs = list(
+                    dict.fromkeys(
+                        str(ref or "").strip()
+                        for row_index in range(start_row, end_row + 1)
+                        for ref in provenance[row_index].get("source_word_refs", []) or []
+                        if str(ref or "").strip()
+                    )
+                )
+                if not source_refs:
+                    continue
+                groups.append(
+                    {
+                        "group_key_col": key_col,
+                        "start_semantic_row": start_row,
+                        "end_semantic_row": end_row,
+                        "rowspan": end_row - start_row + 1,
+                        "anchor_text": semantic_grid[start_row][key_col],
+                        "static_cols": static_cols,
+                        "detail_cols": detail_cols,
+                        "source_row_refs": source_refs,
+                        "source": "final_semantic_row_group_resolution",
+                        "confidence": 0.97,
+                    }
+                )
+            if len(groups) >= 2:
+                candidates.append((sum(int(group["rowspan"]) for group in groups), -key_col, groups))
+
+        if not candidates:
+            table.pop("semantic_row_groups", None)
+            continue
+        _, _, accepted = max(candidates, key=lambda item: (item[0], len(item[2]), item[1]))
+        table_id = str(table.get("table_id") or table.get("block_id") or "table").strip() or "table"
+        for index, group in enumerate(accepted, start=1):
+            group["semantic_group_id"] = f"{table_id}:semantic_row_group:{index}"
+        table["semantic_row_groups"] = accepted
+
+
+def _invalidate_stale_body_spans_after_semantic_grid_replacement(
+    table: dict[str, Any],
+) -> None:
+    invalidated = bool(table.pop("presentation_spans", None))
+    existing_cell_spans = [
+        span
+        for span in table.get("cell_spans", []) or []
+        if isinstance(span, dict)
+    ]
+    retained_cell_spans = [
+        span
+        for span in existing_cell_spans
+        if str(span.get("role") or "").strip().lower() != "body"
+    ]
+    if len(retained_cell_spans) != len(existing_cell_spans):
+        invalidated = True
+    if retained_cell_spans:
+        table["cell_spans"] = retained_cell_spans
+    else:
+        table.pop("cell_spans", None)
+    if invalidated:
+        table["stale_body_spans_invalidated"] = True
+
+
+def _semantic_rows_have_strict_source_order(
+    provenance: dict[int, dict[str, Any]],
+    row_indices: list[int],
+) -> bool:
+    previous_top: float | None = None
+    for row_index in row_indices:
+        item = provenance.get(row_index) or {}
+        try:
+            y_min = float(item.get("source_y_min"))
+            y_max = float(item.get("source_y_max"))
+        except (TypeError, ValueError):
+            return False
+        if y_max < y_min or (previous_top is not None and y_min <= previous_top):
+            return False
+        if not [ref for ref in item.get("source_word_refs", []) or [] if str(ref or "").strip()]:
+            return False
+        previous_top = y_min
+    return True
+
+
+def _project_source_body_row_groups_to_presentation_spans(
+    tables: list[dict[str, Any]],
+) -> None:
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        semantic_grid = [
+            [_clean_text(str(cell or "")) for cell in row]
+            for row in table.get("semantic_grid", []) or []
+            if isinstance(row, list)
+        ]
+        if len(semantic_grid) < 3:
+            continue
+        groups = _source_body_row_group_candidates(table)
+        if not groups:
+            continue
+        accepted: list[dict[str, Any]] = []
+        occupied: set[tuple[int, int]] = set()
+        rejected = 0
+        for group in groups:
+            span = _source_body_row_group_presentation_span(table, semantic_grid, group)
+            if span is None:
+                rejected += 1
+                continue
+            covered = {
+                (row, int(span["col"]))
+                for row in range(int(span["row"]), int(span["row"]) + int(span["rowspan"]))
+            }
+            if occupied.intersection(covered):
+                rejected += 1
+                continue
+            occupied.update(covered)
+            accepted.append(span)
+        if not accepted:
+            continue
+        accepted.sort(key=lambda item: (int(item["row"]), int(item["col"]), -int(item["rowspan"])))
+        table["presentation_spans"] = accepted
+        projection = dict(table.get("semantic_projection_v2") or {})
+        projection["source_body_row_group_presentation_projection"] = {
+            "source": "source_body_row_group_presentation_projection",
+            "semantic_profile": "source_backed_body_span_presentation",
+            "candidate_group_count": len(groups),
+            "accepted_span_count": len(accepted),
+            "rejected_group_count": rejected,
+            "coordinate_space": "semantic_grid",
+        }
+        table["semantic_projection_v2"] = projection
+
+
+def _project_canonical_table_cell_spans(
+    tables: list[dict[str, Any]],
+) -> None:
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        candidates: list[tuple[str, dict[str, Any]]] = []
+        for role, key in (("header", "span_header_cells"), ("body", "presentation_spans")):
+            candidates.extend(
+                (role, {**span, "_canonical_adapter_priority": 400})
+                for span in table.get(key, []) or []
+                if isinstance(span, dict)
+            )
+        for span in table.get("logical_cells", []) or []:
+            if not isinstance(span, dict):
+                continue
+            priority = _canonical_logical_header_span_priority(span)
+            if priority <= 0:
+                continue
+            candidates.append(("header", {**span, "_canonical_adapter_priority": priority}))
+        if not candidates:
+            table.pop("cell_spans", None)
+            continue
+
+        candidates.sort(
+            key=lambda item: (
+                -int(item[1].get("_canonical_adapter_priority", 0) or 0),
+                0 if item[0] == "header" else 1,
+            )
+        )
+
+        accepted: list[dict[str, Any]] = []
+        occupied: dict[str, set[tuple[int, int]]] = {"header": set(), "body": set()}
+        rejected = 0
+        seen: set[tuple[str, int, int, int, int, str]] = set()
+        for role, candidate in candidates:
+            span = _canonical_table_cell_span(table, candidate, role=role)
+            if span is None:
+                rejected += 1
+                continue
+            key = (
+                role,
+                int(span["row"]),
+                int(span["col"]),
+                int(span["rowspan"]),
+                int(span["colspan"]),
+                _compact_text(str(span["text"])),
+            )
+            if key in seen:
+                continue
+            covered = {
+                (row, col)
+                for row in range(int(span["row"]), int(span["row"]) + int(span["rowspan"]))
+                for col in range(int(span["col"]), int(span["col"]) + int(span["colspan"]))
+            }
+            if occupied[role].intersection(covered):
+                rejected += 1
+                continue
+            seen.add(key)
+            occupied[role].update(covered)
+            accepted.append(span)
+
+        if not accepted:
+            table.pop("cell_spans", None)
+            continue
+        role_order = {"header": 0, "body": 1}
+        accepted.sort(
+            key=lambda item: (
+                role_order.get(str(item.get("role") or ""), 9),
+                int(item["row"]),
+                int(item["col"]),
+                -int(item["rowspan"]),
+                -int(item["colspan"]),
+            )
+        )
+        table_id = str(table.get("table_id") or table.get("block_id") or "table").strip() or "table"
+        for index, span in enumerate(accepted, start=1):
+            span["span_id"] = f"{table_id}:cell_span:{index}"
+        table["cell_spans"] = accepted
+        projection = dict(table.get("semantic_projection_v2") or {})
+        projection["canonical_cell_span_projection"] = {
+            "source": "canonical_cell_span_projection",
+            "semantic_profile": "canonical_table_cell_spans",
+            "coordinate_space": "semantic_grid",
+            "candidate_span_count": len(candidates),
+            "accepted_span_count": len(accepted),
+            "rejected_span_count": rejected,
+        }
+        table["semantic_projection_v2"] = projection
+
+
+def _canonical_logical_header_span_priority(span: dict[str, Any]) -> int:
+    try:
+        rowspan = max(1, int(span.get("rowspan", 1) or 1))
+        colspan = max(1, int(span.get("colspan", 1) or 1))
+    except (TypeError, ValueError):
+        return 0
+    if rowspan <= 1 and colspan <= 1:
+        return 0
+    source = str(span.get("source") or "").strip().lower()
+    if source in {
+        "grouped_multilevel_word_header_colspan_projection",
+        "study_metric_grouped_matrix_projection",
+        "dose_response_multilevel_header",
+        "grouped_multilevel_header_projection",
+        "borderless_multilevel_header_span",
+    }:
+        return 300
+    if "header" not in source:
+        return 0
+    if source.startswith("sparse_header_"):
+        return 0
+    return 200
+
+
+def _canonical_table_cell_span(
+    table: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    role: str,
+) -> dict[str, Any] | None:
+    try:
+        row = int(candidate.get("row", -1))
+        col = int(candidate.get("col", -1))
+        rowspan = max(1, int(candidate.get("rowspan", 1) or 1))
+        colspan = max(1, int(candidate.get("colspan", 1) or 1))
+    except (TypeError, ValueError):
+        return None
+    text = _clean_text(str(candidate.get("text") or ""))
+    if row < 0 or col < 0 or not text or (rowspan <= 1 and colspan <= 1):
+        return None
+    semantic_grid = [row_values for row_values in table.get("semantic_grid", []) or [] if isinstance(row_values, list)]
+    column_count = max((len(row_values) for row_values in semantic_grid), default=0)
+    if row >= len(semantic_grid) or col >= column_count or col + colspan > column_count:
+        return None
+    if role == "body" and row + rowspan > len(semantic_grid):
+        return None
+
+    table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+    page_values = candidate.get("source_pages")
+    if not isinstance(page_values, list):
+        page_values = [table.get("page")]
+    source_pages = sorted({int(value) for value in page_values if isinstance(value, (int, float)) and int(value) > 0})
+    table_values = candidate.get("source_table_ids")
+    if not isinstance(table_values, list):
+        table_values = [table_id]
+    source_table_ids = list(dict.fromkeys(str(value or "").strip() for value in table_values if str(value or "").strip()))
+    cell_refs = candidate.get("source_cell_refs")
+    if not isinstance(cell_refs, list):
+        cell_refs = candidate.get("source_row_refs")
+    source_cell_refs = list(dict.fromkeys(str(value or "").strip() for value in cell_refs or [] if str(value or "").strip()))
+    evidence = str(candidate.get("evidence") or candidate.get("source") or "legacy_span_adapter").strip()
+    confidence = candidate.get("confidence")
+    if not isinstance(confidence, (int, float)):
+        confidence = 0.96 if role == "header" else 0.94
+    return {
+        "span_id": "",
+        "role": role,
+        "coordinate_space": "semantic_grid",
+        "row": row,
+        "col": col,
+        "rowspan": rowspan,
+        "colspan": colspan,
+        "text": text,
+        "source_pages": source_pages,
+        "source_table_ids": source_table_ids,
+        "source_cell_refs": source_cell_refs,
+        "span_group_id": candidate.get("span_group_id"),
+        "evidence": evidence,
+        "confidence": float(confidence),
+        "source": str(candidate.get("source") or evidence).strip(),
+    }
+
+
+def _source_body_row_group_candidates(table: dict[str, Any]) -> list[dict[str, Any]]:
+    projection = table.get("semantic_projection_v2") or {}
+    projection = projection if isinstance(projection, dict) else {}
+    grouped_projection = projection.get("grouped_multilevel_borderless_projection") or {}
+    grouped_projection = grouped_projection if isinstance(grouped_projection, dict) else {}
+    candidates: list[dict[str, Any]] = []
+    seen: set[tuple[int, int, int, int, str, str]] = set()
+    semantic_grid = [row for row in table.get("semantic_grid", []) or [] if isinstance(row, list)]
+    for group in table.get("semantic_row_groups", []) or []:
+        if not isinstance(group, dict):
+            continue
+        try:
+            start_row = int(group.get("start_semantic_row", -1))
+            end_row = int(group.get("end_semantic_row", -1))
+            rowspan = int(group.get("rowspan", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if start_row < 0 or end_row < start_row or rowspan != end_row - start_row + 1:
+            continue
+        for col in group.get("static_cols", []) or []:
+            try:
+                col = int(col)
+            except (TypeError, ValueError):
+                continue
+            text = _clean_text(
+                str(
+                    semantic_grid[start_row][col]
+                    if start_row < len(semantic_grid) and col < len(semantic_grid[start_row])
+                    else ""
+                )
+            )
+            if not text:
+                continue
+            candidates.append(
+                {
+                    "col": col,
+                    "start_semantic_row": start_row,
+                    "end_semantic_row": end_row,
+                    "rowspan": rowspan,
+                    "text": text,
+                    "source": "final_semantic_row_group_resolution",
+                    "source_row_refs": list(group.get("source_row_refs", []) or []),
+                    "span_group_id": group.get("semantic_group_id"),
+                    "confidence": group.get("confidence", 0.97),
+                }
+            )
+    legacy_groups = []
+    if not table.get("semantic_grid_replaced"):
+        legacy_groups = [
+            *(table.get("row_groups") or []),
+            *(grouped_projection.get("row_groups") or []),
+        ]
+    for group in legacy_groups:
+        if not isinstance(group, dict):
+            continue
+        source = str(group.get("source") or "").strip()
+        if source not in _SOURCE_BODY_ROW_GROUP_PRESENTATION_SOURCES:
+            continue
+        try:
+            col = int(group.get("col", -1))
+            rowspan = int(group.get("rowspan", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        text = _clean_text(str(group.get("text") or ""))
+        if col < 0 or rowspan < 2 or not text:
+            continue
+        try:
+            start_data_row = int(group.get("start_data_row", -1))
+            end_data_row = int(group.get("end_data_row", -1))
+        except (TypeError, ValueError):
+            start_data_row = -1
+            end_data_row = -1
+        key = (col, start_data_row, end_data_row, rowspan, _compact_text(text), source)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(dict(group))
+    return candidates
+
+
+def _source_body_row_group_presentation_span(
+    table: dict[str, Any],
+    semantic_grid: list[list[str]],
+    group: dict[str, Any],
+) -> dict[str, Any] | None:
+    try:
+        col = int(group.get("col", -1))
+        rowspan = int(group.get("rowspan", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    group_text = _clean_text(str(group.get("text") or ""))
+    if col < 0 or rowspan < 2 or not group_text:
+        return None
+    if str(group.get("source") or "").strip() == "final_semantic_row_group_resolution":
+        try:
+            start_row = int(group.get("start_semantic_row", -1))
+        except (TypeError, ValueError):
+            return None
+        if start_row < 0 or start_row + rowspan > len(semantic_grid):
+            return None
+        window = semantic_grid[start_row : start_row + rowspan]
+        anchor_text = _clean_text(str(window[0][col] if col < len(window[0]) else ""))
+        if not _source_body_row_group_text_compatible(anchor_text, group_text):
+            return None
+        if any(_clean_text(str(row[col] if col < len(row) else "")) for row in window[1:]):
+            return None
+        return {
+            "row": start_row,
+            "col": col,
+            "rowspan": rowspan,
+            "colspan": 1,
+            "text": anchor_text,
+            "source": "final_semantic_row_group_resolution",
+            "source_group_source": "final_semantic_row_group_resolution",
+            "source_row_refs": list(group.get("source_row_refs", []) or []),
+            "span_group_id": group.get("span_group_id"),
+            "confidence": group.get("confidence", 0.97),
+        }
+    lineage_matches: list[tuple[int, int]] = []
+    for lineage_start, source_display_start in _source_body_row_group_lineage_candidates(table, group):
+        window = semantic_grid[lineage_start : lineage_start + rowspan]
+        if len(window) != rowspan:
+            continue
+        anchor_text = _clean_text(str(window[0][col] if col < len(window[0]) else ""))
+        if not _source_body_row_group_text_compatible(anchor_text, group_text):
+            continue
+        if any(
+            cell_text and not _source_body_row_group_text_compatible(cell_text, group_text)
+            for row in window
+            for cell_text in [_clean_text(str(row[col] if col < len(row) else ""))]
+        ):
+            continue
+        lineage_matches.append((lineage_start, source_display_start))
+    lineage_matches = list(dict.fromkeys(lineage_matches))
+    if len(lineage_matches) == 1:
+        lineage_start, source_display_start = lineage_matches[0]
+        window = semantic_grid[lineage_start : lineage_start + rowspan]
+        anchor_text = _clean_text(str(window[0][col] if col < len(window[0]) else ""))
+        try:
+            source_start = int(group.get("start_data_row", -1))
+            source_end = int(group.get("end_data_row", -1))
+        except (TypeError, ValueError):
+            source_start = -1
+            source_end = -1
+        table_id = str(table.get("table_id") or table.get("block_id") or "table").strip() or "table"
+        source_row_refs = [
+            f"{table_id}:display_row:{row_number}"
+            for row_number in range(source_display_start, source_display_start + rowspan)
+        ]
+        return {
+            "row": lineage_start,
+            "col": col,
+            "rowspan": rowspan,
+            "colspan": 1,
+            "text": anchor_text or group_text,
+            "source": "source_body_row_group_presentation_projection",
+            "source_group_source": str(group.get("source") or "").strip(),
+            "source_row_refs": source_row_refs,
+            "span_group_id": f"{table_id}:body_group:{col}:{source_start}:{source_end}",
+        }
+    if len(lineage_matches) > 1:
+        return None
+    candidates: list[tuple[int, str]] = []
+    for start_row in range(1, len(semantic_grid) - rowspan + 1):
+        window = semantic_grid[start_row : start_row + rowspan]
+        first_text = _clean_text(str(window[0][col] if col < len(window[0]) else ""))
+        if not _source_body_row_group_text_compatible(first_text, group_text):
+            continue
+        if any(
+            cell_text and not _source_body_row_group_text_compatible(cell_text, group_text)
+            for row in window
+            for cell_text in [_clean_text(str(row[col] if col < len(row) else ""))]
+        ):
+            continue
+        candidates.append((start_row, first_text or group_text))
+    if len(candidates) != 1:
+        return None
+    start_row, anchor_text = candidates[0]
+    return {
+        "row": start_row,
+        "col": col,
+        "rowspan": rowspan,
+        "colspan": 1,
+        "text": anchor_text,
+        "source": "source_body_row_group_presentation_projection",
+        "source_group_source": str(group.get("source") or "").strip(),
+    }
+
+
+def _source_body_row_group_lineage_candidates(
+    table: dict[str, Any],
+    group: dict[str, Any],
+) -> list[tuple[int, int]]:
+    try:
+        start_data_row = int(group.get("start_data_row", -1))
+    except (TypeError, ValueError):
+        return []
+    if start_data_row < 0:
+        return []
+    semantic_rows_by_display_row: dict[int, list[int]] = {}
+    offsets: list[int] = []
+    for fallback_row, lineage in enumerate(table.get("semantic_row_provenance", []) or []):
+        if not isinstance(lineage, dict):
+            continue
+        try:
+            semantic_row = int(lineage.get("semantic_row", fallback_row))
+        except (TypeError, ValueError):
+            semantic_row = fallback_row
+        for source_ref in lineage.get("source_row_refs", []) or []:
+            match = re.search(r":display_row:(\d+)$", str(source_ref or ""))
+            if match:
+                display_row = int(match.group(1))
+                offsets.append(display_row - semantic_row)
+                semantic_rows_by_display_row.setdefault(display_row, []).append(semantic_row)
+
+    candidates: list[tuple[int, int]] = []
+    for display_start in (start_data_row, start_data_row + 1):
+        semantic_rows = sorted(set(semantic_rows_by_display_row.get(display_start, [])))
+        if len(semantic_rows) == 1 and semantic_rows[0] >= 1:
+            candidates.append((semantic_rows[0], display_start))
+    if not offsets:
+        return list(dict.fromkeys(candidates))
+    offset_counts = Counter(offsets)
+    source_to_semantic_offset, count = offset_counts.most_common(1)[0]
+    if len(offset_counts) > 1 and count == offset_counts.most_common(2)[1][1]:
+        return list(dict.fromkeys(candidates))
+    semantic_row = start_data_row + 1 - source_to_semantic_offset
+    if semantic_row >= 1:
+        candidates.append((semantic_row, start_data_row + 1))
+    return list(dict.fromkeys(candidates))
+
+
+def _source_body_row_group_text_compatible(value: str, group_text: str) -> bool:
+    value_compact = _compact_text(str(value or "")).lower()
+    group_compact = _compact_text(str(group_text or "")).lower()
+    if not value_compact or not group_compact:
+        return False
+    if value_compact == group_compact:
+        return True
+    if min(len(value_compact), len(group_compact)) < 3:
+        return False
+    return value_compact.startswith(group_compact) or group_compact.startswith(value_compact)
+
+
+def _inherit_genotoxicity_multilevel_header_spans(
+    table: dict[str, Any],
+    *,
+    parent: dict[str, Any],
+    assay_kind: str,
+    logical_column_count: int,
+) -> None:
+    parent_projection = (parent.get("semantic_projection_v2") or {}).get(
+        "genotoxicity_assay_matrix_projection",
+        {},
+    )
+    if not isinstance(parent_projection, dict):
+        return
+    if str(parent_projection.get("assay_kind") or "").strip() != str(assay_kind or "").strip():
+        return
+    inherited: list[dict[str, Any]] = []
+    for span in parent_projection.get("span_header_cells") or []:
+        if not isinstance(span, dict):
+            continue
+        if str(span.get("source") or "").strip() != "genotoxicity_multilevel_header_projection":
+            continue
+        try:
+            col = int(span.get("col", -1))
+            colspan = max(1, int(span.get("colspan", 1) or 1))
+        except (TypeError, ValueError):
+            continue
+        if col < 0 or col + colspan > logical_column_count:
+            continue
+        inherited.append(
+            {
+                **span,
+                "inherited_from_table_id": str(parent.get("table_id") or "").strip(),
+            }
+        )
+    if inherited:
+        table["span_header_cells"] = _merge_genotoxicity_header_span_cells(
+            table.get("span_header_cells"),
+            inherited,
+        )
 
 
 def _genotoxicity_bacterial_reverse_mutation_continuation_grid(
@@ -24710,7 +33675,7 @@ def _genotoxicity_bacterial_reverse_mutation_continuation_grid(
     if not isinstance(parent_grid, list) or not parent_grid:
         return []
     header = [_clean_text(str(cell or "")) for cell in parent_grid[0]]
-    if header != ["代谢活化", "供试品", "剂量水平", "TA98", "TA100", "TA1535", "TA1537", "WP2uvrA"]:
+    if not _genotoxicity_bacterial_reverse_mutation_header_is_supported(header):
         return []
     rows = [
         [_clean_text(str(cell or "")) for cell in row]
@@ -24763,6 +33728,17 @@ def _genotoxicity_bacterial_reverse_mutation_continuation_grid(
             continue
         projected.append([current_activation, subject or current_subject, dose, *values[:5]])
     return projected if len(projected) >= 2 else []
+
+
+def _genotoxicity_bacterial_reverse_mutation_header_is_supported(header: list[str]) -> bool:
+    if len(header) != 8:
+        return False
+    return (
+        header[0] == "代谢活化"
+        and header[1] == "供试品"
+        and ("剂量水平" in header[2] or "浓度" in header[2])
+        and header[3:] == ["TA98", "TA100", "TA1535", "TA1537", "WP2uvrA"]
+    )
 
 
 def _genotoxicity_parent_bacterial_carry_forward(parent_grid: list[Any]) -> tuple[str, str]:
@@ -24964,6 +33940,76 @@ def _genotoxicity_chromosomal_aberration_header() -> list[str]:
     ]
 
 
+def _genotoxicity_chromosomal_aberration_header_schema(
+    table: dict[str, Any],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    header = _genotoxicity_chromosomal_aberration_header()
+    projection = table.get("semantic_projection_v2") or {}
+    projection = projection if isinstance(projection, dict) else {}
+    grouped_projection = projection.get("grouped_multilevel_borderless_projection") or {}
+    grouped_projection = grouped_projection if isinstance(grouped_projection, dict) else {}
+    candidates = [
+        dict(group)
+        for group in [
+            *(table.get("header_column_groups") or []),
+            *(grouped_projection.get("header_column_groups") or []),
+        ]
+        if isinstance(group, dict)
+    ]
+    required_child_tokens = (
+        _compact_text("%对照").lower(),
+        _compact_text("平均细胞畸变率").lower(),
+        _compact_text("Abs/细胞").lower(),
+        _compact_text("多倍体细胞总数").lower(),
+    )
+    for candidate in candidates:
+        parent_label = _clean_text(str(candidate.get("text") or ""))
+        parent_text = _compact_text(parent_label).lower()
+        if parent_text != _compact_text("细胞毒性a").lower():
+            continue
+        child_header_labels = [
+            _clean_text(str(item or ""))
+            for item in candidate.get("child_headers") or []
+            if _clean_text(str(item or ""))
+        ]
+        if child_header_labels and _genotoxicity_parent_is_multiline_first_child(
+            parent_label,
+            child_header_labels[0],
+        ):
+            continue
+        try:
+            source_start = int(candidate.get("start_col", -1))
+            source_end = int(candidate.get("end_col", -1))
+        except (TypeError, ValueError):
+            continue
+        if source_start < 0 or source_end - source_start < 3:
+            continue
+        child_text = _compact_text(" ".join(child_header_labels)).lower()
+        if not child_text or not all(token in child_text for token in required_child_tokens):
+            continue
+        return header, [
+            {
+                "row": 0,
+                "col": 3,
+                "rowspan": 1,
+                "colspan": 4,
+                "text": "细胞毒性a",
+                "source": "genotoxicity_multilevel_header_projection",
+                "source_group": dict(candidate),
+            }
+        ]
+    return header, []
+
+
+def _genotoxicity_parent_is_multiline_first_child(parent_text: str, first_child_text: str) -> bool:
+    parent = re.sub(r"\s+", "", _clean_text(str(parent_text or ""))).lower()
+    child = re.sub(r"\s+", "", _clean_text(str(first_child_text or ""))).lower()
+    if not parent or not child.startswith(parent) or child == parent:
+        return False
+    suffix = child[len(parent) :]
+    return suffix.startswith(("(", "（", "[", "【", "%"))
+
+
 def _genotoxicity_chromosomal_aberration_semantic_grid(table: dict[str, Any]) -> list[list[str]]:
     rows = [
         [_clean_text(str(cell or "")) for cell in row]
@@ -24975,7 +34021,8 @@ def _genotoxicity_chromosomal_aberration_semantic_grid(table: dict[str, Any]) ->
     text = "\n".join(_grid_row_text(row) for row in rows[:8])
     if not _genotoxicity_chromosomal_aberration_evidence(text):
         return []
-    projected: list[list[str]] = [_genotoxicity_chromosomal_aberration_header()]
+    header, header_spans = _genotoxicity_chromosomal_aberration_header_schema(table)
+    projected: list[list[str]] = [header]
     current_activation = ""
     current_subject = ""
     for raw_row in rows:
@@ -25003,7 +34050,14 @@ def _genotoxicity_chromosomal_aberration_semantic_grid(table: dict[str, Any]) ->
             subject or current_subject,
             *values[:5],
         ])
-    return projected if len(projected) >= 3 else []
+    if len(projected) < 3:
+        return []
+    if header_spans:
+        table["span_header_cells"] = _merge_genotoxicity_header_span_cells(
+            table.get("span_header_cells"),
+            header_spans,
+        )
+    return projected
 
 
 def _genotoxicity_same_assay_continuation_grid(
@@ -25221,6 +34275,17 @@ def _apply_genotoxicity_assay_matrix_projection(
         semantic_grid=semantic_grid,
         source="genotoxicity_assay_matrix_projection",
     )
+    span_header_cells = [
+        dict(item)
+        for item in table.get("span_header_cells", []) or []
+        if isinstance(item, dict)
+        and str(item.get("source") or "").strip() == "genotoxicity_multilevel_header_projection"
+    ]
+    if span_header_cells:
+        table["logical_cells"] = _merge_genotoxicity_header_span_cells(
+            table.get("logical_cells"),
+            span_header_cells,
+        )
     projection = dict(table.get("semantic_projection_v2") or {})
     projection["genotoxicity_assay_matrix_projection"] = {
         "source": "genotoxicity_assay_matrix_projection",
@@ -25229,6 +34294,8 @@ def _apply_genotoxicity_assay_matrix_projection(
         "logical_column_count": len(semantic_grid[0]),
         "logical_row_count": len(semantic_grid),
         "continuation_schema_inherited": continuation_schema_inherited,
+        "span_header_cells": [dict(item) for item in span_header_cells],
+        "has_multilevel_header_spans": bool(span_header_cells),
         "coverage_audit": _semantic_projection_coverage_audit(
             table,
             semantic_grid=semantic_grid,
@@ -26277,6 +35344,41 @@ def _projected_business_table_template_anchor_score(
     return score
 
 
+def _clear_structure_template_grid_projections_after_absorption(template: dict[str, Any]) -> None:
+    projection = dict(template.get("semantic_projection_v2") or {})
+    for key in (
+        "ruled_multilevel_template_header_projection",
+        "ruled_slot_template_header_projection",
+        "blank_template_header_grid_projection",
+    ):
+        projection.pop(key, None)
+    if projection:
+        template["semantic_projection_v2"] = projection
+    else:
+        template.pop("semantic_projection_v2", None)
+
+    signals = dict(template.get("semantic_signals") or {})
+    for key in list(signals):
+        if (
+            key.startswith("ruled_multilevel_template_header_")
+            or key.startswith("ruled_slot_template_header_")
+            or key.startswith("blank_template_header_grid_")
+        ):
+            signals.pop(key, None)
+    template["semantic_signals"] = signals
+    template["semantic_repairs"] = [
+        dict(item)
+        for item in template.get("semantic_repairs", []) or []
+        if isinstance(item, dict)
+        and str(item.get("repair") or "")
+        not in {
+            "ruled_multilevel_template_header_projection",
+            "ruled_slot_template_header_projection",
+            "blank_template_header_grid_projection",
+        }
+    ]
+
+
 def _absorb_structure_template_into_business_tables(
     template: dict[str, Any],
     tables: list[dict[str, Any]],
@@ -26331,6 +35433,7 @@ def _absorb_structure_template_into_business_tables(
     template["template_profile"] = "absorbed_mixed_populated_study_summary_template"
     template["visible_render_policy"] = "metadata_only"
     template["data_population"] = "populated"
+    _clear_structure_template_grid_projections_after_absorption(template)
     template["absorbed_by_table_ids"] = owner_ids
     template["absorbed_by_table_id"] = owner_ids[0]
     template["title"] = ""
@@ -26368,6 +35471,71 @@ def _table_has_study_panel_repair(table: dict[str, Any]) -> bool:
     return bool(projection.get("has_study_context") or table.get("study_context_blocks"))
 
 
+def _absorbed_template_populated_fields_by_row(
+    template: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    fields_by_row: dict[str, list[dict[str, Any]]] = {}
+    for field_index, field in enumerate(template.get("fields", []) or [], start=1):
+        if not isinstance(field, dict):
+            continue
+        label = _clean_text(str(field.get("label") or field.get("key") or ""))
+        value = _clean_text(str(field.get("value") or ""))
+        if not label or not value or not _study_metadata_populated_value(value):
+            continue
+        text = _clean_text(str(field.get("text") or "")) or f"{label}：{value}"
+        row_key = _compact_text(text)
+        if not row_key:
+            continue
+        fields_by_row.setdefault(row_key, []).append(
+            {
+                **field,
+                "label": label,
+                "value": value,
+                "text": text,
+                "field_index": field_index,
+            }
+        )
+    return fields_by_row
+
+
+def _absorbed_template_field_fact_records(
+    field: dict[str, Any],
+    *,
+    row: str,
+    source_template_id: str,
+    page: int,
+    fallback_bbox: Any,
+) -> list[dict[str, Any]]:
+    field_ref = field.get("row_index") or field.get("field_index") or 1
+    field_source_ref = f"{source_template_id}:field:{field_ref}"
+    parsed_records = _study_context_fact_records(
+        row,
+        source_ref=field_source_ref,
+        source_owner=source_template_id,
+        page=page,
+    )
+    if parsed_records:
+        normalized_bbox = _coerce_bbox(field.get("bbox") or fallback_bbox)
+        for fact_index, parsed_record in enumerate(parsed_records, start=1):
+            parsed_record["source_ref"] = f"{field_source_ref}:fact:{fact_index}"
+            parsed_record["source_kind"] = "structure_template_field_text_fallback"
+            parsed_record["bbox"] = (
+                _bbox_to_list(normalized_bbox) if normalized_bbox is not None else []
+            )
+        return parsed_records
+    record = _study_context_fact_record(
+        str(field.get("label") or ""),
+        str(field.get("value") or ""),
+        display_text=row,
+        source_ref=field_source_ref,
+        source_owner=source_template_id,
+        source_kind="structure_template_field",
+        page=page,
+        bbox=field.get("bbox") or fallback_bbox,
+    )
+    return [record] if record is not None else []
+
+
 def _transfer_absorbed_template_study_context_to_business_table(
     *,
     template: dict[str, Any],
@@ -26376,52 +35544,186 @@ def _transfer_absorbed_template_study_context_to_business_table(
     source_template_id: str,
     require_title_anchor: bool = False,
 ) -> None:
+    structured_fields_by_row = _absorbed_template_populated_fields_by_row(template)
     rows = _absorbed_template_study_context_rows_for_table(
         original_rows,
         table,
         require_title_anchor=require_title_anchor,
+        structured_field_row_keys=set(structured_fields_by_row),
     )
     if not rows:
         return
     page_number = int(template.get("page", table.get("page", 0)) or 0)
     bbox = _bbox_to_list(template.get("bbox"))
-    new_blocks = [
-        {
-            "role": "study_context",
-            "text": row,
-            "page": page_number,
-            "bbox": bbox,
-            "source": "absorbed_structure_template_study_context",
-            "source_structure_template_id": source_template_id,
-        }
-        for row in rows
-    ]
     existing = [
         dict(item)
         for item in table.get("study_context_blocks", []) or []
         if isinstance(item, dict) and _clean_text(str(item.get("text") or ""))
     ]
-    seen = {
-        _compact_text(str(item.get("text") or ""))
-        for item in existing
-        if _compact_text(str(item.get("text") or ""))
+    table["study_context_blocks"] = existing
+    _ensure_study_context_fact_records(table)
+    existing = [
+        dict(item)
+        for item in table.get("study_context_blocks", []) or []
+        if isinstance(item, dict)
+    ]
+    owned_fact_keys = {
+        str(fact.get("fact_key") or "")
+        for block in existing
+        for fact in block.get("study_context_facts", []) or []
+        if isinstance(fact, dict) and str(fact.get("fact_key") or "")
     }
-    for block in new_blocks:
-        key = _compact_text(str(block.get("text") or ""))
-        if not key or key in seen:
+    owned_fact_keys_by_label: dict[str, set[str]] = {}
+    for block in existing:
+        for fact in block.get("study_context_facts", []) or []:
+            if not isinstance(fact, dict):
+                continue
+            fact_key = str(fact.get("fact_key") or "").strip()
+            label_key = _compact_text(str(fact.get("label") or ""))
+            if fact_key and label_key:
+                owned_fact_keys_by_label.setdefault(label_key, set()).add(fact_key)
+
+    candidate_fact_count = 0
+    transferred_fact_count = 0
+    already_covered_fact_count = 0
+    conflict_fact_count = 0
+    ambiguous_rows: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    visible_block_refs: list[str] = []
+    transferred_row_count = 0
+    candidate_fact_source_kinds: Counter[str] = Counter()
+    transferred_fact_source_kinds: Counter[str] = Counter()
+    already_covered_fact_source_kinds: Counter[str] = Counter()
+    structured_row_occurrences: Counter[str] = Counter()
+    for row_index, row in enumerate(rows, start=1):
+        candidate_ref = f"{source_template_id}:study_context_candidate:{row_index}"
+        row_key = _compact_text(row)
+        structured_occurrence = structured_row_occurrences[row_key]
+        structured_row_occurrences[row_key] += 1
+        structured_fields = structured_fields_by_row.get(row_key, [])
+        facts = (
+            _absorbed_template_field_fact_records(
+                structured_fields[structured_occurrence],
+                row=row,
+                source_template_id=source_template_id,
+                page=page_number,
+                fallback_bbox=bbox,
+            )
+            if structured_occurrence < len(structured_fields)
+            else _study_context_fact_records(
+                row,
+                source_ref=candidate_ref,
+                source_owner=source_template_id,
+                page=page_number,
+            )
+        )
+        if not facts:
+            ambiguous_rows.append({"source_ref": candidate_ref, "text": row})
+            continue
+        candidate_fact_count += len(facts)
+        candidate_fact_source_kinds.update(
+            str(fact.get("source_kind") or "unknown") for fact in facts
+        )
+        covered_facts = [
+            fact
+            for fact in facts
+            if str(fact.get("fact_key") or "") in owned_fact_keys
+        ]
+        already_covered_fact_count += len(covered_facts)
+        already_covered_fact_source_kinds.update(
+            str(fact.get("source_kind") or "unknown") for fact in covered_facts
+        )
+        conflict_facts = []
+        for fact in facts:
+            fact_key = str(fact.get("fact_key") or "")
+            label_key = _compact_text(str(fact.get("label") or ""))
+            if fact_key in owned_fact_keys or not label_key:
+                continue
+            existing_keys = sorted(owned_fact_keys_by_label.get(label_key, set()))
+            if existing_keys and _study_context_explicit_field_label(
+                str(fact.get("label") or "")
+            ):
+                conflict_facts.append(fact)
+                conflicts.append(
+                    {
+                        "source_ref": str(fact.get("source_ref") or candidate_ref),
+                        "label": str(fact.get("label") or ""),
+                        "candidate_value": str(fact.get("value") or ""),
+                        "candidate_fact_key": fact_key,
+                        "existing_fact_keys": existing_keys,
+                    }
+                )
+        conflict_fact_count += len(conflict_facts)
+        missing_facts = [
+            fact
+            for fact in facts
+            if fact not in covered_facts and fact not in conflict_facts
+        ]
+        if not missing_facts:
+            continue
+        block_ref = f"{source_template_id}:study_context_transfer:{row_index}"
+        block = {
+            "role": "study_context",
+            "text": (
+                _clean_text(row)
+                if len(missing_facts) == len(facts)
+                else _clean_text(
+                    " ".join(str(fact.get("display_text") or "") for fact in missing_facts)
+                )
+            ),
+            "page": page_number,
+            "bbox": bbox,
+            "source": "absorbed_structure_template_study_context",
+            "source_ref": block_ref,
+            "source_structure_template_id": source_template_id,
+            "study_context_facts": [dict(fact) for fact in missing_facts],
+        }
+        if not block["text"]:
+            ambiguous_rows.append({"source_ref": candidate_ref, "text": row})
             continue
         existing.append(block)
-        seen.add(key)
-    if existing:
-        table["study_context_blocks"] = existing
-        table.setdefault("semantic_repairs", []).append(
-            {
-                "repair": "absorbed_structure_template_study_context_transferred",
-                "source_structure_template_id": source_template_id,
-                "transferred_row_count": len(new_blocks),
-                "confidence": 0.86,
-            }
+        visible_block_refs.append(block_ref)
+        transferred_row_count += 1
+        transferred_fact_count += len(missing_facts)
+        transferred_fact_source_kinds.update(
+            str(fact.get("source_kind") or "unknown") for fact in missing_facts
         )
+        owned_fact_keys.update(
+            str(fact.get("fact_key") or "")
+            for fact in missing_facts
+            if str(fact.get("fact_key") or "")
+        )
+
+    table["study_context_blocks"] = existing
+    table.setdefault("study_context_transfer_audits", []).append(
+        {
+            "source_structure_template_id": source_template_id,
+            "candidate_fact_count": candidate_fact_count,
+            "transferred_fact_count": transferred_fact_count,
+            "already_covered_fact_count": already_covered_fact_count,
+            "conflict_fact_count": conflict_fact_count,
+            "candidate_fact_counts_by_source_kind": dict(candidate_fact_source_kinds),
+            "transferred_fact_counts_by_source_kind": dict(transferred_fact_source_kinds),
+            "already_covered_fact_counts_by_source_kind": dict(
+                already_covered_fact_source_kinds
+            ),
+            "ambiguous_fact_count": len(ambiguous_rows),
+            "ambiguous_rows": ambiguous_rows,
+            "conflicts": conflicts,
+            "visible_context_block_refs": visible_block_refs,
+        }
+    )
+    table.setdefault("semantic_repairs", []).append(
+        {
+            "repair": "absorbed_structure_template_study_context_transferred",
+            "source_structure_template_id": source_template_id,
+            "transferred_row_count": transferred_row_count,
+            "transferred_fact_count": transferred_fact_count,
+            "already_covered_fact_count": already_covered_fact_count,
+            "conflict_fact_count": conflict_fact_count,
+            "confidence": 0.86,
+        }
+    )
 
 
 def _absorbed_template_study_context_rows_for_table(
@@ -26429,11 +35731,13 @@ def _absorbed_template_study_context_rows_for_table(
     table: dict[str, Any],
     *,
     require_title_anchor: bool,
+    structured_field_row_keys: set[str] | None = None,
 ) -> list[str]:
     rows = [_clean_text(str(row or "")) for row in original_rows]
     rows = [row for row in rows if row]
     if not rows:
         return []
+    structured_field_row_keys = structured_field_row_keys or set()
     title = _clean_text(str(table.get("title") or table.get("caption_text") or ""))
     title_key = _compact_text(title)
     start_index = 0
@@ -26462,7 +35766,16 @@ def _absorbed_template_study_context_rows_for_table(
             continue
         if _absorbed_template_row_is_non_context_noise(row):
             continue
-        if _absorbed_template_row_looks_like_study_context(row):
+        if (
+            _compact_text(row) in structured_field_row_keys
+            or _absorbed_template_row_looks_like_study_context(row)
+            or _study_context_fact_records(
+                row,
+                source_ref="absorbed_template_context_candidate",
+                source_owner="absorbed_template",
+                page=int(table.get("page", 0) or 0),
+            )
+        ):
             context_rows.append(row)
     return list(dict.fromkeys(context_rows))
 
@@ -26502,14 +35815,63 @@ def _absorbed_template_row_looks_like_study_context(row: str) -> bool:
         return False
     if _study_summary_template_field_text(clean):
         return True
-    return bool(
-        re.search(
-            r"检测的诱导作用|给药方案|试验编号|种属/品系|采样时间|CTD\s*中?的位置|年龄|给药方法|"
-            r"评价的细胞|溶媒/剂型|GLP\s*依从性|每只动物分析细胞数量|给药日期|特殊情况|"
-            r"毒性/细胞毒性作用|遗传毒性作用|暴露的证据",
-            clean,
-        )
+    return bool(re.search(_STUDY_CONTEXT_EXPLICIT_FIELD_LABEL_PATTERN, clean, re.IGNORECASE))
+
+
+def _study_panel_note_marker_parts(text: str) -> tuple[str, str]:
+    compact = _clean_text(text)
+    if not compact:
+        return "", ""
+    match = re.match(
+        r"^\s*(?P<marker>\*+|[#†‡]|[A-Za-z](?:\.[A-Za-z]+)*\.?)\s*[-–—=]\s*(?P<body>.+?)\s*$",
+        compact,
+        re.IGNORECASE,
     )
+    if match:
+        return _clean_text(match.group("marker")), _clean_text(match.group("body"))
+    marker, body = _local_note_start(compact)
+    return _clean_text(marker), _clean_text(body)
+
+
+def _refresh_study_panel_note_groups(table: dict[str, Any]) -> None:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for note in table.get("note_blocks", []) or []:
+        if not isinstance(note, dict):
+            continue
+        group_id = str(note.get("note_group_id") or "").strip()
+        if group_id:
+            grouped.setdefault(group_id, []).append(note)
+    groups: list[dict[str, Any]] = []
+    table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+    for group_id, notes in grouped.items():
+        notes = sorted(notes, key=lambda note: int(note.get("note_line_index", 0) or 0))
+        groups.append(
+            {
+                "note_group_id": group_id,
+                "owner_type": "table",
+                "owner_table_id": table_id or None,
+                "logical_owner_page": int(table.get("page", 0) or 0),
+                "presentation_mode": "lines",
+                "label_text": next(
+                    (
+                        str(note.get("text") or "")
+                        for note in notes
+                        if str(note.get("note_component_role") or "") == "label"
+                    ),
+                    None,
+                ),
+                "member_count": len(notes),
+                "physical_pages": list(
+                    dict.fromkeys(
+                        int(note.get("physical_page") or note.get("page") or 0)
+                        for note in notes
+                        if int(note.get("physical_page") or note.get("page") or 0) > 0
+                    )
+                ),
+                "source": "study_panel_note_group",
+            }
+        )
+    table["note_groups"] = groups
 
 
 def _template_overlaps_projected_business_table(template: dict[str, Any], table: dict[str, Any]) -> bool:
@@ -26679,6 +36041,7 @@ def _absorb_structure_template_into_business_table(
     template["template_profile"] = "absorbed_populated_study_summary_template"
     template["visible_render_policy"] = "metadata_only"
     template["data_population"] = "populated"
+    _clear_structure_template_grid_projections_after_absorption(template)
     template["absorbed_by_table_id"] = table_id
     template["title"] = ""
     template["row_texts"] = []
@@ -26829,6 +36192,10 @@ def _recover_dose_response_continuation_panel_from_page_words(
             "note_blocks": notes,
             "owned_texts": table.get("owned_texts") or [],
             "span_header_cells": _dose_response_panel_logical_header_spans(header),
+            "source_has_explicit_sex_header_row": _dose_response_source_has_explicit_sex_header_row(
+                row_texts,
+                local_header_index,
+            ),
         },
     )
     return table
@@ -27607,17 +36974,30 @@ def _dose_response_result_panel_from_page_words(
     panel_bbox = _bbox_union_loose([table_bbox, *all_bboxes])
     title_rows = panel_rows[:local_header_index]
     title_text = str(title_rows[0].get("text") or "") if title_rows else ""
-    study_context = [
-        {
+    table_id = str(table.get("table_id") or "dose_response_panel").strip()
+    study_context: list[dict[str, Any]] = []
+    for context_index, row in enumerate(title_rows[1:], start=1):
+        text = str(row.get("text") or "")
+        if not text.strip():
+            continue
+        source_ref = f"{table_id}:study_context:{context_index}"
+        block = {
             "role": "study_context",
-            "text": str(row.get("text") or ""),
+            "text": text,
             "page": page_number,
             "bbox": _bbox_to_list(row.get("bbox")),
             "source": "dose_response_result_panel_context",
+            "source_ref": source_ref,
         }
-        for row in title_rows[1:]
-        if str(row.get("text") or "").strip()
-    ]
+        facts = _study_context_fact_records_from_positioned_items(
+            list(row.get("items") or []),
+            source_ref=source_ref,
+            source_owner=table_id,
+            page=page_number,
+        )
+        if facts:
+            block["study_context_facts"] = facts
+        study_context.append(block)
     return projected, {
         "title": title_text,
         "study_context_blocks": study_context,
@@ -27625,6 +37005,10 @@ def _dose_response_result_panel_from_page_words(
         "bbox": _bbox_to_list(panel_bbox),
         "owned_texts": [str(row.get("text") or "") for row in panel_rows if str(row.get("text") or "").strip()],
         "span_header_cells": _dose_response_panel_logical_header_spans(header),
+        "source_has_explicit_sex_header_row": _dose_response_source_has_explicit_sex_header_row(
+            row_texts,
+            local_header_index,
+        ),
     }
 
 
@@ -28143,6 +37527,20 @@ def _apply_dose_response_result_panel_projection(
         source="dose_response_result_panel_projection",
     )
     metadata = panel_metadata if isinstance(panel_metadata, dict) else {}
+    semantic_row_provenance = table.get("semantic_row_provenance") or []
+    if semantic_row_provenance:
+        semantic_row_provenance[0]["source_row_refs"] = _dose_response_source_header_row_refs(
+            table,
+            semantic_grid[0],
+            source_has_explicit_sex_header_row=bool(
+                metadata.get("source_has_explicit_sex_header_row")
+            ),
+        )
+        semantic_row_provenance[0]["derivation"] = "dose_response_source_header_rows"
+        table["semantic_row_provenance_audit"] = _semantic_row_provenance_audit(
+            semantic_row_provenance,
+            expected_row_count=len(table.get("semantic_grid", []) or []),
+        )
     if metadata.get("title"):
         table["title"] = _clean_text(str(metadata.get("title") or ""))
         table["caption_text"] = table["title"]
@@ -28204,9 +37602,11 @@ def _apply_dose_response_result_panel_projection(
         "logical_column_count": len(semantic_grid[0]),
         "logical_row_count": len(semantic_grid),
         "has_sex_leaf_columns": _dose_response_header_has_sex_leaf_columns(semantic_grid[0]),
+        "source_has_explicit_sex_header_row": bool(metadata.get("source_has_explicit_sex_header_row")),
         "continuation_schema_inherited": continuation_schema_inherited,
         "has_study_context": bool(metadata.get("study_context_blocks")),
         "has_multilevel_header_spans": bool(metadata.get("span_header_cells")),
+        "row_provenance_audit": dict(table.get("semantic_row_provenance_audit") or {}),
         "coverage_audit": _semantic_projection_coverage_audit(
             table,
             semantic_grid=semantic_grid,
@@ -28345,6 +37745,12 @@ def _toxicology_summary_schema_grid_from_table_or_words(
     )
     if len(repeated_dose_grid) >= 2:
         return repeated_dose_grid
+    wrapped_method_grid = _wrapped_method_toxicology_summary_grid_from_words(
+        table,
+        page_words=page_words,
+    )
+    if len(wrapped_method_grid) >= 2:
+        return wrapped_method_grid
     if _table_has_toxicology_summary_schema_evidence(grid_text):
         rows = [_grid_row_text(row) for row in grid]
         projected = _toxicology_summary_schema_grid_from_rows(rows)
@@ -28416,6 +37822,17 @@ _REPEATED_DOSE_TOXICITY_SUMMARY_HEADER = [
     "剂量(mg/kg)",
     "性别和数量/组",
     "NOAELa(mg/kg)",
+    "值得注意的结果",
+    "试验编号",
+]
+
+
+_WRAPPED_METHOD_TOXICITY_SUMMARY_HEADER = [
+    "种属/品系",
+    "给药方法(溶媒/剂型)",
+    "给药期限",
+    "剂量(mg/kg)",
+    "性别和数量/组",
     "值得注意的结果",
     "试验编号",
 ]
@@ -28686,6 +38103,112 @@ def _repeated_dose_finalize_row(row: list[str]) -> list[str]:
     return finalized
 
 
+def _wrapped_method_toxicology_summary_grid_from_words(
+    table: dict[str, Any],
+    *,
+    page_words: list[Any],
+) -> list[list[str]]:
+    rows = _cluster_items_by_y(_normalize_page_words_for_projection(page_words))
+    table_bbox = _coerce_bbox(table.get("bbox"))
+    if table_bbox is not None:
+        rows = [
+            row
+            for row in rows
+            if any(
+                (bbox := _coerce_bbox(item.get("bbox"))) is not None
+                and table_bbox[0] - 25.0 <= _bbox_center_x(bbox) <= table_bbox[2] + 25.0
+                and table_bbox[1] - 18.0 <= _bbox_center_y(bbox) <= table_bbox[3] + 18.0
+                for item in row
+            )
+        ]
+    if len(rows) < 5:
+        return []
+    source_text = _compact_text(
+        " ".join(
+            str(item.get("text") or "")
+            for row in rows
+            for item in row
+        )
+    )
+    if not all(_compact_text(token) in source_text for token in ("给药方法", "溶媒", "剂型")):
+        return []
+    anchors = _wrapped_method_toxicology_summary_anchors(rows)
+    if len(anchors) != len(_WRAPPED_METHOD_TOXICITY_SUMMARY_HEADER):
+        return []
+    data_start = _wrapped_method_toxicity_first_body_row_index(rows, anchors)
+    if data_start is None:
+        return []
+
+    projected: list[list[str]] = [list(_WRAPPED_METHOD_TOXICITY_SUMMARY_HEADER)]
+    current: list[str] | None = None
+    for row in rows[data_start:]:
+        text = _clean_text(" ".join(str(item.get("text") or "") for item in row))
+        if not text or text.startswith("通用技术文档") or re.fullmatch(r"\d{1,4}", text):
+            continue
+        if re.match(r"^2\.6\.\d", text) or text == "示例":
+            break
+        cells = _project_words_to_repeated_dose_toxicity_columns(row, anchors)
+        if _wrapped_method_toxicity_row_starts_record(cells):
+            if current is not None:
+                projected.append(_wrapped_method_toxicity_finalize_row(current))
+            current = cells
+            continue
+        if current is not None and any(_clean_text(cell) for cell in cells[1:]):
+            _merge_repeated_dose_toxicity_continuation(current, cells)
+    if current is not None:
+        projected.append(_wrapped_method_toxicity_finalize_row(current))
+    return projected if len(projected) >= 3 else []
+
+
+def _wrapped_method_toxicology_summary_anchors(rows: list[list[dict[str, Any]]]) -> list[float]:
+    header_rows = rows[: min(len(rows), 8)]
+    anchors = [
+        _single_dose_find_anchor(header_rows, ("种属/品系",)),
+        _single_dose_find_anchor(header_rows, ("给药方法",)),
+        _single_dose_find_anchor(header_rows, ("给药期限",)),
+        _single_dose_find_anchor(header_rows, ("剂量(mg/kg)", "剂量")),
+        _single_dose_find_anchor(header_rows, ("性别和数量", "数量/组")),
+        _single_dose_find_anchor(header_rows, ("值得注意的结果",)),
+        _single_dose_find_anchor(header_rows, ("试验编号",)),
+    ]
+    if any(anchor is None for anchor in anchors):
+        return []
+    numeric = [float(anchor) for anchor in anchors if anchor is not None]
+    if any(right <= left for left, right in zip(numeric, numeric[1:])):
+        return []
+    return numeric
+
+
+def _wrapped_method_toxicity_first_body_row_index(
+    rows: list[list[dict[str, Any]]],
+    anchors: list[float],
+) -> int | None:
+    for index, row in enumerate(rows):
+        cells = _project_words_to_repeated_dose_toxicity_columns(row, anchors)
+        if _wrapped_method_toxicity_row_starts_record(cells):
+            return index
+    return None
+
+
+def _wrapped_method_toxicity_row_starts_record(cells: list[str]) -> bool:
+    if len(cells) != len(_WRAPPED_METHOD_TOXICITY_SUMMARY_HEADER):
+        return False
+    has_species = bool(re.search(r"Wistar|CD-1|Beagle|Sprague|新西兰|小鼠|大鼠|豚鼠|犬|兔|猴", cells[0]))
+    has_method = bool(re.search(r"灌胃|注射|给药|掺食|胶囊", cells[1]))
+    has_duration = bool(re.search(r"G\d+\s*[~-]\s*G\d+|\d+\s*(?:天|周|月|年)", cells[2]))
+    has_trial = bool(re.search(r"\b\d{4,6}\b", cells[6]))
+    return has_species and has_method and (has_duration or has_trial)
+
+
+def _wrapped_method_toxicity_finalize_row(row: list[str]) -> list[str]:
+    finalized = [_clean_text(cell) for cell in row]
+    finalized[1] = re.sub(r"\s+\(", "(", finalized[1])
+    finalized[1] = re.sub(r"\(\s*", "(", finalized[1])
+    finalized[1] = re.sub(r"\s*\)", ")", finalized[1])
+    finalized[3] = re.sub(r"、\s+", "、", finalized[3])
+    return finalized
+
+
 def _attach_toxicology_summary_schema_notes_from_words(
     table: dict[str, Any],
     *,
@@ -28775,6 +38298,8 @@ def _toxicology_summary_schema_note_segments_from_word_rows(
                 break
             if _toxicology_summary_note_row_is_page_header(row_text, row_bbox):
                 continue
+            if _toxicology_summary_next_page_note_scan_boundary(row_text):
+                break
             if _toxicology_summary_note_row_is_boundary(row_text, started=started):
                 if started:
                     break
@@ -28812,11 +38337,52 @@ def _toxicology_summary_schema_row_is_owned_note(table: dict[str, Any], row_text
         return False
     marker_ref_cells = _table_note_ref_header_cells(table) + _table_note_ref_data_cells(table)
     for marker, _note_text in marker_segments:
+        if not _toxicology_summary_schema_marker_segment_is_plausible_note(row_text, marker):
+            continue
         if marker in {"*", "**", "***", "#", "$", "+", "\u2020", "\u2021"}:
             return True
         for cell in marker_ref_cells:
             if _header_text_has_terminal_note_marker(_clean_text(str(cell.get("text") or "")), marker):
                 return True
+    return False
+
+
+def _toxicology_summary_next_page_note_scan_boundary(text: str) -> bool:
+    cleaned = _clean_text(text)
+    if not cleaned:
+        return False
+    if re.match(r"^\d+(?:\.\d+){2,}[A-Za-z]?\s+", cleaned):
+        return True
+    if _toxicology_summary_schema_header_text(cleaned):
+        return True
+    header_terms = [
+        "种属/品系",
+        "给药方法",
+        "给药期限",
+        "剂量",
+        "性别和数量",
+        "NOAEL",
+        "值得注意的结果",
+        "试验编号",
+    ]
+    hits = sum(1 for term in header_terms if term in cleaned)
+    return hits >= 3 and "试验编号" in cleaned
+
+
+def _toxicology_summary_schema_marker_segment_is_plausible_note(text: str, marker: str) -> bool:
+    cleaned = _clean_text(text)
+    marker = str(marker or "").strip()
+    if not cleaned or not marker:
+        return False
+    if marker in {"*", "**", "***", "#", "$", "+", "\u2020", "\u2021"}:
+        return True
+    if re.match(rf"^\s*{re.escape(marker)}\s*[-:：)\]）.、]", cleaned, re.IGNORECASE):
+        return True
+    if re.match(rf"^\s*{re.escape(marker)}\s+", cleaned, re.IGNORECASE) and (
+        _looks_like_table_note_text(cleaned)
+        or re.search(r"注|note|mean|average|percent|百分比|未见不良反应", cleaned, re.IGNORECASE)
+    ):
+        return True
     return False
 
 
@@ -29414,6 +38980,373 @@ def _apply_semantic_grid_projection_common(
     table["header"] = [dict(item) for item in table["semantic_header"]]
     table["logical_cells"] = _logical_cells_from_semantic_grid(normalized, source=source)
     table["semantic_row_texts"] = [_grid_row_text(row) for row in normalized]
+    semantic_row_provenance = _semantic_row_provenance_from_display_grid(
+        table,
+        normalized,
+        source=source,
+    )
+    table["semantic_row_provenance"] = semantic_row_provenance
+    table["semantic_row_provenance_audit"] = _semantic_row_provenance_audit(
+        semantic_row_provenance,
+        expected_row_count=len(normalized),
+    )
+
+
+def _semantic_row_provenance_from_display_grid(
+    table: dict[str, Any],
+    semantic_grid: list[list[str]],
+    *,
+    source: str,
+) -> list[dict[str, Any]]:
+    _attach_display_row_provenance(table)
+    display_rows = [
+        row
+        for row in table.get("display_grid", []) or []
+        if isinstance(row, list)
+    ]
+    display_lineage = list(table.get("display_row_provenance", []) or [])
+    refs_by_signature: dict[str, list[str]] = {}
+    for row, lineage in zip(display_rows, display_lineage):
+        signature = _compact_text(_grid_row_text(row))
+        row_ref = str(lineage.get("row_ref") or "") if isinstance(lineage, dict) else ""
+        if signature and row_ref:
+            refs_by_signature.setdefault(signature, []).append(row_ref)
+
+    consumed: Counter[str] = Counter()
+    result: list[dict[str, Any]] = []
+    for row_index, row in enumerate(semantic_grid):
+        signature = _compact_text(_grid_row_text(row))
+        candidates = refs_by_signature.get(signature, [])
+        position = consumed[signature]
+        row_refs = [candidates[position]] if position < len(candidates) else []
+        if row_refs:
+            consumed[signature] += 1
+        result.append(
+            {
+                "semantic_row": row_index,
+                "source_row_refs": row_refs,
+                "derivation": "display_row_signature" if row_refs else source,
+            }
+        )
+    return result
+
+
+def _dose_response_source_header_row_refs(
+    table: dict[str, Any],
+    semantic_header: list[Any],
+    *,
+    source_has_explicit_sex_header_row: bool,
+) -> list[str]:
+    header_stub = _compact_text(str(semantic_header[0] if semantic_header else ""))
+    display_rows = [
+        row
+        for row in table.get("display_grid", []) or []
+        if isinstance(row, list)
+    ]
+    provenance = list(table.get("display_row_provenance", []) or [])
+    header_index = next(
+        (
+            index
+            for index, row in enumerate(display_rows)
+            if row
+            and header_stub
+            and _compact_text(str(row[0] or "")) == header_stub
+        ),
+        None,
+    )
+    if header_index is None or header_index >= len(provenance):
+        return []
+    source_indices = [header_index]
+    if source_has_explicit_sex_header_row and header_index + 1 < len(provenance):
+        source_indices.append(header_index + 1)
+    return [
+        str(provenance[index].get("row_ref") or "")
+        for index in source_indices
+        if isinstance(provenance[index], dict)
+        and str(provenance[index].get("row_ref") or "")
+    ]
+
+
+def _semantic_row_provenance_audit(
+    provenance: list[dict[str, Any]],
+    *,
+    expected_row_count: int,
+) -> dict[str, Any]:
+    refs = [
+        str(row_ref)
+        for item in provenance
+        if isinstance(item, dict)
+        for row_ref in item.get("source_row_refs", []) or []
+        if str(row_ref)
+    ]
+    duplicate_refs = sorted(
+        row_ref
+        for row_ref, count in Counter(refs).items()
+        if count > 1
+    )
+    mapped_row_count = sum(
+        1
+        for item in provenance
+        if isinstance(item, dict) and item.get("source_row_refs")
+    )
+    return {
+        "expected_row_count": expected_row_count,
+        "provenance_row_count": len(provenance),
+        "mapped_row_count": mapped_row_count,
+        "unmapped_row_count": max(0, len(provenance) - mapped_row_count),
+        "duplicate_source_row_refs": duplicate_refs,
+        "is_aligned": len(provenance) == expected_row_count and not duplicate_refs,
+    }
+
+
+def _project_grouped_multilevel_headers_from_column_groups(tables: list[dict[str, Any]]) -> None:
+    for table in tables:
+        if str(table.get("semantic_role") or "business_table") != "business_table":
+            continue
+        if _table_has_strong_business_semantic_projection(table):
+            continue
+        projection = table.get("semantic_projection_v2")
+        projection = projection if isinstance(projection, dict) else {}
+        if any(
+            isinstance(projection.get(key), dict)
+            for key in (
+                "grouped_multilevel_header_projection",
+                "grouped_multilevel_borderless_projection",
+                "overview_inventory_schema_projection",
+                "study_metric_grouped_matrix_projection",
+                "pre_table_parent_header_projection",
+            )
+        ):
+            continue
+        groups = _grouped_multilevel_header_projection_groups(table)
+        if not groups:
+            continue
+        semantic_grid = _grouped_multilevel_header_semantic_grid(table, groups)
+        if not semantic_grid:
+            continue
+        _apply_grouped_multilevel_header_projection(table, groups, semantic_grid)
+
+
+def _grouped_multilevel_header_projection_groups(table: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_groups = [
+        dict(group)
+        for group in table.get("header_column_groups", []) or []
+        if isinstance(group, dict)
+    ]
+    if not raw_groups:
+        return []
+    grid = [
+        list(row)
+        for row in table.get("display_grid", []) or table.get("raw_grid", []) or []
+        if isinstance(row, list)
+    ]
+    if len(grid) < 3:
+        return []
+    col_count = max((len(row) for row in grid), default=0)
+    if col_count < 3:
+        return []
+    groups: list[dict[str, Any]] = []
+    seen: set[tuple[int, int, int, str]] = set()
+    for group in raw_groups:
+        try:
+            row = int(group.get("row", 0) or 0)
+            start_col = int(group.get("start_col", 0) or 0)
+            end_col = int(group.get("end_col", start_col) or start_col)
+        except (TypeError, ValueError):
+            continue
+        text = _clean_text(str(group.get("text") or ""))
+        if not text:
+            continue
+        if row < 0 or row >= min(4, len(grid)):
+            continue
+        if start_col <= 0 or end_col <= start_col or end_col >= col_count:
+            continue
+        colspan = end_col - start_col + 1
+        key = (row, start_col, end_col, _compact_text(text))
+        if key in seen:
+            continue
+        seen.add(key)
+        groups.append(
+            {
+                **group,
+                "row": row,
+                "start_col": start_col,
+                "end_col": end_col,
+                "colspan": colspan,
+                "text": text,
+                "source": str(group.get("source") or "header_column_groups"),
+            }
+        )
+    if not groups:
+        return []
+    group_rows = {int(group.get("row", 0) or 0) for group in groups}
+    if not group_rows or max(group_rows) >= len(grid) - 1:
+        return []
+    return sorted(groups, key=lambda item: (int(item.get("row", 0) or 0), int(item.get("start_col", 0) or 0)))
+
+
+def _grouped_multilevel_header_semantic_grid(
+    table: dict[str, Any],
+    groups: list[dict[str, Any]],
+) -> list[list[str]]:
+    grid = [
+        list(row)
+        for row in table.get("display_grid", []) or table.get("raw_grid", []) or []
+        if isinstance(row, list)
+    ]
+    if not grid or not groups:
+        return []
+    col_count = max((len(row) for row in grid), default=0)
+    if col_count <= 0:
+        return []
+    normalized = [
+        [_clean_text(str(cell or "")) for cell in _normalize_table_row_width(row, col_count)]
+        for row in grid
+    ]
+    for group in groups:
+        row = int(group.get("row", 0) or 0)
+        start_col = int(group.get("start_col", 0) or 0)
+        end_col = int(group.get("end_col", start_col) or start_col)
+        text = _clean_text(str(group.get("text") or ""))
+        if row < 0 or row >= len(normalized) or start_col < 0 or end_col >= col_count or end_col < start_col or not text:
+            return []
+        for col_index in range(start_col, end_col + 1):
+            normalized[row][col_index] = text
+    leaf_header_row_index = max(int(group.get("row", 0) or 0) for group in groups) + 1
+    if 0 <= leaf_header_row_index < len(normalized):
+        grouped_columns = {
+            col_index
+            for group in groups
+            for col_index in range(
+                int(group.get("start_col", 0) or 0),
+                int(group.get("end_col", group.get("start_col", 0)) or group.get("start_col", 0)) + 1,
+            )
+        }
+        for col_index, cell_text in enumerate(normalized[leaf_header_row_index]):
+            if col_index in grouped_columns or _clean_text(str(cell_text or "")):
+                continue
+            carried_text = next(
+                (
+                    _clean_text(str(normalized[scan_row][col_index] or ""))
+                    for scan_row in range(leaf_header_row_index - 1, -1, -1)
+                    if col_index < len(normalized[scan_row])
+                    and _clean_text(str(normalized[scan_row][col_index] or ""))
+                ),
+                "",
+            )
+            if carried_text:
+                normalized[leaf_header_row_index][col_index] = carried_text
+    return normalized
+
+
+def _apply_grouped_multilevel_header_projection(
+    table: dict[str, Any],
+    groups: list[dict[str, Any]],
+    semantic_grid: list[list[str]],
+) -> None:
+    source = "grouped_multilevel_header_projection"
+    original_header = [
+        dict(item)
+        for item in table.get("header", []) or []
+        if isinstance(item, dict)
+    ]
+    _apply_semantic_grid_projection_common(
+        table,
+        semantic_grid=semantic_grid,
+        source=source,
+    )
+    leaf_header_row_index = max(int(group.get("row", 0) or 0) for group in groups) + 1
+    if 0 <= leaf_header_row_index < len(semantic_grid):
+        leaf_header = list(semantic_grid[leaf_header_row_index])
+        if leaf_header and not _clean_text(str(leaf_header[0] or "")):
+            original_stub = str((original_header[0] if original_header else {}).get("text") or "").strip()
+            leaf_header[0] = _clean_text(original_stub or str((semantic_grid[0] if semantic_grid else [""])[0] or ""))
+        table["header"] = [
+            {"row": leaf_header_row_index, "col": index + 1, "text": _clean_text(str(text or "")), "source": source}
+            for index, text in enumerate(leaf_header)
+            if _clean_text(str(text or ""))
+        ]
+    semantic_groups = [
+        {
+            "row": int(group.get("row", 0) or 0),
+            "start_col": int(group.get("start_col", 0) or 0),
+            "end_col": int(group.get("end_col", 0) or 0),
+            "colspan": int(group.get("colspan", 1) or 1),
+            "text": _clean_text(str(group.get("text") or "")),
+            "source": source,
+        }
+        for group in groups
+    ]
+    table["header_column_groups"] = [dict(group) for group in semantic_groups]
+    table["semantic_header_column_groups"] = [dict(group) for group in semantic_groups]
+    span_cells = [
+        {
+            "row": int(group.get("row", 0) or 0),
+            "col": int(group.get("start_col", 0) or 0),
+            "colspan": int(group.get("colspan", 1) or 1),
+            "text": _clean_text(str(group.get("text") or "")),
+            "source": source,
+        }
+        for group in semantic_groups
+        if int(group.get("colspan", 1) or 1) > 1
+    ]
+    existing_span_keys = {
+        (
+            int(cell.get("row", -1) or -1),
+            int(cell.get("col", -1) or -1),
+            int(cell.get("colspan", 1) or 1),
+            _compact_text(str(cell.get("text") or "")),
+        )
+        for cell in table.get("span_header_cells", []) or []
+        if isinstance(cell, dict)
+    }
+    merged_span_cells = [
+        dict(cell)
+        for cell in table.get("span_header_cells", []) or []
+        if isinstance(cell, dict)
+    ]
+    for cell in span_cells:
+        key = (
+            int(cell.get("row", -1) or -1),
+            int(cell.get("col", -1) or -1),
+            int(cell.get("colspan", 1) or 1),
+            _compact_text(str(cell.get("text") or "")),
+        )
+        if key in existing_span_keys:
+            continue
+        existing_span_keys.add(key)
+        merged_span_cells.append(cell)
+    table["span_header_cells"] = merged_span_cells
+    table["logical_cells"] = [
+        *[dict(cell) for cell in merged_span_cells],
+        *[dict(cell) for cell in table.get("logical_cells", []) or [] if isinstance(cell, dict)],
+    ]
+    projection = dict(table.get("semantic_projection_v2") or {})
+    projection.setdefault("source", "table_semantic_projection_v2")
+    projection["grouped_multilevel_header_projection"] = {
+        "source": source,
+        "semantic_profile": "grouped_multilevel_header_table",
+        "logical_column_count": len(semantic_grid[0]) if semantic_grid else 0,
+        "logical_row_count": len(semantic_grid),
+        "header_group_count": len(semantic_groups),
+        "header_column_groups": [dict(group) for group in semantic_groups],
+        "span_header_cells": [dict(cell) for cell in span_cells],
+        "coverage_audit": _semantic_projection_coverage_audit(
+            table,
+            semantic_grid=semantic_grid,
+            source=source,
+        ),
+    }
+    table["semantic_projection_v2"] = projection
+    table.setdefault("semantic_repairs", []).append(
+        {
+            "repair": source,
+            "semantic_profile": "grouped_multilevel_header_table",
+            "confidence": 0.86,
+        }
+    )
+    _rebuild_table_cells_from_grid(table, semantic_grid, inference_reason=source)
+    _refresh_row_texts_from_grid(table)
 
 
 def _project_overview_inventory_schema_tables(
@@ -29441,14 +39374,30 @@ def _project_overview_inventory_schema_tables(
         except Exception:
             page_number = 0
         inherited_header = None
+        inherited_header_groups: list[dict[str, Any]] = []
         if isinstance(parent_table, dict):
-            parent_grid = parent_table.get("semantic_grid")
-            if isinstance(parent_grid, list) and parent_grid:
-                inherited_header = parent_grid[0]
-        semantic_grid = _overview_inventory_projected_grid_from_words(
+            parent_projection = (
+                (parent_table.get("semantic_projection_v2") or {}).get(
+                    "overview_inventory_schema_projection",
+                    {},
+                )
+            )
+            if isinstance(parent_projection, dict):
+                inherited_header = parent_projection.get("leaf_columns")
+                inherited_header_groups = [
+                    deepcopy(group)
+                    for group in parent_projection.get("header_column_groups", []) or []
+                    if isinstance(group, dict)
+                ]
+            if not isinstance(inherited_header, list) or not inherited_header:
+                parent_grid = parent_table.get("semantic_grid")
+                if isinstance(parent_grid, list) and parent_grid:
+                    inherited_header = parent_grid[0]
+        semantic_grid, header_column_groups = _overview_inventory_projected_grid_from_words(
             table,
             page_words=page_words_by_page.get(page_number, []) or [],
             inherit_header=inherited_header,
+            inherit_header_groups=inherited_header_groups,
             semantic_profile=schema_profile,
         )
         if len(semantic_grid) < 2:
@@ -29456,6 +39405,16 @@ def _project_overview_inventory_schema_tables(
                 table,
                 semantic_profile=schema_profile,
             )
+            header_column_groups = inherited_header_groups
+            if semantic_grid and header_column_groups:
+                inherited_layout = {
+                    "leaf_columns": list(inherited_header or _overview_inventory_schema_columns(schema_profile)),
+                    "header_column_groups": header_column_groups,
+                }
+                semantic_grid = [
+                    *_overview_inventory_projected_header_rows(inherited_layout),
+                    *semantic_grid[1:],
+                ]
         if len(semantic_grid) < 2:
             continue
         _apply_overview_inventory_schema_projection(
@@ -29463,6 +39422,7 @@ def _project_overview_inventory_schema_tables(
             semantic_grid=semantic_grid,
             semantic_profile=schema_profile,
             continuation_schema_inherited=bool(parent_projection_profile),
+            header_column_groups=header_column_groups,
         )
 
 
@@ -29479,7 +39439,11 @@ def _table_overview_inventory_projection_profile(table: Any) -> str:
     if not isinstance(overview, dict):
         return ""
     profile = str(overview.get("semantic_profile") or "")
-    if profile in {_OVERVIEW_INVENTORY_PROFILE, _PK_OVERVIEW_INVENTORY_PROFILE}:
+    if profile in {
+        _OVERVIEW_INVENTORY_PROFILE,
+        _PK_OVERVIEW_INVENTORY_PROFILE,
+        _TOXICOKINETIC_OVERVIEW_INVENTORY_PROFILE,
+    }:
         return profile
     return ""
 
@@ -29493,6 +39457,37 @@ def _table_overview_inventory_schema_profile(table: dict[str, Any]) -> str:
     if not text:
         return ""
     compact = _compact_text(text)
+    toxicokinetic_required_hits = sum(
+        1
+        for token in ("试验类型", "试验系统", "给药方法", "剂量", "GLP", "试验编号")
+        if _compact_text(token) in compact
+    )
+    toxicokinetic_locator_hits = sum(
+        1
+        for token in ("位置", "卷", "页码")
+        if _compact_text(token) in compact
+    )
+    if toxicokinetic_required_hits == 6 and toxicokinetic_locator_hits >= 2:
+        return _TOXICOKINETIC_OVERVIEW_INVENTORY_PROFILE
+
+    pk_required_hits = sum(
+        1
+        for token in ("试验类型", "试验系统", "给药方法", "试验机构", "试验编号")
+        if _compact_text(token) in compact
+    )
+    pk_secondary_hits = sum(
+        1
+        for token in ("位置", "卷", "部分", "页码")
+        if _compact_text(token) in compact
+    )
+    toxicology_overview_axis_hits = sum(
+        1
+        for token in ("种属和品系", "给药期限", "剂量", "NOAEL", "GLP依从性")
+        if _compact_text(token) in compact
+    )
+    if pk_required_hits >= 4 and pk_secondary_hits >= 1 and toxicology_overview_axis_hits < 2:
+        return _PK_OVERVIEW_INVENTORY_PROFILE
+
     required_hits = sum(
         1
         for token in ("试验类型", "种属和品系", "给药方法", "试验编号")
@@ -29507,19 +39502,6 @@ def _table_overview_inventory_schema_profile(table: dict[str, Any]) -> str:
         return _OVERVIEW_INVENTORY_PROFILE
     if bool(table.get("is_continuation")) and required_hits >= 2 and secondary_hits >= 3:
         return _OVERVIEW_INVENTORY_PROFILE
-
-    pk_required_hits = sum(
-        1
-        for token in ("试验类型", "试验系统", "给药方法", "试验机构", "试验编号")
-        if _compact_text(token) in compact
-    )
-    pk_secondary_hits = sum(
-        1
-        for token in ("位置", "卷", "部分")
-        if _compact_text(token) in compact
-    )
-    if pk_required_hits >= 4 and pk_secondary_hits >= 1:
-        return _PK_OVERVIEW_INVENTORY_PROFILE
     return ""
 
 
@@ -29546,8 +39528,9 @@ def _overview_inventory_projected_grid_from_words(
     *,
     page_words: list[Any],
     inherit_header: Any = None,
+    inherit_header_groups: list[dict[str, Any]] | None = None,
     semantic_profile: str = _OVERVIEW_INVENTORY_PROFILE,
-) -> list[list[str]]:
+) -> tuple[list[list[str]], list[dict[str, Any]]]:
     table_bbox = _coerce_bbox(table.get("bbox"))
     words = _normalize_page_words_for_projection(page_words)
     if table_bbox is not None:
@@ -29557,17 +39540,32 @@ def _overview_inventory_projected_grid_from_words(
             if _word_projection_bbox_contains(word, table_bbox, x_pad=18.0, y_pad=10.0)
         ]
     if len(words) < 12:
-        return []
+        return [], []
     rows = _cluster_items_by_y(words)
     anchors = _overview_inventory_header_anchors(rows, semantic_profile=semantic_profile)
     if not anchors:
-        return []
-    header = _overview_inventory_header_from_inherited(inherit_header, semantic_profile=semantic_profile)
-    projected_rows: list[list[str]] = [header]
+        return [], []
+    header_layout = _overview_inventory_header_layout(
+        rows,
+        anchors,
+        inherit_header=inherit_header,
+        inherit_header_groups=inherit_header_groups,
+        semantic_profile=semantic_profile,
+    )
+    header = header_layout["leaf_columns"]
+    parent_header_texts = {
+        _clean_text(str(group.get("text") or ""))
+        for group in header_layout.get("header_column_groups", [])
+        if _clean_text(str(group.get("text") or ""))
+    }
+    projected_rows: list[list[str]] = _overview_inventory_projected_header_rows(header_layout)
+    header_row_count = len(projected_rows)
     saw_header = False
     for row in rows:
         row_text = _clean_text(" ".join(str(item.get("text") or "") for item in row))
         if not row_text:
+            continue
+        if not saw_header and row_text in parent_header_texts:
             continue
         if _overview_inventory_row_is_header(row_text, semantic_profile=semantic_profile):
             saw_header = True
@@ -29580,9 +39578,261 @@ def _overview_inventory_projected_grid_from_words(
         if _overview_inventory_projected_row_is_useful(cells, semantic_profile=semantic_profile):
             projected_rows.append(cells)
             continue
-        if len(projected_rows) > 1 and _overview_inventory_row_is_wrapped_body_continuation(cells, semantic_profile=semantic_profile):
+        if (
+            len(projected_rows) > header_row_count
+            and _overview_inventory_row_is_wrapped_body_continuation(cells, semantic_profile=semantic_profile)
+        ):
             _append_overview_inventory_wrapped_cells(projected_rows[-1], cells)
-    return _trim_empty_overview_inventory_columns(projected_rows, semantic_profile=semantic_profile)
+    projected_grid = _trim_empty_overview_inventory_columns(
+        projected_rows,
+        semantic_profile=semantic_profile,
+    )
+    header_column_groups = [
+        deepcopy(group)
+        for group in header_layout.get("header_column_groups", []) or []
+        if isinstance(group, dict)
+    ]
+    return projected_grid, header_column_groups
+
+
+def _overview_inventory_header_layout(
+    rows: list[list[dict[str, Any]]],
+    anchors: list[float],
+    *,
+    inherit_header: Any = None,
+    inherit_header_groups: list[dict[str, Any]] | None = None,
+    semantic_profile: str = _OVERVIEW_INVENTORY_PROFILE,
+) -> dict[str, Any]:
+    leaf_columns = _overview_inventory_header_from_inherited(inherit_header, semantic_profile=semantic_profile)
+    header_row = next(
+        (
+            row
+            for row in rows
+            if _overview_inventory_row_is_header(
+                _clean_text(" ".join(str(item.get("text") or "") for item in row)),
+                semantic_profile=semantic_profile,
+            )
+        ),
+        [],
+    )
+    if semantic_profile == _PK_OVERVIEW_INVENTORY_PROFILE:
+        locator_leaf = _pk_overview_inventory_locator_leaf_header(rows, header_row)
+        if locator_leaf:
+            leaf_columns = list(leaf_columns)
+            leaf_columns[-1] = locator_leaf
+    header_column_groups = _overview_inventory_header_column_groups(
+        rows,
+        anchors,
+        leaf_columns,
+        header_row=header_row,
+        semantic_profile=semantic_profile,
+    )
+    if not header_column_groups:
+        header_column_groups = _overview_inventory_compatible_inherited_header_groups(
+            inherit_header_groups or [],
+            leaf_columns,
+        )
+    return {
+        "leaf_columns": leaf_columns,
+        "header_column_groups": header_column_groups,
+    }
+
+
+def _overview_inventory_projected_header_rows(header_layout: dict[str, Any]) -> list[list[str]]:
+    leaf_columns = [_clean_text(str(cell or "")) for cell in header_layout.get("leaf_columns", []) or []]
+    groups = [dict(group) for group in header_layout.get("header_column_groups", []) or [] if isinstance(group, dict)]
+    if not groups:
+        return [leaf_columns]
+    parent_row = list(leaf_columns)
+    child_row = ["" for _ in leaf_columns]
+    for group in groups:
+        try:
+            start_col = int(group.get("start_leaf_col", 0) or 0)
+            end_col = int(group.get("end_leaf_col", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if start_col < 0 or end_col < start_col or end_col >= len(leaf_columns):
+            continue
+        text = _clean_text(str(group.get("text") or ""))
+        if not text:
+            continue
+        for col_index in range(start_col, end_col + 1):
+            parent_row[col_index] = text
+            child_row[col_index] = leaf_columns[col_index]
+    return [parent_row, child_row]
+
+
+def _pk_overview_inventory_locator_leaf_header(
+    rows: list[list[dict[str, Any]]],
+    header_row: list[dict[str, Any]],
+) -> str:
+    header_y = _bbox_center_y(header_row[0].get("bbox")) if header_row else 0.0
+    candidate_rows = [header_row] if header_row else []
+    candidate_rows.extend(
+        row
+        for row in rows
+        if row and 0.0 < (_bbox_center_y(row[0].get("bbox")) - header_y) <= 24.0
+    )
+    for row in candidate_rows:
+        row_texts = {_clean_text(str(item.get("text") or "")) for item in row}
+        if "页码" in row_texts:
+            return "页码"
+        if "部分" in row_texts:
+            return "部分"
+    return ""
+
+
+def _overview_inventory_header_column_groups(
+    rows: list[list[dict[str, Any]]],
+    anchors: list[float],
+    leaf_columns: list[str],
+    *,
+    header_row: list[dict[str, Any]],
+    semantic_profile: str,
+) -> list[dict[str, Any]]:
+    leaf_pair = _overview_inventory_location_leaf_pair(leaf_columns)
+    if leaf_pair is None:
+        return []
+    start_leaf_col, end_leaf_col = leaf_pair
+    if len(anchors) <= end_leaf_col:
+        return []
+    child_headers = [
+        _clean_text(str(leaf_columns[index] or ""))
+        for index in (start_leaf_col, end_leaf_col)
+    ]
+    parent = _overview_inventory_location_parent_header_item(
+        rows,
+        anchors,
+        header_row,
+        start_leaf_col=start_leaf_col,
+        end_leaf_col=end_leaf_col,
+    )
+    if parent is None:
+        return []
+    parent_text = _normalize_overview_inventory_parent_header_text(str(parent.get("text") or ""))
+    if not parent_text:
+        return []
+    group = {
+        "text": parent_text,
+        "start_leaf_col": start_leaf_col,
+        "end_leaf_col": end_leaf_col,
+        "colspan": 2,
+        "child_headers": child_headers,
+        "source": "borderless_multilevel_header_span",
+    }
+    bbox = _coerce_bbox(parent.get("bbox"))
+    if bbox is not None:
+        group["bbox"] = list(bbox)
+    return [group]
+
+
+def _overview_inventory_location_leaf_pair(leaf_columns: list[str]) -> tuple[int, int] | None:
+    normalized = [_compact_text(str(column or "")) for column in leaf_columns]
+    for index in range(len(normalized) - 1):
+        if normalized[index] == _compact_text("卷") and normalized[index + 1] in {
+            _compact_text("页码"),
+            _compact_text("部分"),
+        }:
+            return index, index + 1
+    return None
+
+
+def _dose_response_source_has_explicit_sex_header_row(
+    row_texts: list[str],
+    header_index: int,
+) -> bool:
+    for text in row_texts[header_index + 1 : header_index + 3]:
+        clean = _clean_text(str(text or ""))
+        if not re.match(r"^(?:性别|sex)(?:\s|[:：])", clean, re.IGNORECASE):
+            continue
+        sex_tokens = re.findall(r"(?<![A-Za-z])([MF])(?=$|\s)", clean, re.IGNORECASE)
+        if len(sex_tokens) >= 2:
+            return True
+    return False
+
+
+def _overview_inventory_compatible_inherited_header_groups(
+    groups: list[dict[str, Any]],
+    leaf_columns: list[str],
+) -> list[dict[str, Any]]:
+    compatible: list[dict[str, Any]] = []
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        try:
+            start_col = int(group.get("start_leaf_col", -1))
+            end_col = int(group.get("end_leaf_col", -1))
+        except (TypeError, ValueError):
+            continue
+        if start_col < 0 or end_col < start_col or end_col >= len(leaf_columns):
+            continue
+        child_headers = [
+            _clean_text(str(column or ""))
+            for column in leaf_columns[start_col : end_col + 1]
+        ]
+        expected_children = [
+            _clean_text(str(column or ""))
+            for column in group.get("child_headers", []) or []
+        ]
+        if expected_children and child_headers != expected_children:
+            continue
+        compatible.append(deepcopy(group))
+    return compatible
+
+
+def _overview_inventory_location_parent_header_item(
+    rows: list[list[dict[str, Any]]],
+    anchors: list[float],
+    header_row: list[dict[str, Any]],
+    *,
+    start_leaf_col: int,
+    end_leaf_col: int,
+) -> dict[str, Any] | None:
+    if start_leaf_col < 0 or end_leaf_col <= start_leaf_col or len(anchors) <= end_leaf_col:
+        return None
+    header_y = _bbox_center_y(header_row[0].get("bbox")) if header_row else 0.0
+    left_x = float(anchors[start_leaf_col])
+    right_x = float(anchors[end_leaf_col])
+    span_center = (left_x + right_x) / 2.0
+    span_width = max(1.0, abs(right_x - left_x))
+    candidates: list[tuple[float, float, dict[str, Any]]] = []
+    for row in rows:
+        if not row:
+            continue
+        row_y = _bbox_center_y(row[0].get("bbox"))
+        if header_y and not (-28.0 <= row_y - header_y <= 4.0):
+            continue
+        for item in row:
+            text = _clean_text(str(item.get("text") or ""))
+            if not _overview_inventory_location_parent_header_text(text):
+                continue
+            bbox = _coerce_bbox(item.get("bbox"))
+            if bbox is None:
+                continue
+            center_x = _bbox_center_x(bbox)
+            if center_x < min(left_x, right_x) - 28.0 or center_x > max(left_x, right_x) + 28.0:
+                continue
+            center_delta = abs(center_x - span_center)
+            if center_delta > max(20.0, span_width * 0.65):
+                continue
+            candidates.append((center_delta, abs(row_y - header_y), item))
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
+def _overview_inventory_location_parent_header_text(text: str) -> bool:
+    compact = _compact_text(str(text or ""))
+    return compact in {"位置", "ctd中的位置", "ctd位置"}
+
+
+def _normalize_overview_inventory_parent_header_text(text: str) -> str:
+    compact = _compact_text(str(text or ""))
+    if compact in {"ctd中的位置", "ctd位置"}:
+        return "CTD中的位置"
+    if compact == "位置":
+        return "位置"
+    return _clean_text(str(text or ""))
 
 
 def _normalize_page_words_for_projection(page_words: list[Any]) -> list[dict[str, Any]]:
@@ -29608,6 +39858,8 @@ def _normalize_page_words_for_projection(page_words: list[Any]) -> list[dict[str
 def _overview_inventory_schema_columns(semantic_profile: str) -> list[str]:
     if semantic_profile == _PK_OVERVIEW_INVENTORY_PROFILE:
         return list(_PK_OVERVIEW_INVENTORY_SCHEMA_COLUMNS)
+    if semantic_profile == _TOXICOKINETIC_OVERVIEW_INVENTORY_PROFILE:
+        return list(_TOXICOKINETIC_OVERVIEW_INVENTORY_SCHEMA_COLUMNS)
     return list(_OVERVIEW_INVENTORY_SCHEMA_COLUMNS)
 
 
@@ -29627,6 +39879,10 @@ def _overview_inventory_header_anchors(
         }
         if semantic_profile == _PK_OVERVIEW_INVENTORY_PROFILE:
             anchors = _pk_overview_inventory_header_anchors(token_positions, rows, row)
+            if anchors:
+                return anchors
+        if semantic_profile == _TOXICOKINETIC_OVERVIEW_INVENTORY_PROFILE:
+            anchors = _toxicokinetic_overview_inventory_header_anchors(token_positions, rows, row)
             if anchors:
                 return anchors
         anchors: list[float | None] = [
@@ -29714,6 +39970,46 @@ def _pk_overview_inventory_header_anchors(
     return filled
 
 
+def _toxicokinetic_overview_inventory_header_anchors(
+    token_positions: dict[str, float],
+    rows: list[list[dict[str, Any]]],
+    header_row: list[dict[str, Any]],
+) -> list[float]:
+    anchors: list[float | None] = [
+        _find_overview_anchor(token_positions, ("试验类型",)),
+        _find_overview_anchor(token_positions, ("试验系统",)),
+        _find_overview_anchor(token_positions, ("给药方法",)),
+        _find_overview_anchor(token_positions, ("剂量(mg/kg)", "剂量")),
+        _find_overview_anchor(token_positions, ("GLP依从性", "GLP")),
+        _find_overview_anchor(token_positions, ("试验编号",)),
+        None,
+        None,
+    ]
+    if anchors[4] is None:
+        glp = _find_overview_anchor(token_positions, ("GLP",))
+        compliance = _find_overview_anchor(token_positions, ("依从性", "依从性性"))
+        if glp is not None and compliance is not None:
+            anchors[4] = (glp + compliance) / 2.0
+
+    header_y = _bbox_center_y(header_row[0].get("bbox")) if header_row else 0.0
+    lower_positions: dict[str, float] = {}
+    for row in rows:
+        if not row:
+            continue
+        row_delta = _bbox_center_y(row[0].get("bbox")) - header_y
+        if not 0.0 < row_delta <= 24.0:
+            continue
+        for item in row:
+            text = _clean_text(str(item.get("text") or ""))
+            if text:
+                lower_positions[text] = _bbox_center_x(item.get("bbox"))
+    anchors[6] = _find_overview_anchor(lower_positions, ("卷",))
+    anchors[7] = _find_overview_anchor(lower_positions, ("页码",))
+    if any(anchor is None for anchor in anchors):
+        return []
+    return [float(anchor) for anchor in anchors if anchor is not None]
+
+
 def _find_overview_anchor(token_positions: dict[str, float], candidates: tuple[str, ...]) -> float | None:
     compact_positions = [(_compact_text(text), x) for text, x in token_positions.items()]
     for candidate in candidates:
@@ -29749,6 +40045,15 @@ def _overview_inventory_row_is_header(
             and "试验系统" in compact
             and "给药方法" in compact
             and "试验机构" in compact
+            and "试验编号" in compact
+        )
+    if semantic_profile == _TOXICOKINETIC_OVERVIEW_INVENTORY_PROFILE:
+        return (
+            "试验类型" in compact
+            and "试验系统" in compact
+            and "给药方法" in compact
+            and "剂量" in compact
+            and "glp" in compact
             and "试验编号" in compact
         )
     return (
@@ -29809,6 +40114,8 @@ def _normalize_overview_inventory_projected_cells(
         if len(normalized) >= 5:
             normalized[4] = re.sub(r"\s*\(\d+\)\s*$", "", normalized[4]).strip()
         return normalized
+    if semantic_profile == _TOXICOKINETIC_OVERVIEW_INVENTORY_PROFILE:
+        return normalized
     if normalized[5]:
         glp_match = re.match(r"^(和(?:/或)?)(?:\s+)?([是否])$", normalized[5])
         if glp_match and normalized[4]:
@@ -29836,6 +40143,8 @@ def _overview_inventory_projected_row_is_useful(
         if len(non_empty) == 1 and _clean_text(cells[0]):
             return True
         return bool(cells[4] and re.search(r"\d{4,}", cells[4]) and len(non_empty) >= 5)
+    if semantic_profile == _TOXICOKINETIC_OVERVIEW_INVENTORY_PROFILE:
+        return bool(cells[5] and re.search(r"\d{4,}", cells[5]) and len(non_empty) >= 6)
     if len(non_empty) < 4:
         return False
     if cells[7] and re.search(r"\d{4,}", cells[7]):
@@ -29855,6 +40164,8 @@ def _overview_inventory_row_is_wrapped_body_continuation(
         return False
     if semantic_profile == _PK_OVERVIEW_INVENTORY_PROFILE:
         return all(index in {0, 1, 3, 6} for index in non_empty_indices)
+    if semantic_profile == _TOXICOKINETIC_OVERVIEW_INVENTORY_PROFILE:
+        return all(index in {0, 1, 2, 3} for index in non_empty_indices)
     return all(index in {1, 3, 4, 6} for index in non_empty_indices)
 
 
@@ -29920,6 +40231,8 @@ def _overview_inventory_projected_grid_from_existing_table(
                 cells[6],
                 re.sub(r"^位置\s*", "", cells[7]).strip(),
             ]
+        elif semantic_profile == _TOXICOKINETIC_OVERVIEW_INVENTORY_PROFILE and len(cells) == 8:
+            projected = list(cells)
         elif len(cells) == 12:
             projected = [
                 cells[0],
@@ -29950,6 +40263,7 @@ def _apply_overview_inventory_schema_projection(
     semantic_grid: list[list[str]],
     semantic_profile: str,
     continuation_schema_inherited: bool,
+    header_column_groups: list[dict[str, Any]] | None = None,
 ) -> None:
     visual_col_count = int(table.get("col_count", 0) or 0)
     columns = _overview_inventory_schema_columns(semantic_profile)
@@ -29966,6 +40280,25 @@ def _apply_overview_inventory_schema_projection(
         table["semantic_grid"],
         source="overview_inventory_schema_projection",
     )
+    header_groups = [
+        deepcopy(group)
+        for group in header_column_groups or []
+        if isinstance(group, dict)
+    ]
+    if not header_groups:
+        header_groups = _overview_inventory_header_groups_from_projected_grid(table["semantic_grid"])
+    leaf_columns = _overview_inventory_canonical_leaf_columns(
+        table["semantic_grid"],
+        header_groups,
+        semantic_profile=semantic_profile,
+    )
+    span_header_cells = _overview_inventory_span_header_cells_from_groups(header_groups)
+    table["header_column_groups"] = [deepcopy(group) for group in header_groups]
+    table["semantic_header_column_groups"] = [deepcopy(group) for group in header_groups]
+    if span_header_cells:
+        table["span_header_cells"] = span_header_cells
+        table["logical_cells"] = [*span_header_cells, *table["logical_cells"]]
+        table["data_start_row"] = max(int(table.get("data_start_row", 0) or 0), 2)
     table["col_count"] = len(columns)
     table["row_count"] = len(table["semantic_grid"])
     projection = dict(table.get("semantic_projection_v2") or {})
@@ -29975,7 +40308,11 @@ def _apply_overview_inventory_schema_projection(
         "logical_column_count": len(columns),
         "visual_column_count": visual_col_count,
         "continuation_schema_inherited": bool(continuation_schema_inherited),
+        "leaf_columns": leaf_columns,
         "compaction_suppressed": "multicolumn_wrapped_record_compaction" in projection,
+        "header_column_groups": header_groups,
+        "span_header_cells": span_header_cells,
+        "has_multilevel_header_spans": bool(span_header_cells),
     }
     table["semantic_projection_v2"] = projection
     table.setdefault("semantic_repairs", []).append(
@@ -29986,6 +40323,38 @@ def _apply_overview_inventory_schema_projection(
             "confidence": 0.88,
         }
     )
+
+
+def _overview_inventory_canonical_leaf_columns(
+    semantic_grid: list[list[str]],
+    header_groups: list[dict[str, Any]],
+    *,
+    semantic_profile: str,
+) -> list[str]:
+    columns = _overview_inventory_schema_columns(semantic_profile)
+    if not header_groups and semantic_grid and len(semantic_grid[0]) == len(columns):
+        return [_clean_text(str(cell or "")) for cell in semantic_grid[0]]
+    for group in header_groups:
+        if not isinstance(group, dict):
+            continue
+        try:
+            start_col = int(group.get("start_leaf_col", -1))
+            end_col = int(group.get("end_leaf_col", -1))
+        except (TypeError, ValueError):
+            continue
+        child_headers = [
+            _clean_text(str(header or ""))
+            for header in group.get("child_headers", []) or []
+        ]
+        if (
+            start_col < 0
+            or end_col < start_col
+            or end_col >= len(columns)
+            or len(child_headers) != end_col - start_col + 1
+        ):
+            continue
+        columns[start_col : end_col + 1] = child_headers
+    return columns
 
 
 def _project_study_metric_grouped_matrix_tables(
@@ -30082,7 +40451,12 @@ def _build_auc_cohort_grouped_matrix_projection(rows: list[list[dict[str, Any]]]
     anchors.extend(_bbox_center_x(item.get("bbox")) for item in single_group_items[:3])
     if len(anchors) != 8:
         return None
-    data_rows = _project_study_metric_data_rows(rows[sex_row_index + 1 :], anchors, expected_col_count=8)
+    projected_rows = _project_study_metric_data_rows_with_provenance(
+        rows[sex_row_index + 1 :],
+        anchors,
+        expected_col_count=8,
+    )
+    data_rows = [list(item["cells"]) for item in projected_rows]
     if len(data_rows) < 4:
         return None
     header = ["日剂量（mg/kg）", "M", "F", "M", "F"]
@@ -30092,6 +40466,7 @@ def _build_auc_cohort_grouped_matrix_projection(rows: list[list[dict[str, Any]]]
         "kind": "auc_cohort_grouped_metric_matrix",
         "header": header,
         "semantic_grid": [header, *data_rows],
+        "semantic_row_provenance": projected_rows,
         "header_column_groups": header_groups,
         "source": "word_level_grouped_metric_matrix_projection",
     }
@@ -30207,7 +40582,12 @@ def _build_impurity_grouped_matrix_projection(rows: list[list[dict[str, Any]]]) 
         header.append(header_text)
     if len(anchors) != 7:
         return None
-    data_rows = _project_study_metric_data_rows(rows[abc_row_index + 1 :], anchors, expected_col_count=7)
+    projected_rows = _project_study_metric_data_rows_with_provenance(
+        rows[abc_row_index + 1 :],
+        anchors,
+        expected_col_count=7,
+    )
+    data_rows = [list(item["cells"]) for item in projected_rows]
     if len(data_rows) < 3:
         return None
     impurity_label = _study_metric_header_label(rows, "特定杂质")
@@ -30227,6 +40607,7 @@ def _build_impurity_grouped_matrix_projection(rows: list[list[dict[str, Any]]]) 
         "kind": "impurity_grouped_metric_matrix",
         "header": header,
         "semantic_grid": [header, *data_rows],
+        "semantic_row_provenance": projected_rows,
         "header_column_groups": header_groups,
         "source": "word_level_grouped_metric_matrix_projection",
     }
@@ -30252,7 +40633,23 @@ def _project_study_metric_data_rows(
     *,
     expected_col_count: int,
 ) -> list[list[str]]:
-    projected: list[list[str]] = []
+    return [
+        list(item["cells"])
+        for item in _project_study_metric_data_rows_with_provenance(
+            rows,
+            anchors,
+            expected_col_count=expected_col_count,
+        )
+    ]
+
+
+def _project_study_metric_data_rows_with_provenance(
+    rows: list[list[dict[str, Any]]],
+    anchors: list[float],
+    *,
+    expected_col_count: int,
+) -> list[dict[str, Any]]:
+    projected: list[dict[str, Any]] = []
     for row in rows:
         text = _study_metric_row_text(row)
         if not text or _overview_inventory_row_is_note(text) or _study_metric_row_is_header_like(text):
@@ -30260,8 +40657,47 @@ def _project_study_metric_data_rows(
         cells = _project_words_to_study_metric_columns(row, anchors)
         cells = _normalize_table_row_width(cells, expected_col_count)
         if _study_metric_data_row_is_useful(cells):
-            projected.append([_clean_text(str(cell or "")) for cell in cells])
+            normalized_cells = [_clean_text(str(cell or "")) for cell in cells]
+            contributing = [
+                item
+                for item in row
+                if _clean_text(str(item.get("text") or ""))
+                and _coerce_bbox(item.get("bbox")) is not None
+            ]
+            if not contributing:
+                continue
+            bboxes = [_coerce_bbox(item.get("bbox")) for item in contributing]
+            valid_bboxes = [bbox for bbox in bboxes if bbox is not None]
+            if not valid_bboxes:
+                continue
+            source_word_refs = list(
+                dict.fromkeys(_study_metric_source_word_ref(item) for item in contributing)
+            )
+            projected.append(
+                {
+                    "cells": normalized_cells,
+                    "source_word_refs": source_word_refs,
+                    "source_y_min": min(float(bbox[1]) for bbox in valid_bboxes),
+                    "source_y_max": max(float(bbox[3]) for bbox in valid_bboxes),
+                    "projection_source": "study_metric_grouped_matrix_projection",
+                }
+            )
     return projected
+
+
+def _study_metric_source_word_ref(item: dict[str, Any]) -> str:
+    existing = str(item.get("source_word_ref") or item.get("word_id") or "").strip()
+    if existing:
+        return existing
+    bbox = _coerce_bbox(item.get("bbox")) or (0.0, 0.0, 0.0, 0.0)
+    text = _clean_text(str(item.get("text") or ""))
+    return "study_metric_word:{:.3f}:{:.3f}:{:.3f}:{:.3f}:{}".format(
+        float(bbox[0]),
+        float(bbox[1]),
+        float(bbox[2]),
+        float(bbox[3]),
+        _compact_text(text),
+    )
 
 
 def _project_words_to_study_metric_columns(row: list[dict[str, Any]], anchors: list[float]) -> list[str]:
@@ -30360,6 +40796,37 @@ def _apply_study_metric_grouped_matrix_projection(
         [_clean_text(str(cell or "")) for cell in _normalize_table_row_width(row, col_count)]
         for row in semantic_grid
     ]
+    page_number = int(table.get("page", 0) or 0)
+    projected_provenance = [
+        item
+        for item in projection_payload.get("semantic_row_provenance", []) or []
+        if isinstance(item, dict)
+    ]
+    table["semantic_row_provenance"] = [
+        {
+            "semantic_row": 0,
+            "role": "header",
+            "source_page": page_number,
+            "source_word_refs": [],
+            "projection_source": "study_metric_grouped_matrix_projection",
+        },
+        *[
+            {
+                "semantic_row": index,
+                "role": "body",
+                "source_page": page_number,
+                "source_word_refs": list(item.get("source_word_refs", []) or []),
+                "source_y_min": item.get("source_y_min"),
+                "source_y_max": item.get("source_y_max"),
+                "projection_source": str(
+                    item.get("projection_source") or "study_metric_grouped_matrix_projection"
+                ),
+            }
+            for index, item in enumerate(projected_provenance, start=1)
+        ],
+    ]
+    table["semantic_grid_generation"] = "study_metric_grouped_matrix_projection"
+    table["semantic_grid_replaced"] = True
     table["data_grid"] = [list(row) for row in table["semantic_grid"][1:]]
     table["col_count"] = col_count
     table["logical_col_count"] = col_count
@@ -30614,6 +41081,8 @@ def _nearest_preceding_study_template_for_table(
 def _build_study_context_result_matrix_binding(
     template: dict[str, Any],
     table: dict[str, Any],
+    *,
+    page_words: list[Any] | None = None,
 ) -> dict[str, Any] | None:
     leaf_headers, leaf_x_centers = _result_matrix_leaf_headers_from_cells(table)
     if not leaf_headers:
@@ -30659,7 +41128,26 @@ def _build_study_context_result_matrix_binding(
         leaf_x_centers,
         group_count=group_count,
         leaf_count_per_group=leaf_count_per_group,
+        page_words=page_words,
     )
+    expected_trailing_labels = _result_matrix_expected_trailing_labels(table)
+    projected_trailing_labels = [
+        _normalize_result_matrix_trailing_label(str(row.get("label") or ""))
+        for row in trailing_rows
+        if str(row.get("label") or "").strip()
+    ]
+    missing_trailing_labels = [
+        label for label in expected_trailing_labels if label not in projected_trailing_labels
+    ]
+    if missing_trailing_labels:
+        diagnostics = dict(table.get("diagnostics", {}) or {})
+        diagnostics["study_context_trailing_projection_incomplete"] = True
+        diagnostics["expected_trailing_labels"] = expected_trailing_labels
+        diagnostics["projected_trailing_labels"] = projected_trailing_labels
+        diagnostics["missing_trailing_labels"] = missing_trailing_labels
+        table["diagnostics"] = diagnostics
+        table["review_required"] = True
+        return None
     logical_grid, note_rows = _project_study_condition_result_matrix_grid(
         table,
         leaf_headers=leaf_headers,
@@ -30668,6 +41156,13 @@ def _build_study_context_result_matrix_binding(
     )
     if not logical_grid:
         return None
+    _attach_study_condition_result_matrix_note_rows(table, note_rows)
+    matrix_header_rows = _study_condition_matrix_source_header_rows(
+        table,
+        leaf_headers=leaf_headers,
+        leaf_x_centers=leaf_x_centers,
+        row_axis_stub=_clean_text(str(logical_grid[0][0] or "")),
+    )
     table["semantic_grid"] = logical_grid
     table["semantic_header"] = [
         {"col": index, "text": text, "source": "study_condition_grouped_result_matrix_projection"}
@@ -30691,6 +41186,7 @@ def _build_study_context_result_matrix_binding(
         "leaf_headers": leaf_headers,
         "study_groups": study_groups,
         "header_group_rows": _study_condition_group_header_rows(study_groups),
+        "matrix_header_rows": matrix_header_rows,
         "trailing_colspan_rows": trailing_rows,
         "semantic_grid": logical_grid,
         "note_rows": note_rows,
@@ -30699,6 +41195,121 @@ def _build_study_context_result_matrix_binding(
         "projection_confidence": "high",
         "evidence_model": "preceding_study_metadata_plus_repeated_leaf_matrix",
     }
+
+
+def _study_condition_matrix_source_header_rows(
+    table: dict[str, Any],
+    *,
+    leaf_headers: list[str],
+    leaf_x_centers: list[float],
+    row_axis_stub: str,
+) -> list[dict[str, Any]]:
+    leaf_header_stub = _result_matrix_source_leaf_header_stub(
+        table,
+        leaf_headers=leaf_headers,
+        leaf_x_centers=leaf_x_centers,
+    )
+    if not leaf_header_stub or not row_axis_stub:
+        return []
+    return [
+        {
+            "role": "matrix_leaf_header",
+            "stub": leaf_header_stub,
+            "cells": list(leaf_headers),
+            "source": "source_visual_row_geometry",
+        },
+        {
+            "role": "matrix_row_axis",
+            "stub": row_axis_stub,
+            "cells": ["" for _ in leaf_headers],
+            "source": "source_visual_row_geometry",
+        },
+    ]
+
+
+def _attach_study_condition_result_matrix_note_rows(
+    table: dict[str, Any],
+    note_rows: list[dict[str, Any]],
+) -> None:
+    segments = [
+        {
+            "role": "table_note",
+            "text": _clean_text(str(note.get("text") or "")),
+            "page": int(note.get("page", table.get("page", 0)) or 0),
+            "bbox": list(note.get("bbox", []) or []),
+            "relation": "below",
+            "source": "study_condition_result_matrix_note_row",
+        }
+        for note in note_rows
+        if _clean_text(str(note.get("text") or ""))
+    ]
+    if not segments:
+        return
+    table["note_blocks"] = _merge_float_owned_segments(table.get("note_blocks"), segments)
+    table["content_segments"] = _merge_float_owned_segments(table.get("content_segments"), segments)
+    table["content_text"] = _join_unique_segment_texts_for_float(table.get("content_segments") or [])
+
+
+def _result_matrix_source_leaf_header_stub(
+    table: dict[str, Any],
+    *,
+    leaf_headers: list[str],
+    leaf_x_centers: list[float],
+) -> str:
+    if not leaf_headers or not leaf_x_centers:
+        return ""
+    leaf_norms = {_compact_text(header) for header in leaf_headers if _compact_text(header)}
+    if not leaf_norms:
+        return ""
+    first_leaf_x = min(leaf_x_centers)
+    minimum_leaf_hits = max(4, len(leaf_headers) - 2)
+    candidates: list[tuple[int, float, str]] = []
+    for row_items in _cluster_items_by_y(_table_text_atoms_with_bbox(table, restrict_to_table_bbox=True)):
+        leaf_hits = sum(
+            1
+            for item in row_items
+            if _compact_text(str(item.get("text") or "")) in leaf_norms
+            and _bbox_center_x(item.get("bbox")) >= first_leaf_x - 12.0
+        )
+        if leaf_hits < minimum_leaf_hits:
+            continue
+        stub_items = [
+            item
+            for item in row_items
+            if _bbox_center_x(item.get("bbox")) < first_leaf_x - 12.0
+            and _compact_text(str(item.get("text") or "")) not in leaf_norms
+            and not _looks_like_numeric_value(str(item.get("text") or ""))
+        ]
+        stub = _clean_text(
+            " ".join(
+                str(item.get("text") or "")
+                for item in sorted(stub_items, key=lambda item: _bbox_center_x(item.get("bbox")))
+            )
+        )
+        if stub:
+            candidates.append((leaf_hits, -abs(_bbox_center_x(stub_items[-1].get("bbox")) - first_leaf_x), stub))
+    if not candidates:
+        return _result_matrix_source_leaf_header_stub_from_existing_grid(table, leaf_headers)
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
+def _result_matrix_source_leaf_header_stub_from_existing_grid(
+    table: dict[str, Any],
+    leaf_headers: list[str],
+) -> str:
+    expected_leafs = [_compact_text(header) for header in leaf_headers]
+    for key in ("display_grid", "raw_grid", "grid"):
+        grid = table.get(key)
+        if not isinstance(grid, list):
+            continue
+        for row in grid[:3]:
+            if not isinstance(row, list) or len(row) != len(leaf_headers) + 1:
+                continue
+            stub = _clean_text(str(row[0] or ""))
+            row_leafs = [_compact_text(str(cell or "")) for cell in row[1:]]
+            if stub and row_leafs == expected_leafs:
+                return stub
+    return ""
 
 
 def _study_condition_group_display_label(group: dict[str, Any]) -> str:
@@ -31176,7 +41787,14 @@ def _project_study_condition_result_matrix_grid(
         if _result_matrix_trailing_label(row_text):
             continue
         if _study_result_matrix_note_label(row_text):
-            note_rows.append({"text": row_text, "source": "study_condition_result_matrix_note_row"})
+            note_rows.append(
+                {
+                    "text": row_text,
+                    "page": int(table.get("page", 0) or 0),
+                    "bbox": _bbox_to_list(_bbox_union_loose([item.get("bbox") for item in row_items])),
+                    "source": "study_condition_result_matrix_note_row",
+                }
+            )
             continue
         projected = _project_result_matrix_atom_row_to_leaf_columns(row_items, leaf_x_centers)
         value_count = sum(1 for cell in projected[1:] if _clean_text(cell))
@@ -31186,8 +41804,6 @@ def _project_study_condition_result_matrix_grid(
         span_row = _semantic_grid_row_for_result_matrix_trailing_span(trailing, leaf_count)
         if span_row:
             rows.append(span_row)
-    for note_row in note_rows:
-        rows.append([note_row["text"], *["" for _ in range(leaf_count)]])
     if len(rows) >= 2:
         return rows, note_rows
     existing_grid = _existing_result_matrix_semantic_grid(table, leaf_headers)
@@ -31326,24 +41942,21 @@ def _project_centered_trailing_colspan_rows(
     *,
     group_count: int,
     leaf_count_per_group: int,
+    page_words: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     if not leaf_x_centers:
         return []
-    cells_by_row: dict[int, list[dict[str, Any]]] = {}
-    for cell in _table_cells_with_text(table):
-        row = int(cell.get("row", 0) or 0)
-        cells_by_row.setdefault(row, []).append(cell)
     trailing_rows: list[dict[str, Any]] = []
-    for row, row_cells in sorted(cells_by_row.items()):
-        ordered = sorted(row_cells, key=lambda cell: _bbox_center_x(cell.get("bbox")))
-        label_cell = ordered[0] if ordered else None
-        label = _clean_text(str((label_cell or {}).get("text") or ""))
-        if not _result_matrix_trailing_label(label):
-            continue
+    for row_record in _result_matrix_trailing_evidence_rows(
+        table,
+        leaf_x_centers,
+        page_words=page_words,
+    ):
+        label = _clean_text(str(row_record.get("label") or ""))
         value_cells = [
-            cell
-            for cell in ordered[1:]
-            if _clean_text(str(cell.get("text") or ""))
+            dict(cell)
+            for cell in row_record.get("value_cells", []) or []
+            if isinstance(cell, dict) and _clean_text(str(cell.get("text") or ""))
         ]
         spans = _centered_trailing_value_spans(
             value_cells,
@@ -31354,13 +41967,100 @@ def _project_centered_trailing_colspan_rows(
         if spans:
             trailing_rows.append(
                 {
-                    "row": row,
+                    "row": row_record.get("row"),
                     "label": _normalize_result_matrix_trailing_label(label),
                     "spans": spans,
-                    "source": "centered_trailing_colspan_projection",
+                    "bbox": list(row_record.get("bbox", []) or []),
+                    "source": str(row_record.get("source") or "centered_trailing_colspan_projection"),
                 }
             )
     return trailing_rows
+
+
+def _result_matrix_expected_trailing_labels(table: dict[str, Any]) -> list[str]:
+    labels: list[str] = []
+    for row in table.get("display_grid", []) or table.get("raw_grid", []) or []:
+        if not isinstance(row, list):
+            continue
+        text = _grid_row_text(row)
+        if not _result_matrix_trailing_label(text):
+            continue
+        label = _normalize_result_matrix_trailing_label(text)
+        if re.search(r"试验编号", label):
+            label = "试验编号"
+        elif re.search(r"CTD\s*中?的位置", label, re.IGNORECASE):
+            label = "CTD中的位置"
+        if label and label not in labels:
+            labels.append(label)
+    return labels
+
+
+def _result_matrix_trailing_evidence_rows(
+    table: dict[str, Any],
+    leaf_x_centers: list[float],
+    *,
+    page_words: list[Any] | None = None,
+) -> list[dict[str, Any]]:
+    table_bbox = _coerce_bbox(table.get("bbox"))
+    atoms = _table_text_atoms_with_page_word_fallback(
+        table,
+        page_words=page_words,
+        evidence_bbox=table_bbox,
+    )
+    first_leaf_x = min(leaf_x_centers) if leaf_x_centers else 0.0
+    rows: list[dict[str, Any]] = []
+    for row_index, row_atoms in enumerate(_cluster_items_by_y(atoms), start=1):
+        ordered = sorted(row_atoms, key=lambda atom: _bbox_center_x(atom.get("bbox")))
+        label_atoms = [
+            atom
+            for atom in ordered
+            if _bbox_center_x(atom.get("bbox")) < first_leaf_x - 12.0
+        ]
+        label = _clean_text(" ".join(str(atom.get("text") or "") for atom in label_atoms))
+        if not _result_matrix_trailing_label(label):
+            continue
+        label_ids = {id(atom) for atom in label_atoms}
+        value_atoms = [atom for atom in ordered if id(atom) not in label_ids]
+        row_bbox = _bbox_union_loose([atom.get("bbox") for atom in ordered])
+        rows.append(
+            {
+                "row": row_index,
+                "label": label,
+                "value_cells": value_atoms,
+                "bbox": _bbox_to_list(row_bbox),
+                "source": "table_atoms_with_page_word_fallback",
+            }
+        )
+    if rows:
+        return rows
+
+    cells_by_row: dict[int, list[dict[str, Any]]] = {}
+    for cell in _table_cells_with_text(table):
+        if _coerce_bbox(cell.get("bbox")) is None:
+            continue
+        row = int(cell.get("row", 0) or 0)
+        cells_by_row.setdefault(row, []).append(cell)
+    for row, row_cells in sorted(cells_by_row.items()):
+        ordered = sorted(row_cells, key=lambda cell: _bbox_center_x(cell.get("bbox")))
+        label_cells = [
+            cell
+            for cell in ordered
+            if _bbox_center_x(cell.get("bbox")) < first_leaf_x - 12.0
+        ]
+        label = _clean_text(" ".join(str(cell.get("text") or "") for cell in label_cells))
+        if not _result_matrix_trailing_label(label):
+            continue
+        label_ids = {id(cell) for cell in label_cells}
+        rows.append(
+            {
+                "row": row,
+                "label": label,
+                "value_cells": [cell for cell in ordered if id(cell) not in label_ids],
+                "bbox": _bbox_to_list(_bbox_union_loose([cell.get("bbox") for cell in ordered])),
+                "source": "table_cells_with_bbox_fallback",
+            }
+        )
+    return rows
 
 
 def _result_matrix_trailing_label(text: str) -> bool:
@@ -31945,6 +42645,9 @@ def _release_unmarked_body_like_table_note_blocks(table_ast: dict[str, Any]) -> 
             "ind_study_result_matrix_word_recovery",
             "top_continuation_marker_note_word_ownership",
         }:
+            kept.append(note)
+            continue
+        if bool((note.get("semantic_signals") or {}).get("table_note_label_continuation")):
             kept.append(note)
             continue
         marker = _extract_table_note_marker(text)
@@ -34124,6 +44827,70 @@ def _annotate_content_evidence_order_from_document_ast(
         content_evidence,
         document_ast_pages,
     )
+
+
+def _overview_inventory_header_groups_from_projected_grid(grid: list[list[str]]) -> list[dict[str, Any]]:
+    if len(grid) < 2:
+        return []
+    parent_row = [_clean_text(str(cell or "")) for cell in grid[0]]
+    child_row = [_clean_text(str(cell or "")) for cell in grid[1]]
+    if len(parent_row) != len(child_row):
+        return []
+    groups: list[dict[str, Any]] = []
+    index = 0
+    while index < len(parent_row):
+        parent = parent_row[index]
+        child = child_row[index]
+        if not parent or not child:
+            index += 1
+            continue
+        end = index
+        while end + 1 < len(parent_row) and parent_row[end + 1] == parent and _clean_text(child_row[end + 1]):
+            end += 1
+        if end > index:
+            groups.append(
+                {
+                    "text": parent,
+                    "start_leaf_col": index,
+                    "end_leaf_col": end,
+                    "colspan": end - index + 1,
+                    "child_headers": child_row[index : end + 1],
+                    "source": "borderless_multilevel_header_span",
+                }
+            )
+        index = end + 1
+    return groups
+
+
+def _overview_inventory_span_header_cells_from_groups(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    spans: list[dict[str, Any]] = []
+    for group in groups:
+        try:
+            start_col = int(group.get("start_leaf_col", 0) or 0)
+            colspan = int(group.get("colspan", 1) or 1)
+        except (TypeError, ValueError):
+            continue
+        text = _clean_text(str(group.get("text") or ""))
+        if not text or colspan <= 1:
+            continue
+        span = {
+            "row": 0,
+            "col": start_col,
+            "rowspan": 1,
+            "colspan": colspan,
+            "text": text,
+            "source": "borderless_multilevel_header_span",
+        }
+        if group.get("child_headers"):
+            span["child_headers"] = list(group.get("child_headers") or [])
+        bbox = _coerce_bbox(group.get("bbox"))
+        if bbox is not None:
+            span["bbox"] = _bbox_to_list(bbox)
+        source_block_id = str(group.get("source_block_id") or "").strip()
+        if source_block_id:
+            span["source_block_id"] = source_block_id
+        spans.append(span)
+    return spans
 
 
 def _content_evidence_source_type_for_ast_block(block: dict[str, Any]) -> str:

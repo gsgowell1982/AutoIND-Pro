@@ -472,6 +472,22 @@ class RegulationIngestionTests(unittest.TestCase):
             requirement_ids,
         )
         self.assertIn(
+            "cn_ectd_technical_specification:req_clinical_trial_sequence_table1_semantics",
+            requirement_ids,
+        )
+        self.assertIn(
+            "cn_ectd_technical_specification:req_new_drug_sequence_table2_semantics",
+            requirement_ids,
+        )
+        self.assertIn(
+            "cn_ectd_technical_specification:req_application_activity_sequence_relationship_examples",
+            requirement_ids,
+        )
+        self.assertIn(
+            "cn_ectd_technical_specification:req_sequence_description_non_substitution",
+            requirement_ids,
+        )
+        self.assertIn(
             "cn_ectd_technical_specification:req_application_information_core_completeness",
             requirement_ids,
         )
@@ -811,6 +827,19 @@ class RegulationIngestionTests(unittest.TestCase):
         self.assertIn("not after the current sequence", related_sequence_requirement["requirement_text"])
         self.assertIn("same regulatory activity", related_sequence_requirement["review_focus"])
         self.assertIn("not a generic previous-sequence pointer", related_sequence_requirement["review_focus"])
+
+        clinical_trial_sequence_requirement = next(
+            item
+            for item in requirement_matrix["requirements"]
+            if item["requirement_id"]
+            == "cn_ectd_technical_specification:req_clinical_trial_sequence_table1_semantics"
+        )
+        self.assertEqual(clinical_trial_sequence_requirement["requirement_type"], "sequence_semantics")
+        self.assertEqual(clinical_trial_sequence_requirement["source_clause_id"], "cn_ectd_technical_specification:sec_2_2_2")
+        self.assertIn("0000", clinical_trial_sequence_requirement["requirement_text"])
+        self.assertIn("0009", clinical_trial_sequence_requirement["requirement_text"])
+        self.assertIn("not a maximum", clinical_trial_sequence_requirement["requirement_text"])
+        self.assertIn("HR-ECTD-118", clinical_trial_sequence_requirement["review_focus"])
 
         regulatory_activity_information_requirement = next(
             item
@@ -1260,6 +1289,14 @@ class RegulationIngestionTests(unittest.TestCase):
         self.assertIn(
             "cn_ectd_technical_specification:req_related_sequence_reference",
             coverages_by_clause["cn_ectd_technical_specification:sec_2_2_2"]["requirement_ids"],
+        )
+        self.assertIn(
+            "cn_ectd_technical_specification:req_clinical_trial_sequence_table1_semantics",
+            coverages_by_clause["cn_ectd_technical_specification:sec_2_2_2"]["requirement_ids"],
+        )
+        self.assertIn(
+            "HR-ECTD-118",
+            coverages_by_clause["cn_ectd_technical_specification:sec_2_2_2"]["implemented_rule_ids"],
         )
         self.assertIn(
             "HR-ECTD-078",

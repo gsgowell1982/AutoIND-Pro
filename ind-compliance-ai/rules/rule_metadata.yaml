@@ -110,6 +110,26 @@ rules:
     title: eCTD 申请类型、注册行为类型和序列类型组合应符合 depend-apt-rat-sqt.xml
     source_regulation: cn_ectd_technical_specification
     source_version: regulation-requirement-matrix-v1
+  - rule_id: HR-ECTD-118
+    category: hard
+    title: eCTD clinical-trial application sequence related-sequence and type semantics must match technical-specification Table 1
+    source_regulation: cn_ectd_technical_specification
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-119
+    category: hard
+    title: eCTD new-drug application sequence related-sequence and type semantics must match technical-specification Table 2
+    source_regulation: cn_ectd_technical_specification
+    source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-120
+    category: hard
+    title: eCTD application/activity/sequence triplets must be compatible with the authoritative dependency matrix
+    source_regulation: cn_ectd_technical_specification
+    source_version: 2021-09-v1.0
+  - rule_id: SR-ECTD-055
+    category: soft
+    title: eCTD sequence-description must not substitute for regulatory responses, explanatory letters, or questions
+    source_regulation: cn_ectd_technical_specification
+    source_version: 2021-09-v1.0
   - rule_id: HR-ECTD-019
     category: hard
     title: eCTD XML 骨架声明的内容文件应使用允许的五类格式
@@ -530,6 +550,12 @@ rules:
     title: index.xml content references must stay within the same application and current or prior sequence
     source_regulation: cn_ectd_validation_standard
     source_version: 2021-09-v1.0
+  - rule_id: HR-ECTD-200
+    category: hard
+    title: eCTD section元数据变更必须伴随leaf内容完整更新
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+    description: 当section的元数据属性（如manufacturer、substance等）发生变更时，其下的所有leaf文件内容必须完整更新（通过delete+new或replace操作实现checksum变更）
   - rule_id: SR-ECTD-024
     category: soft
     title: cn-regional.xml leaf titles should not have leading or trailing whitespace

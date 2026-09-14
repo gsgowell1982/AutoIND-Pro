@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 import base64
 from collections import Counter
@@ -9,6 +10,7 @@ import json
 import logging
 from pathlib import Path
 import re
+import zipfile
 from threading import Lock
 from typing import Any, Iterable
 from uuid import uuid4
@@ -18,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.upload_controller import ALLOWED_EXTENSIONS
+from api.upload_controller import ALLOWED_EXTENSIONS, is_directory_upload_path
 from core.material_assessment import (
     build_compliance_result_payload,
     build_fact_consistency_rows_from_documents,
@@ -30,6 +32,20 @@ from core.outline_markers import (
     parse_outline_heading,
 )
 from core.upload_scope_projection import build_upload_scope_overview
+from core.ectd_package_inventory import build_package_inventory
+from core.ectd_structure_validation import validate_package_structure
+from core.ectd_naming_validation import validate_package_naming
+from core.regulation_provenance import provenance_for_rule
+from core.ectd_application_identity import assess_application_identity
+from core.ectd_controlled_vocabulary_rules import (
+    build_ectd_vocabulary_rule_contract,
+    validate_ectd_envelope_vocabulary,
+)
+from core.ectd_sequence_semantics import (
+    build_ectd_sequence_semantic_contract,
+    validate_ectd_sequence_semantics,
+)
+from core.ectd_package_intake import records_from_zip_bytes
 from core.submission_scope_projection import build_submission_scope_overview
 from core.scope_transition_projection import build_scope_transition_overview
 from core.structure_audit_projection import (
@@ -903,6 +919,7 @@ def _normalize_markdown_table_semantic_header_grid(block: dict[str, Any]) -> lis
     semantic_grid = block.get("semantic_display_grid") or block.get("semantic_grid")
     if _should_export_table_semantic_projection_grid(block, projection, semantic_grid):
         projected_grid = _project_markdown_visible_semantic_grid(block, semantic_grid)
+        projected_grid = _append_markdown_study_condition_trailing_metadata_rows(block, projected_grid)
         normalized_semantic_rows = [
             [_markdown_escape_table_cell(cell) for cell in row]
             for row in projected_grid
@@ -1027,9 +1044,32 @@ def _project_markdown_visible_semantic_grid(block: dict[str, Any], semantic_grid
     if not rows:
         return []
     projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    if isinstance(block.get("cell_spans"), list):
+        has_canonical_header = any(
+            isinstance(span, dict) and str(span.get("role") or "") == "header"
+            for span in block.get("cell_spans", []) or []
+        )
+        if has_canonical_header:
+            canonical_header_grid = _project_markdown_canonical_header_grid(block, rows)
+            if canonical_header_grid:
+                return canonical_header_grid
+        return rows
+    genotoxicity_grid = _project_markdown_genotoxicity_multilevel_header_grid(block, rows)
+    if genotoxicity_grid:
+        return genotoxicity_grid
+    dose_response_grid = _project_markdown_dose_response_multilevel_header_grid(block, rows)
+    if dose_response_grid:
+        return dose_response_grid
+    study_metric_grid = _project_markdown_study_metric_grouped_header_grid(block, rows)
+    if study_metric_grid:
+        return study_metric_grid
     composite_study_grid = _project_markdown_study_condition_composite_grid(block, rows)
     if composite_study_grid:
         return composite_study_grid
+    grouped_grid = _project_markdown_grouped_multilevel_borderless_grid(block, rows)
+    if grouped_grid:
+        return grouped_grid
     table_family = str(block.get("table_family") or (projection or {}).get("table_family") or "")
     display_grid = block.get("display_grid")
     display_rows = [row for row in display_grid if isinstance(row, list)] if isinstance(display_grid, list) else []
@@ -1046,6 +1086,406 @@ def _project_markdown_visible_semantic_grid(block: dict[str, Any], semantic_grid
     ):
         return [[row[0], *row[2:]] if idx > 0 else row[1:] for idx, row in enumerate(rows)]
     return rows
+
+
+def _project_markdown_canonical_header_grid(
+    block: dict[str, Any],
+    rows: list[list[Any]],
+) -> list[list[Any]]:
+    header_spans = [
+        span
+        for span in block.get("cell_spans", []) or []
+        if isinstance(span, dict) and str(span.get("role") or "") == "header"
+    ]
+    if not header_spans:
+        return []
+    header_depth = _markdown_canonical_header_depth(block)
+    if header_depth <= 1:
+        return []
+    if _markdown_canonical_header_grid_is_materialized(rows, header_spans, header_depth):
+        return rows
+    column_count = max((len(row) for row in rows), default=0)
+    if column_count <= 0:
+        return []
+    header_rows: list[list[Any]] = [["" for _ in range(column_count)] for _ in range(header_depth)]
+    covered: set[tuple[int, int]] = set()
+    for span in header_spans:
+        try:
+            row = int(span.get("row", 0) or 0)
+            col = int(span.get("col", 0) or 0)
+            rowspan = max(1, int(span.get("rowspan", 1) or 1))
+            colspan = max(1, int(span.get("colspan", 1) or 1))
+        except (TypeError, ValueError):
+            return []
+        text = str(span.get("text") or "").strip()
+        if not text or row < 0 or col < 0 or row + rowspan > header_depth or col + colspan > column_count:
+            return []
+        header_rows[row][col] = text
+        for covered_row in range(row, row + rowspan):
+            for covered_col in range(col, col + colspan):
+                if (covered_row, covered_col) != (row, col):
+                    covered.add((covered_row, covered_col))
+    leaf_row = [
+        _markdown_canonical_leaf_header_text(cell, header_spans, col)
+        for col, cell in enumerate(rows[0])
+    ] + [""] * (column_count - len(rows[0]))
+    leaf_index = header_depth - 1
+    for col, text in enumerate(leaf_row[:column_count]):
+        if (leaf_index, col) in covered or header_rows[leaf_index][col]:
+            continue
+        header_rows[leaf_index][col] = text
+    return [*header_rows, *rows[1:]]
+
+
+def _markdown_canonical_leaf_header_text(
+    value: Any,
+    header_spans: list[dict[str, Any]],
+    col: int,
+) -> str:
+    text = _markdown_normalize_grouped_multilevel_header_text(value)
+    if not text:
+        return ""
+    for span in sorted(
+        header_spans,
+        key=lambda item: int(item.get("row", 0) or 0),
+        reverse=True,
+    ):
+        try:
+            start_col = int(span.get("col", -1))
+            colspan = max(1, int(span.get("colspan", 1) or 1))
+        except (TypeError, ValueError):
+            continue
+        if colspan <= 1 or col < start_col or col >= start_col + colspan:
+            continue
+        parent = _markdown_normalize_grouped_multilevel_header_text(span.get("text"))
+        if not parent:
+            continue
+        match = re.fullmatch(rf"{re.escape(parent)}\s+(M|F)", text, re.IGNORECASE)
+        if match:
+            return str(match.group(1) or "").upper()
+    return text
+
+
+def _markdown_canonical_header_grid_is_materialized(
+    rows: list[list[Any]],
+    header_spans: list[dict[str, Any]],
+    header_depth: int,
+) -> bool:
+    if len(rows) < header_depth:
+        return False
+    saw_deep_leaf = False
+    for span in header_spans:
+        try:
+            row = int(span.get("row", 0) or 0)
+            col = int(span.get("col", 0) or 0)
+            rowspan = max(1, int(span.get("rowspan", 1) or 1))
+            colspan = max(1, int(span.get("colspan", 1) or 1))
+        except (TypeError, ValueError):
+            return False
+        if row >= len(rows) or col >= len(rows[row]):
+            return False
+        if _markdown_compact_table_text(rows[row][col]) != _markdown_compact_table_text(span.get("text")):
+            return False
+        for covered_row in range(row, row + rowspan):
+            for covered_col in range(col, col + colspan):
+                if (covered_row, covered_col) == (row, col):
+                    continue
+                if covered_row >= len(rows) or covered_col >= len(rows[covered_row]):
+                    return False
+                covered_text = _markdown_compact_table_text(rows[covered_row][covered_col])
+                if covered_text and covered_text != _markdown_compact_table_text(span.get("text")):
+                    return False
+    if header_depth > 1:
+        saw_deep_leaf = any(_markdown_compact_table_text(cell) for cell in rows[header_depth - 1])
+    return header_depth == 1 or saw_deep_leaf
+
+
+def _project_markdown_study_metric_grouped_header_grid(
+    block: dict[str, Any],
+    rows: list[list[Any]],
+) -> list[list[Any]]:
+    if len(rows) < 2:
+        return []
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    metric_projection = projection.get("study_metric_grouped_matrix_projection")
+    if not isinstance(metric_projection, dict):
+        return []
+    if str(metric_projection.get("semantic_profile") or "") != "study_metric_grouped_matrix":
+        return []
+    header_groups = [
+        group
+        for group in block.get("header_column_groups", [])
+        or metric_projection.get("header_column_groups", [])
+        or []
+        if isinstance(group, dict)
+    ]
+    return _materialize_markdown_grouped_header_rows(rows, header_groups)
+
+
+def _materialize_markdown_grouped_header_rows(
+    rows: list[list[Any]],
+    header_groups: list[dict[str, Any]],
+) -> list[list[Any]]:
+    if not rows or not header_groups:
+        return []
+    column_count = len(rows[0])
+    if column_count <= 1:
+        return []
+
+    groups: list[tuple[int, int, int, str]] = []
+    for group in header_groups:
+        text = _markdown_normalize_grouped_multilevel_header_text(group.get("text"))
+        try:
+            row_index = int(group.get("row", 0) or 0)
+            start_col = int(group.get("start_col", 0) or 0)
+            end_col = int(group.get("end_col", start_col) or start_col)
+        except (TypeError, ValueError):
+            return []
+        if (
+            not text
+            or row_index < 0
+            or start_col < 0
+            or end_col < start_col
+            or end_col >= column_count
+        ):
+            return []
+        groups.append((row_index, start_col, end_col, text))
+    if not groups or not any(end_col > start_col for _, start_col, end_col, _ in groups):
+        return []
+
+    levels = sorted({row_index for row_index, _, _, _ in groups})
+    level_positions = {row_index: position for position, row_index in enumerate(levels)}
+    if len(rows) > len(levels) and all(
+        all(
+            _markdown_compact_table_text(rows[level_positions[row_index]][col])
+            == _markdown_compact_table_text(text)
+            for col in range(start_col, end_col + 1)
+        )
+        for row_index, start_col, end_col, text in groups
+    ):
+        return []
+    group_rows: list[list[Any]] = [["" for _ in range(column_count)] for _ in levels]
+    occupied: list[list[bool]] = [[False for _ in range(column_count)] for _ in levels]
+    deepest_group_by_col: list[tuple[int, int, str] | None] = [None for _ in range(column_count)]
+    for row_index, start_col, end_col, text in sorted(groups):
+        level_position = level_positions[row_index]
+        if any(occupied[level_position][col] for col in range(start_col, end_col + 1)):
+            return []
+        for col in range(start_col, end_col + 1):
+            group_rows[level_position][col] = text
+            occupied[level_position][col] = True
+            previous = deepest_group_by_col[col]
+            if previous is None or level_position > previous[0]:
+                deepest_group_by_col[col] = (level_position, end_col - start_col + 1, text)
+
+    leaf_row = [
+        _markdown_normalize_grouped_multilevel_header_text(cell)
+        for cell in rows[0]
+    ]
+    deepest_level = len(group_rows) - 1
+    for col, leaf_text in enumerate(list(leaf_row)):
+        deepest_group = deepest_group_by_col[col]
+        if deepest_group is None:
+            group_rows[deepest_level][col] = leaf_text
+            leaf_row[col] = ""
+            continue
+        group_level, colspan, group_text = deepest_group
+        if colspan == 1 and _markdown_compact_table_text(group_text) == _markdown_compact_table_text(leaf_text):
+            leaf_row[col] = ""
+            continue
+        if group_level < deepest_level and not occupied[group_level + 1][col]:
+            group_rows[group_level + 1][col] = leaf_text
+            leaf_row[col] = ""
+
+    if not any(leaf_row):
+        return [*group_rows, *rows[1:]]
+    return [*group_rows, leaf_row, *rows[1:]]
+
+
+def _project_markdown_grouped_multilevel_borderless_grid(
+    block: dict[str, Any],
+    rows: list[list[Any]],
+) -> list[list[Any]]:
+    if len(rows) < 2:
+        return []
+    if _markdown_grid_rows_are_multilevel_header_pair(rows[0], rows[1]):
+        return []
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    grouped_projection = projection.get("grouped_multilevel_borderless_projection")
+    if not isinstance(grouped_projection, dict):
+        return []
+    if str(grouped_projection.get("semantic_profile") or "") != "grouped_multilevel_borderless_table":
+        return []
+    header_groups = [
+        group
+        for group in grouped_projection.get("header_column_groups", []) or []
+        if isinstance(group, dict)
+    ]
+    if not header_groups:
+        return []
+    try:
+        column_count = len(rows[0])
+    except Exception:
+        return []
+    if column_count <= 1:
+        return []
+
+    normalized_header = [
+        _markdown_normalize_grouped_multilevel_header_text(cell)
+        for cell in rows[0]
+    ]
+    group_row: list[Any] = list(normalized_header)
+    leaf_row: list[Any] = ["" for _ in range(column_count)]
+    has_group_span = False
+    for group in header_groups:
+        text = _markdown_normalize_grouped_multilevel_header_text(group.get("text"))
+        if not text:
+            continue
+        try:
+            start_col = int(group.get("start_col", 0) or 0)
+            end_col = int(group.get("end_col", start_col) or start_col)
+        except (TypeError, ValueError):
+            continue
+        if start_col < 0 or start_col >= column_count or end_col < start_col:
+            continue
+        end_col = min(end_col, column_count - 1)
+        if end_col <= start_col:
+            continue
+        has_group_span = True
+        child_headers = [
+            _markdown_normalize_grouped_multilevel_header_text(item)
+            for item in group.get("child_headers", []) or []
+        ]
+        for col_index in range(start_col, end_col + 1):
+            group_row[col_index] = text
+            child_offset = col_index - start_col
+            child_text = child_headers[child_offset] if child_offset < len(child_headers) else ""
+            leaf_row[col_index] = child_text or normalized_header[col_index]
+
+    if not has_group_span:
+        return []
+    return [group_row, leaf_row, *rows[1:]]
+
+
+def _markdown_normalize_grouped_multilevel_header_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\s+", " ", text)
+    compact = _markdown_compact_table_text(text)
+    if compact == "采样时间或周期":
+        return "采样时间或周期"
+    if compact in {"占给药剂量", "占给药剂量的"}:
+        return "占给药剂量的%"
+    if compact in {"ctd中的位置", "ctd位置"}:
+        return "CTD 中的位置"
+    return text
+
+
+def _project_markdown_genotoxicity_multilevel_header_grid(
+    block: dict[str, Any],
+    rows: list[list[Any]],
+) -> list[list[Any]]:
+    if len(rows) < 2:
+        return []
+    if _markdown_grid_rows_are_multilevel_header_pair(rows[0], rows[1]):
+        return []
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    genotoxicity_projection = projection.get("genotoxicity_assay_matrix_projection")
+    if not isinstance(genotoxicity_projection, dict):
+        return []
+    if str(genotoxicity_projection.get("semantic_profile") or "") != "genotoxicity_assay_matrix":
+        return []
+    span_cells = [
+        dict(item)
+        for item in block.get("span_header_cells", []) or []
+        if isinstance(item, dict)
+    ]
+    if not span_cells:
+        return []
+    try:
+        column_count = len(rows[0])
+    except Exception:
+        return []
+    if column_count <= 1:
+        return []
+    group_row = ["" for _ in range(column_count)]
+    leaf_row = list(rows[0])
+    has_group = False
+    for span in span_cells:
+        try:
+            row = int(span.get("row", 0) or 0)
+            col = int(span.get("col", 0) or 0)
+            colspan = max(1, int(span.get("colspan", 1) or 1))
+        except (TypeError, ValueError):
+            continue
+        text = str(span.get("text") or "").strip()
+        if not text or row != 0 or col < 0 or col >= column_count:
+            continue
+        if colspan <= 1:
+            leaf_row[col] = text
+            continue
+        end_col = min(column_count, col + colspan)
+        for target_col in range(col, end_col):
+            group_row[target_col] = text
+        has_group = True
+    if not has_group:
+        return []
+    for col_index, value in enumerate(leaf_row):
+        if group_row[col_index]:
+            continue
+        group_row[col_index] = value
+    return [group_row, leaf_row, *rows[1:]]
+
+
+def _project_markdown_dose_response_multilevel_header_grid(
+    block: dict[str, Any],
+    rows: list[list[Any]],
+) -> list[list[Any]]:
+    if len(rows) < 2:
+        return []
+    if _markdown_grid_rows_are_multilevel_header_pair(rows[0], rows[1]):
+        return []
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    dose_projection = projection.get("dose_response_result_panel_projection")
+    if not isinstance(dose_projection, dict):
+        return []
+    if str(dose_projection.get("semantic_profile") or "") != "dose_response_result_panel":
+        return []
+    if not dose_projection.get("has_sex_leaf_columns"):
+        return []
+    header = [str(cell or "").strip() for cell in rows[0]]
+    if len(header) < 3 or (len(header) - 1) % 2 != 0:
+        return []
+    group_row: list[Any] = [header[0]]
+    sex_row: list[Any] = ["性别"]
+    for left, right in zip(header[1::2], header[2::2]):
+        left_match = re.match(r"^(?P<dose>.+?)\s+(?P<sex>M|F)$", str(left or "").strip(), re.IGNORECASE)
+        right_match = re.match(r"^(?P<dose>.+?)\s+(?P<sex>M|F)$", str(right or "").strip(), re.IGNORECASE)
+        if left_match is None or right_match is None:
+            return []
+        left_dose = _markdown_normalize_dose_response_header_dose(left_match.group("dose"))
+        right_dose = _markdown_normalize_dose_response_header_dose(right_match.group("dose"))
+        left_sex = str(left_match.group("sex") or "").upper()
+        right_sex = str(right_match.group("sex") or "").upper()
+        if left_dose != right_dose or {left_sex, right_sex} != {"M", "F"}:
+            return []
+        group_row.extend([left_dose, right_dose])
+        sex_row.extend([left_sex, right_sex])
+    if dose_projection.get("source_has_explicit_sex_header_row"):
+        return [group_row, sex_row, *rows[1:]]
+    return [group_row, *rows[1:]]
+
+
+def _markdown_normalize_dose_response_header_dose(value: str) -> str:
+    text = str(value or "").strip()
+    if text == "0":
+        return "0"
+    return text
 
 
 def _project_markdown_study_condition_composite_grid(
@@ -1071,6 +1511,16 @@ def _project_markdown_study_condition_composite_grid(
     header = list(rows[0])
     if len(header) < 2:
         return []
+    descriptor_rows = _markdown_study_condition_descriptor_rows(header_groups, len(header))
+    matrix_header_rows = _markdown_study_condition_matrix_header_rows(
+        matrix_projection,
+        len(header),
+    )
+    if descriptor_rows:
+        if matrix_header_rows:
+            return [*descriptor_rows, *matrix_header_rows, *rows[1:]]
+        return [*descriptor_rows, header, *rows[1:]]
+
     flattened_header = [header[0]]
     for leaf_index, leaf_text in enumerate(header[1:], start=1):
         group = _study_condition_header_group_for_leaf(header_groups, leaf_index)
@@ -1081,6 +1531,170 @@ def _project_markdown_study_condition_composite_grid(
         else:
             flattened_header.append(leaf_label or group_label)
     return [flattened_header, *rows[1:]]
+
+
+def _markdown_study_condition_matrix_header_rows(
+    matrix_projection: dict[str, Any],
+    column_count: int,
+) -> list[list[Any]]:
+    if column_count < 2:
+        return []
+    expected_roles = ("matrix_leaf_header", "matrix_row_axis")
+    rows_by_role: dict[str, list[Any]] = {}
+    for record in matrix_projection.get("matrix_header_rows", []) or []:
+        if not isinstance(record, dict):
+            continue
+        role = str(record.get("role") or "").strip()
+        stub = str(record.get("stub") or "").strip()
+        cells = [str(cell or "").strip() for cell in record.get("cells", []) or []]
+        if role not in expected_roles or not stub or len(cells) != column_count - 1:
+            continue
+        rows_by_role[role] = [stub, *cells]
+    if any(role not in rows_by_role for role in expected_roles):
+        return []
+    return [rows_by_role[role] for role in expected_roles]
+
+
+_STUDY_CONDITION_MARKDOWN_DESCRIPTOR_ORDER = [
+    "种属",
+    "性别(M/F)/动物数量",
+    "进食情况",
+    "溶媒/剂型",
+    "给药方法",
+    "剂量(mg/kg)",
+    "分析物",
+    "分析方法",
+]
+
+
+def _markdown_study_condition_descriptor_rows(
+    header_groups: list[dict[str, Any]],
+    column_count: int,
+) -> list[list[Any]]:
+    if column_count < 2:
+        return []
+    descriptor_labels = _markdown_study_condition_descriptor_labels(header_groups)
+    if not descriptor_labels:
+        return []
+    rows: list[list[Any]] = []
+    for label in descriptor_labels:
+        row: list[Any] = [label]
+        has_value = False
+        for leaf_index in range(1, column_count):
+            group = _study_condition_header_group_for_leaf(header_groups, leaf_index)
+            descriptors = group.get("descriptors") if isinstance(group, dict) else {}
+            descriptors = descriptors if isinstance(descriptors, dict) else {}
+            value = str(descriptors.get(label) or "").strip()
+            if value:
+                has_value = True
+            row.append(value)
+        if has_value:
+            rows.append(row)
+    return rows
+
+
+def _markdown_study_condition_descriptor_labels(header_groups: list[dict[str, Any]]) -> list[str]:
+    seen: set[str] = set()
+    labels: list[str] = []
+    for preferred_label in _STUDY_CONDITION_MARKDOWN_DESCRIPTOR_ORDER:
+        for group in header_groups:
+            descriptors = group.get("descriptors") if isinstance(group, dict) else {}
+            if not isinstance(descriptors, dict):
+                continue
+            if preferred_label in descriptors and preferred_label not in seen:
+                seen.add(preferred_label)
+                labels.append(preferred_label)
+                break
+    return labels
+
+
+def _append_markdown_study_condition_trailing_metadata_rows(
+    block: dict[str, Any],
+    rows: list[list[Any]],
+) -> list[list[Any]]:
+    if not rows or not _markdown_table_has_study_condition_result_matrix_projection(block):
+        return rows
+    metadata_rows = [
+        row
+        for row in block.get("_markdown_trailing_metadata_rows", []) or []
+        if isinstance(row, list) and len(row) >= 2 and str(row[0] or "").strip()
+    ]
+    if not metadata_rows:
+        return rows
+    existing_labels = {_markdown_compact_table_text(row[0]) for row in rows if row and _markdown_compact_table_text(row[0])}
+    column_count = max(len(row) for row in rows)
+    appended_rows: list[list[Any]] = []
+    for metadata_row in metadata_rows:
+        label_norm = _markdown_compact_table_text(metadata_row[0])
+        if label_norm and label_norm in existing_labels:
+            continue
+        row = list(metadata_row[:column_count])
+        if len(row) < column_count:
+            row.extend([""] * (column_count - len(row)))
+        appended_rows.append(row)
+        if label_norm:
+            existing_labels.add(label_norm)
+    if not appended_rows:
+        return rows
+    return [*rows, *appended_rows]
+
+
+_MARKDOWN_STUDY_CONDITION_TRAILING_METADATA_LABELS = [
+    "试验编号",
+    "报告编号",
+    "CTD 中的位置",
+    "CTD中的位置",
+    "CTD 位置",
+    "CTD位置",
+]
+
+
+def _markdown_structure_template_trailing_metadata_rows(block: dict[str, Any]) -> list[list[Any]]:
+    label_norms = {
+        _markdown_compact_table_text(label)
+        for label in _MARKDOWN_STUDY_CONDITION_TRAILING_METADATA_LABELS
+    }
+    rows: list[list[Any]] = []
+    seen: set[str] = set()
+    for raw_row in block.get("row_texts", []) or []:
+        parsed = _markdown_parse_trailing_metadata_row(raw_row, label_norms)
+        if parsed is None:
+            continue
+        label, value = parsed
+        key = _markdown_compact_table_text(label)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        rows.append([label, value])
+    return rows
+
+
+def _markdown_parse_trailing_metadata_row(
+    value: Any,
+    accepted_label_norms: set[str],
+) -> tuple[str, str] | None:
+    text = str(value or "").strip()
+    if not text or "：" not in text and ":" not in text:
+        return None
+    parts = re.split(r"[:：]", text, maxsplit=1)
+    if len(parts) != 2:
+        return None
+    label = re.sub(r"\s+", " ", parts[0]).strip()
+    field_value = re.sub(r"\s+", " ", parts[1]).strip()
+    if not label or not field_value:
+        return None
+    label_norm = _markdown_compact_table_text(label)
+    if label_norm not in accepted_label_norms:
+        return None
+    canonical_label = _markdown_canonical_trailing_metadata_label(label)
+    return canonical_label, field_value
+
+
+def _markdown_canonical_trailing_metadata_label(label: str) -> str:
+    normalized = re.sub(r"\s+", "", str(label or "")).strip()
+    if normalized.upper().startswith("CTD") and "位置" in normalized:
+        return "CTD 中的位置"
+    return str(label or "").strip()
 
 
 def _study_condition_header_group_for_leaf(
@@ -1131,6 +1745,75 @@ def _markdown_table_has_study_condition_result_matrix_projection(block: dict[str
     )
 
 
+def _markdown_table_suppress_note_norms_for_context(
+    block: dict[str, Any],
+    suppressed_by_context_id: dict[str, set[str]],
+) -> set[str]:
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    matrix_projection = projection.get("study_condition_grouped_result_matrix_projection")
+    if not isinstance(matrix_projection, dict):
+        return set()
+    context_template_id = str(matrix_projection.get("context_template_id") or "").strip()
+    if not context_template_id:
+        return set()
+    return set(suppressed_by_context_id.get(context_template_id) or set())
+
+
+def _markdown_table_trailing_metadata_rows_for_context(
+    block: dict[str, Any],
+    rows_by_context_id: dict[str, list[list[Any]]],
+) -> list[list[Any]]:
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    matrix_projection = projection.get("study_condition_grouped_result_matrix_projection")
+    if not isinstance(matrix_projection, dict):
+        return []
+    context_template_id = str(matrix_projection.get("context_template_id") or "").strip()
+    if not context_template_id:
+        return []
+    return [list(row) for row in rows_by_context_id.get(context_template_id, []) if isinstance(row, list)]
+
+
+def _markdown_structure_template_note_norms(block: dict[str, Any]) -> set[str]:
+    return {
+        norm
+        for note in _structure_template_markdown_ordered_note_blocks(block)
+        for norm in [_markdown_compact_table_text(note.get("text") or "")]
+        if norm
+    }
+
+
+def _markdown_structure_template_note_norms_to_suppress_for_following_table(
+    block: dict[str, Any],
+    following_blocks: list[dict[str, Any]],
+) -> set[str]:
+    note_norms = _markdown_structure_template_note_norms(block)
+    if not note_norms:
+        return set()
+    anchored_following_note_norms: set[str] = set()
+    template_id = str(block.get("structure_template_id") or block.get("block_id") or "").strip()
+    for candidate in following_blocks:
+        if str(candidate.get("block_type") or "").strip().lower() == "structure_template":
+            break
+        if str(candidate.get("block_type") or "").strip().lower() != "table":
+            continue
+        projection = candidate.get("semantic_projection_v2")
+        projection = projection if isinstance(projection, dict) else {}
+        matrix_projection = projection.get("study_condition_grouped_result_matrix_projection")
+        if template_id and isinstance(matrix_projection, dict):
+            if str(matrix_projection.get("context_template_id") or "").strip() != template_id:
+                continue
+        for ref_key in ("cell_note_refs", "header_note_refs"):
+            for ref in candidate.get(ref_key, []) or []:
+                if not isinstance(ref, dict):
+                    continue
+                norm = _markdown_compact_table_text(ref.get("note_text") or "")
+                if norm:
+                    anchored_following_note_norms.add(norm)
+    return note_norms - anchored_following_note_norms
+
+
 def _markdown_table_has_overview_inventory_schema_projection(block: dict[str, Any]) -> bool:
     projection = block.get("semantic_projection_v2")
     projection = projection if isinstance(projection, dict) else {}
@@ -1138,7 +1821,12 @@ def _markdown_table_has_overview_inventory_schema_projection(block: dict[str, An
     semantic_profile = str((overview_projection or {}).get("semantic_profile") or "") if isinstance(overview_projection, dict) else ""
     return (
         isinstance(overview_projection, dict)
-        and semantic_profile in {"nonclinical_overview_inventory_table", "pk_overview_inventory_table"}
+        and semantic_profile
+        in {
+            "nonclinical_overview_inventory_table",
+            "pk_overview_inventory_table",
+            "toxicokinetic_overview_inventory_table",
+        }
     )
 
 
@@ -1152,12 +1840,23 @@ def _markdown_table_has_study_metric_grouped_matrix_projection(block: dict[str, 
     )
 
 
+def _markdown_table_has_grouped_multilevel_header_projection(block: dict[str, Any]) -> bool:
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    grouped_projection = projection.get("grouped_multilevel_header_projection")
+    return (
+        isinstance(grouped_projection, dict)
+        and str(grouped_projection.get("semantic_profile") or "") == "grouped_multilevel_header_table"
+    )
+
+
 def _markdown_table_has_ind_late_semantic_projection(block: dict[str, Any]) -> bool:
     projection = block.get("semantic_projection_v2")
     projection = projection if isinstance(projection, dict) else {}
     expected = {
         "genotoxicity_assay_matrix_projection": "genotoxicity_assay_matrix",
         "dose_response_result_panel_projection": "dose_response_result_panel",
+        "study_metric_grouped_matrix_projection": "study_metric_grouped_matrix",
         "toxicology_summary_schema_projection": "toxicology_summary_schema_table",
     }
     for key, semantic_profile in expected.items():
@@ -1210,6 +1909,7 @@ def _should_export_table_semantic_projection_grid(
         "sparse_body_anchor_column_projection",
         "caption_context_blank_header_leaf_fill",
         "missing_leading_stub_header_projection",
+        "grouped_multilevel_header_projection",
         "grouped_multilevel_borderless_projection",
         "study_condition_grouped_result_matrix_projection",
         "overview_inventory_schema_projection",
@@ -1217,6 +1917,7 @@ def _should_export_table_semantic_projection_grid(
         "genotoxicity_assay_matrix_projection",
         "dose_response_result_panel_projection",
         "toxicology_summary_schema_projection",
+        "pre_table_parent_header_projection",
     }
     return any(key in projection for key in semantic_transform_keys)
 
@@ -1394,15 +2095,19 @@ def _markdown_continuation_table_title_redundant_with_previous_visible_title(
 ) -> bool:
     if not previous_visible_title:
         return False
-    if not (
-        str(block.get("continued_from_table_id") or "").strip()
-        or _as_string_list(block.get("continued_from"))
-    ):
+    if not _markdown_table_is_continuation(block):
         return False
     title = str(block.get("title") or block.get("caption_text") or "").strip()
     if not title:
         return False
     return _markdown_table_titles_are_redundant(previous_visible_title, title)
+
+
+def _markdown_table_is_continuation(block: dict[str, Any]) -> bool:
+    return bool(
+        str(block.get("continued_from_table_id") or "").strip()
+        or _as_string_list(block.get("continued_from"))
+    )
 
 
 def _markdown_table_caption_ref(text: str) -> str:
@@ -1556,13 +2261,19 @@ def _markdown_raw_grid_for_preserved_trailing_structural_rows(block: dict[str, A
 def _normalize_markdown_table_evidence_grid(block: dict[str, Any]) -> list[list[str]]:
     semantic_grid = block.get("semantic_grid")
     projection = block.get("semantic_projection_v2")
+    has_pre_table_parent_header_projection = (
+        isinstance(projection, dict)
+        and isinstance(projection.get("pre_table_parent_header_projection"), dict)
+    )
     if (
         (
             _markdown_table_has_word_logical_grid_projection(block)
             or _markdown_table_has_study_condition_result_matrix_projection(block)
             or _markdown_table_has_overview_inventory_schema_projection(block)
             or _markdown_table_has_study_metric_grouped_matrix_projection(block)
+            or _markdown_table_has_grouped_multilevel_header_projection(block)
             or _markdown_table_has_ind_late_semantic_projection(block)
+            or has_pre_table_parent_header_projection
         )
         and _should_export_table_semantic_projection_grid(block, projection, semantic_grid)
     ):
@@ -1595,6 +2306,13 @@ def _markdown_escape_inline_text(value: Any) -> str:
     return text.replace("\\", "\\\\").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
 
 
+def _markdown_structure_template_note_text(value: Any) -> str:
+    text = _markdown_escape_inline_text(value)
+    text = re.sub(r"^([+-])(?=\s)", r"\\\1", text)
+    text = re.sub(r"^(\d{1,9})([.)])(?=\s)", r"\1\\\2", text)
+    return re.sub(r"^([>#])(?=\s|$)", r"\\\1", text)
+
+
 def _merged_rows_by_row(block: dict[str, Any]) -> dict[int, dict[str, Any]]:
     merged_rows: dict[int, dict[str, Any]] = {}
     for item in block.get("merged_rows", []) or []:
@@ -1611,6 +2329,158 @@ def _merged_rows_by_row(block: dict[str, Any]) -> dict[int, dict[str, Any]]:
             continue
         merged_rows[row_index] = item
     return merged_rows
+
+
+def _markdown_projected_grid_source_row_numbers(
+    block: dict[str, Any],
+    grid: list[list[str]],
+) -> list[int | None]:
+    semantic_grid = block.get("semantic_display_grid") or block.get("semantic_grid")
+    if not isinstance(semantic_grid, list) or not semantic_grid:
+        return [None for _ in grid]
+    source_rows_by_signature: dict[tuple[str, ...], list[int]] = {}
+    for source_row_number, row in enumerate(semantic_grid, start=1):
+        if not isinstance(row, list):
+            continue
+        normalized = [_markdown_escape_table_cell(cell) for cell in row]
+        signature = _markdown_row_compact_signature(normalized)
+        if signature and any(signature):
+            source_rows_by_signature.setdefault(signature, []).append(source_row_number)
+
+    origins: list[int | None] = []
+    consumed_by_signature: dict[tuple[str, ...], int] = {}
+    for row in grid:
+        signature = _markdown_row_compact_signature(row)
+        candidates = source_rows_by_signature.get(signature, [])
+        consumed = consumed_by_signature.get(signature, 0)
+        if consumed >= len(candidates):
+            origins.append(None)
+            continue
+        origins.append(candidates[consumed])
+        consumed_by_signature[signature] = consumed + 1
+    return origins
+
+
+def _markdown_projected_grid_row_provenance(
+    block: dict[str, Any],
+    grid: list[list[str]],
+) -> list[dict[str, Any]]:
+    semantic_grid = block.get("semantic_display_grid") or block.get("semantic_grid")
+    semantic_lineage = block.get("semantic_row_provenance")
+    if (
+        not isinstance(semantic_grid, list)
+        or not isinstance(semantic_lineage, list)
+        or len(semantic_grid) != len(semantic_lineage)
+    ):
+        return [
+            {
+                "source_row_refs": [],
+                "derivation": "missing_or_unaligned_semantic_row_provenance",
+            }
+            for _ in grid
+        ]
+
+    lineage_by_signature: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    for row, lineage in zip(semantic_grid, semantic_lineage):
+        if not isinstance(row, list) or not isinstance(lineage, dict):
+            continue
+        normalized = [_markdown_escape_table_cell(cell) for cell in row]
+        signature = _markdown_row_compact_signature(normalized)
+        if signature:
+            lineage_by_signature.setdefault(signature, []).append(lineage)
+
+    consumed_by_signature: dict[tuple[str, ...], int] = {}
+    projected: list[dict[str, Any]] = []
+    for row in grid:
+        signature = _markdown_row_compact_signature(row)
+        candidates = lineage_by_signature.get(signature, [])
+        consumed = consumed_by_signature.get(signature, 0)
+        if consumed < len(candidates):
+            lineage = candidates[consumed]
+            consumed_by_signature[signature] = consumed + 1
+            projected.append(
+                {
+                    "source_row_refs": list(lineage.get("source_row_refs", []) or []),
+                    "derivation": str(lineage.get("derivation") or "semantic_row_provenance"),
+                }
+            )
+            continue
+        projected.append(
+            {
+                "source_row_refs": [],
+                "derivation": "presentation_only_or_unmapped_row",
+            }
+        )
+    return projected
+
+
+def _append_markdown_row_provenance_diagnostic(
+    block: dict[str, Any],
+    *,
+    reason: str,
+    merged_row: dict[str, Any],
+    candidate_rows: list[int],
+) -> None:
+    diagnostics = block.setdefault("markdown_row_provenance_diagnostics", [])
+    record = {
+        "reason": reason,
+        "source_row_ref": str(merged_row.get("source_row_ref") or ""),
+        "text": str(merged_row.get("text") or ""),
+        "candidate_rows": list(candidate_rows),
+    }
+    if record not in diagnostics:
+        diagnostics.append(record)
+
+
+def _merged_rows_by_projected_grid_row(
+    block: dict[str, Any],
+    grid: list[list[str]],
+) -> dict[int, dict[str, Any]]:
+    source_merged_rows = _merged_rows_by_row(block)
+    if not source_merged_rows or not grid:
+        return source_merged_rows
+
+    row_provenance = _markdown_projected_grid_row_provenance(block, grid)
+    projected_rows_by_ref: dict[str, list[int]] = {}
+    for projected_row_number, lineage in enumerate(row_provenance, start=1):
+        for row_ref in lineage.get("source_row_refs", []) or []:
+            source_ref = str(row_ref or "").strip()
+            if source_ref:
+                projected_rows_by_ref.setdefault(source_ref, []).append(projected_row_number)
+
+    projected: dict[int, dict[str, Any]] = {}
+    for metadata in source_merged_rows.values():
+        source_ref = str(metadata.get("source_row_ref") or "").strip()
+        if source_ref:
+            candidate_rows = projected_rows_by_ref.get(source_ref, [])
+            if len(candidate_rows) == 1:
+                projected[candidate_rows[0]] = metadata
+                continue
+            _append_markdown_row_provenance_diagnostic(
+                block,
+                reason="unresolved_source_row_ref" if not candidate_rows else "ambiguous_source_row_ref",
+                merged_row=metadata,
+                candidate_rows=candidate_rows,
+            )
+            continue
+
+        text = _markdown_escape_table_cell(metadata.get("text"))
+        signature = _markdown_row_compact_signature([text])
+        candidate_rows = [
+            row_number
+            for row_number, row in enumerate(grid, start=1)
+            if signature and _markdown_row_compact_signature(row) == signature
+        ]
+        if len(candidate_rows) == 1:
+            projected[candidate_rows[0]] = metadata
+            continue
+        _append_markdown_row_provenance_diagnostic(
+            block,
+            reason="unresolved_legacy_signature" if not candidate_rows else "ambiguous_legacy_signature",
+            merged_row=metadata,
+            candidate_rows=candidate_rows,
+        )
+    return projected
 
 
 def _append_markdown_pipe_table(lines: list[str], rows: list[list[str]], column_count: int) -> None:
@@ -1636,6 +2506,9 @@ def _html_table_compact_cell_text(value: Any) -> str:
 
 def _semantic_html_table_header_row_count(block: dict[str, Any], row_count: int) -> int:
     header_rows = 1
+    if isinstance(block.get("cell_spans"), list):
+        header_rows = _markdown_canonical_header_depth(block)
+        return max(1, min(header_rows, row_count))
     for cell in block.get("logical_cells", []) or []:
         if not isinstance(cell, dict):
             continue
@@ -1649,8 +2522,21 @@ def _semantic_html_table_header_row_count(block: dict[str, Any], row_count: int)
             continue
         header_rows = max(header_rows, row + rowspan)
     data_start = block.get("data_start_row")
-    if isinstance(data_start, int) and data_start > 0:
+    if (
+        isinstance(data_start, int)
+        and data_start > 0
+        and not _markdown_table_has_ind_late_semantic_projection(block)
+    ):
         header_rows = max(header_rows, min(data_start, row_count))
+    semantic_grid = [
+        row for row in block.get("semantic_grid", []) or []
+        if isinstance(row, list)
+    ]
+    if len(semantic_grid) >= 2 and _markdown_grid_rows_are_multilevel_header_pair(
+        semantic_grid[0],
+        semantic_grid[1],
+    ):
+        header_rows = max(header_rows, 2)
     return max(1, min(header_rows, row_count))
 
 
@@ -1706,7 +2592,7 @@ def _semantic_html_table_span_cells(
     occupied: dict[tuple[int, int], dict[str, Any]] = {}
     covered: set[tuple[int, int]] = set()
     candidates: list[dict[str, Any]] = []
-    for cell in block.get("logical_cells", []) or []:
+    for cell in _semantic_table_span_cells(block):
         if not isinstance(cell, dict):
             continue
         try:
@@ -1962,12 +2848,15 @@ def _build_semantic_html_table(block: dict[str, Any]) -> str | None:
     projection = projection if isinstance(projection, dict) else {}
     row_count = len(rows)
     explicit_spans = _semantic_table_span_cells(block)
-    inferred_section_span_cells, inferred_section_covered = _semantic_html_table_two_column_section_divider_span_cells(
-        block,
-        rows=rows,
-        row_count=row_count,
-        column_count=column_count,
-    )
+    if isinstance(block.get("cell_spans"), list):
+        inferred_section_span_cells, inferred_section_covered = {}, set()
+    else:
+        inferred_section_span_cells, inferred_section_covered = _semantic_html_table_two_column_section_divider_span_cells(
+            block,
+            rows=rows,
+            row_count=row_count,
+            column_count=column_count,
+        )
     has_explicit_span = bool(explicit_spans)
     has_inferred_section_span = bool(inferred_section_span_cells)
     if (
@@ -2112,8 +3001,32 @@ def _semantic_html_table_two_column_section_divider_span_cells(
 
 
 def _semantic_table_span_cells(block: dict[str, Any]) -> list[dict[str, Any]]:
+    if isinstance(block.get("cell_spans"), list):
+        canonical: list[dict[str, Any]] = []
+        for cell in block.get("cell_spans", []) or []:
+            if not isinstance(cell, dict):
+                continue
+            try:
+                rowspan = max(1, int(cell.get("rowspan", 1) or 1))
+                colspan = max(1, int(cell.get("colspan", 1) or 1))
+            except (TypeError, ValueError):
+                continue
+            if rowspan <= 1 and colspan <= 1:
+                continue
+            canonical.append(
+                {
+                    **cell,
+                    "rowspan": rowspan,
+                    "colspan": colspan,
+                    "source": str(cell.get("source") or cell.get("evidence") or "canonical_cell_span"),
+                }
+            )
+        return canonical
     spans: list[dict[str, Any]] = []
-    for cell in block.get("logical_cells", []) or []:
+    for cell in [
+        *(block.get("logical_cells") or []),
+        *(block.get("presentation_spans") or []),
+    ]:
         if not isinstance(cell, dict):
             continue
         try:
@@ -2171,6 +3084,11 @@ def _should_auto_render_table_as_semantic_html(block: dict[str, Any]) -> bool:
         return False
     if table_family == "two_column_spanning_header_table":
         return True
+    if isinstance(projection.get("multiline_schema_header_projection"), dict):
+        return True
+
+    if _table_has_source_backed_presentation_spans(block):
+        return True
 
     spans = _semantic_table_span_cells(block)
     if not spans:
@@ -2216,12 +3134,21 @@ def _should_auto_render_table_as_semantic_html(block: dict[str, Any]) -> bool:
     return False
 
 
+def _table_has_source_backed_presentation_spans(block: dict[str, Any]) -> bool:
+    return any(
+        isinstance(span, dict)
+        and str(span.get("source") or "").strip() == "source_body_row_group_presentation_projection"
+        for span in block.get("presentation_spans", []) or []
+    )
+
+
 def _append_markdown_table(
     lines: list[str],
     block: dict[str, Any],
     *,
     table_export_mode: str = "markdown",
     previous_visible_title: str = "",
+    suppress_note_norms: set[str] | None = None,
 ) -> None:
     if table_export_mode == "evidence_markdown":
         grid = _normalize_markdown_table_evidence_grid(block)
@@ -2229,16 +3156,41 @@ def _append_markdown_table(
         grid = _normalize_markdown_table_grid(block)
     if not grid:
         return
+    if isinstance(block.get("cell_spans"), list) and any(
+        isinstance(span, dict) and str(span.get("role") or "") == "header"
+        for span in block.get("cell_spans", []) or []
+    ):
+        canonical_header_grid = _project_markdown_canonical_header_grid(block, grid)
+        if canonical_header_grid:
+            grid = canonical_header_grid
 
     internal_title = _markdown_table_internal_title(block)
     external_title = _markdown_table_external_title(block, internal_title)
-    if external_title and _markdown_object_title_redundant_with_previous_heading(block, previous_visible_title):
+    if (
+        external_title
+        and _markdown_object_title_redundant_with_previous_heading(block, previous_visible_title)
+        and not (
+            _markdown_table_is_continuation(block)
+            and _markdown_should_preserve_continuation_title(
+                block,
+                external_title,
+                table_export_mode,
+                previous_visible_title=previous_visible_title,
+            )
+        )
+    ):
         external_title = ""
     if external_title and _markdown_continuation_table_title_redundant_with_previous_visible_title(
         block,
         previous_visible_title,
     ):
-        external_title = ""
+        if not _markdown_should_preserve_continuation_title(
+            block,
+            external_title,
+            table_export_mode,
+            previous_visible_title=previous_visible_title,
+        ):
+            external_title = ""
     if external_title:
         lines.append(f"**{external_title}**")
         lines.append("")
@@ -2249,29 +3201,66 @@ def _append_markdown_table(
     _append_markdown_table_study_context(lines, block, external_title or internal_title)
 
     grid = _drop_markdown_table_embedded_title_rows(grid, block, external_title or internal_title)
+    rendered_grid_text_norms = _markdown_grid_cell_text_norms(grid)
 
     if table_export_mode in {"semantic_html", "auto_semantic"}:
         keyed_list_html = _build_keyed_long_list_html_table(block)
         if keyed_list_html:
             lines.append(keyed_list_html)
             lines.append("")
-            _append_markdown_float_owned_text(lines, block, roles={"note", "legend"})
+            _append_markdown_float_owned_text(
+                lines,
+                block,
+                roles={"note", "legend"},
+                suppress_text_norms=suppress_note_norms,
+                table_grid_text_norms=rendered_grid_text_norms,
+            )
+            return
+
+    if table_export_mode == "evidence_markdown" and (
+        _table_has_source_backed_presentation_spans(block)
+        or _markdown_table_requires_evidence_semantic_html(block)
+    ):
+        html_table = _build_semantic_html_table(
+            _markdown_table_with_projected_presentation_surface(block, grid)
+        )
+        if html_table:
+            lines.append(html_table)
+            lines.append("")
+            _append_markdown_float_owned_text(
+                lines,
+                block,
+                roles={"note", "legend"},
+                suppress_text_norms=suppress_note_norms,
+                table_grid_text_norms=rendered_grid_text_norms,
+            )
             return
 
     if table_export_mode == "semantic_html" or (
         table_export_mode == "auto_semantic" and _should_auto_render_table_as_semantic_html(block)
     ):
-        html_table = _build_semantic_html_table(block)
+        html_block = (
+            _markdown_table_with_projected_presentation_surface(block, grid)
+            if _table_has_source_backed_presentation_spans(block)
+            else block
+        )
+        html_table = _build_semantic_html_table(html_block)
         if html_table:
             lines.append(html_table)
             lines.append("")
-            _append_markdown_float_owned_text(lines, block, roles={"note", "legend"})
+            _append_markdown_float_owned_text(
+                lines,
+                block,
+                roles={"note", "legend"},
+                suppress_text_norms=suppress_note_norms,
+                table_grid_text_norms=rendered_grid_text_norms,
+            )
             return
 
     merged_rows = (
         {}
         if _markdown_raw_grid_for_preserved_trailing_structural_rows(block)
-        else _merged_rows_by_row(block)
+        else _merged_rows_by_projected_grid_row(block, grid)
     )
     while grid and 1 in merged_rows:
         merged_row = merged_rows[1]
@@ -2291,7 +3280,13 @@ def _append_markdown_table(
     column_count = max(len(row) for row in grid)
     if not merged_rows:
         _append_markdown_pipe_table(lines, grid, column_count)
-        _append_markdown_float_owned_text(lines, block, roles={"note", "legend"})
+        _append_markdown_float_owned_text(
+            lines,
+            block,
+            roles={"note", "legend"},
+            suppress_text_norms=suppress_note_norms,
+            table_grid_text_norms=rendered_grid_text_norms,
+        )
         return
 
     header = list(grid[0])
@@ -2310,7 +3305,45 @@ def _append_markdown_table(
         segment.append(row)
     if len(segment) > 1:
         _append_markdown_pipe_table(lines, segment, column_count)
-    _append_markdown_float_owned_text(lines, block, roles={"note", "legend"})
+    _append_markdown_float_owned_text(
+        lines,
+        block,
+        roles={"note", "legend"},
+        suppress_text_norms=suppress_note_norms,
+        table_grid_text_norms=rendered_grid_text_norms,
+    )
+
+
+def _markdown_table_with_projected_presentation_surface(
+    block: dict[str, Any],
+    grid: list[list[str]],
+) -> dict[str, Any]:
+    projected = dict(block)
+    projected["semantic_grid"] = [list(row) for row in grid]
+    projected["semantic_display_grid"] = [list(row) for row in grid]
+    projected["presentation_spans"] = _markdown_projected_presentation_spans(block, grid)
+    if isinstance(block.get("cell_spans"), list):
+        projected["cell_spans"] = _markdown_projected_canonical_cell_spans(block, grid)
+    return projected
+
+
+def _markdown_table_requires_evidence_semantic_html(block: dict[str, Any]) -> bool:
+    if isinstance(block.get("cell_spans"), list) and any(
+        isinstance(span, dict)
+        and (
+            int(span.get("rowspan", 1) or 1) > 1
+            or int(span.get("colspan", 1) or 1) > 1
+        )
+        for span in block.get("cell_spans", []) or []
+    ):
+        return True
+    projection = block.get("semantic_projection_v2")
+    if not isinstance(projection, dict):
+        return False
+    return (
+        isinstance(projection.get("genotoxicity_assay_matrix_projection"), dict)
+        and isinstance(projection.get("multiline_schema_header_projection"), dict)
+    )
 
 
 def _markdown_table_visible_title(block: dict[str, Any]) -> str:
@@ -2460,37 +3493,114 @@ def _genotoxicity_markdown_chain_signature(table: dict[str, Any]) -> tuple[str, 
     return semantic_profile, assay_kind
 
 
-def _merge_continued_table_chain(chain: list[dict[str, Any]]) -> dict[str, Any]:
+def _merge_continued_table_chain(
+    chain: list[dict[str, Any]],
+    *,
+    table_export_mode: str = "markdown",
+) -> dict[str, Any]:
     if not chain:
         return {}
     merged = dict(chain[0])
     merged_grid: list[list[str]] = []
+    merged_row_provenance: list[dict[str, Any]] = []
     merged_rows: list[dict[str, Any]] = []
+    merged_presentation_spans: list[dict[str, Any]] = []
+    merged_cell_spans: list[dict[str, Any]] = []
+    logical_segments: list[tuple[int, int, dict[str, Any]]] = []
     header: list[str] | None = None
+    equivalent_headers: list[list[str]] = []
     for index, table in enumerate(chain):
         grid = _normalize_markdown_table_grid(table)
         if not grid:
             continue
-        local_merged_rows = _merged_rows_by_row(table)
+        local_row_provenance = _markdown_projected_grid_row_provenance(table, grid)
+        local_merged_rows = _merged_rows_by_projected_grid_row(table, grid)
+        local_presentation_spans = _markdown_projected_presentation_spans(table, grid)
+        local_cell_spans = _markdown_projected_canonical_cell_spans(table, grid)
         if index == 0:
             row_offset = len(merged_grid)
             merged_grid.extend(grid)
+            logical_segments.append((row_offset, row_offset + len(grid), table))
+            merged_row_provenance.extend(dict(item) for item in local_row_provenance)
+            for span in local_presentation_spans:
+                span_copy = dict(span)
+                span_copy["row"] = row_offset + int(span["row"])
+                merged_presentation_spans.append(span_copy)
+            for span in local_cell_spans:
+                span_copy = dict(span)
+                span_copy["row"] = row_offset + int(span["row"])
+                merged_cell_spans.append(span_copy)
             for local_row, meta in local_merged_rows.items():
                 meta_copy = dict(meta)
                 meta_copy["row"] = row_offset + local_row
                 merged_rows.append(meta_copy)
             header = grid[0] if grid else None
+            canonical_header_depth = _markdown_canonical_header_depth(table)
+            equivalent_headers = (
+                [list(row) for row in grid[:canonical_header_depth]]
+                if canonical_header_depth > 1
+                else _markdown_equivalent_continued_table_header_rows(grid)
+            )
             continue
         continuation_rows = list(grid)
-        skipped_leading_rows = 0
-        if header is not None and continuation_rows and _markdown_header_rows_equivalent(continuation_rows[0], header):
-            continuation_rows = continuation_rows[1:]
-            skipped_leading_rows = 1
+        continuation_rows, skipped_leading_rows = _markdown_consume_continued_table_header_prefix(
+            continuation_rows,
+            equivalent_headers or ([header] if header is not None else []),
+        )
         before_fragment_merge_count = len(continuation_rows)
         continuation_rows = _merge_leading_continuation_fragments(merged_grid, continuation_rows)
         merged_fragment_count = before_fragment_merge_count - len(continuation_rows)
         skipped_leading_rows += merged_fragment_count
+        continuation_title = _markdown_continued_table_chain_boundary_title(
+            chain[0],
+            table,
+            table_export_mode=table_export_mode,
+        )
+        if not continuation_title:
+            _markdown_extend_trailing_presentation_spans_over_continuation_prefix(
+                merged_presentation_spans,
+                merged_row_count=len(merged_grid),
+                continuation=table,
+                continuation_rows=continuation_rows,
+            )
+            _markdown_extend_trailing_presentation_spans_over_continuation_prefix(
+                merged_cell_spans,
+                merged_row_count=len(merged_grid),
+                continuation=table,
+                continuation_rows=continuation_rows,
+            )
+        if continuation_title:
+            merged_grid.append([continuation_title])
+            merged_row_provenance.append(
+                {
+                    "source_row_refs": [],
+                    "derivation": "continued_table_chain_boundary_title",
+                }
+            )
+            merged_rows.append(
+                {
+                    "row": len(merged_grid),
+                    "text": continuation_title,
+                    "source": "continued_table_chain_boundary_title",
+                    "source_table_id": str(table.get("table_id") or "").strip(),
+                    "source_page": table.get("page"),
+                }
+            )
         row_offset = len(merged_grid)
+        for span in local_presentation_spans:
+            local_row = int(span["row"])
+            if local_row < skipped_leading_rows:
+                continue
+            span_copy = dict(span)
+            span_copy["row"] = row_offset + local_row - skipped_leading_rows
+            merged_presentation_spans.append(span_copy)
+        for span in local_cell_spans:
+            local_row = int(span["row"])
+            if local_row < skipped_leading_rows:
+                continue
+            span_copy = dict(span)
+            span_copy["row"] = row_offset + local_row - skipped_leading_rows
+            merged_cell_spans.append(span_copy)
         for local_row, meta in local_merged_rows.items():
             if local_row <= skipped_leading_rows:
                 continue
@@ -2498,16 +3608,392 @@ def _merge_continued_table_chain(chain: list[dict[str, Any]]) -> dict[str, Any]:
             meta_copy["row"] = row_offset + local_row - skipped_leading_rows
             merged_rows.append(meta_copy)
         merged_grid.extend(continuation_rows)
+        logical_segments.append((row_offset, row_offset + len(continuation_rows), table))
+        continuation_lineage = local_row_provenance[skipped_leading_rows:]
+        merged_row_provenance.extend(
+            dict(item)
+            for item in continuation_lineage[: len(continuation_rows)]
+        )
     merged["display_grid"] = merged_grid
     merged["semantic_grid"] = [list(row) for row in merged_grid]
     merged["semantic_display_grid"] = [list(row) for row in merged_grid]
+    merged["semantic_row_provenance"] = merged_row_provenance
     merged["row_count"] = len(merged_grid)
     merged["logical_row_count"] = len(merged_grid)
     if merged_rows:
         merged["merged_rows"] = merged_rows
     else:
         merged.pop("merged_rows", None)
+    if merged_presentation_spans:
+        merged["presentation_spans"] = merged_presentation_spans
+    else:
+        merged.pop("presentation_spans", None)
+    if merged_cell_spans:
+        root_id = str(chain[0].get("table_id") or chain[0].get("block_id") or "table").strip() or "table"
+        for span_index, span in enumerate(merged_cell_spans, start=1):
+            span["coordinate_space"] = "logical_table_chain"
+            span["span_id"] = f"{root_id}:logical_cell_span:{span_index}"
+            try:
+                span_start = int(span.get("row", -1))
+                span_end = span_start + max(1, int(span.get("rowspan", 1) or 1))
+            except (TypeError, ValueError):
+                continue
+            covered_tables = [
+                table
+                for segment_start, segment_end, table in logical_segments
+                if span_start < segment_end and span_end > segment_start
+            ]
+            source_pages = {
+                int(page)
+                for table in covered_tables
+                for page in [table.get("page")]
+                if isinstance(page, (int, float)) and int(page) > 0
+            }
+            source_table_ids = [
+                str(table.get("table_id") or table.get("block_id") or "").strip()
+                for table in covered_tables
+                if str(table.get("table_id") or table.get("block_id") or "").strip()
+            ]
+            span["source_pages"] = sorted(source_pages)
+            span["source_table_ids"] = list(dict.fromkeys(source_table_ids))
+        merged["cell_spans"] = merged_cell_spans
+    else:
+        merged.pop("cell_spans", None)
+    _merge_continued_table_chain_semantic_attachments(merged, chain)
     return merged
+
+
+def _markdown_projected_canonical_cell_spans(
+    block: dict[str, Any],
+    grid: list[list[str]],
+) -> list[dict[str, Any]]:
+    canonical = [
+        dict(span)
+        for span in block.get("cell_spans", []) or []
+        if isinstance(span, dict)
+    ]
+    if not canonical:
+        return []
+    if all(str(span.get("coordinate_space") or "") == "logical_table_chain" for span in canonical):
+        return canonical
+    body_spans = [span for span in canonical if str(span.get("role") or "") == "body"]
+    projected_body: list[dict[str, Any]] = []
+    if body_spans:
+        compatibility_block = dict(block)
+        compatibility_block["presentation_spans"] = body_spans
+        projected_body = _markdown_projected_presentation_spans(compatibility_block, grid)
+    header_spans = [span for span in canonical if str(span.get("role") or "") == "header"]
+    return [*header_spans, *projected_body]
+
+
+def _markdown_canonical_header_depth(block: dict[str, Any]) -> int:
+    depths: list[int] = []
+    for span in block.get("cell_spans", []) or []:
+        if not isinstance(span, dict) or str(span.get("role") or "") != "header":
+            continue
+        try:
+            row = int(span.get("row", 0) or 0)
+            rowspan = max(1, int(span.get("rowspan", 1) or 1))
+            colspan = max(1, int(span.get("colspan", 1) or 1))
+        except (TypeError, ValueError):
+            continue
+        depths.append(row + max(rowspan, 2 if colspan > 1 else 1))
+    return max(depths, default=1)
+
+
+def _markdown_projected_presentation_spans(
+    block: dict[str, Any],
+    grid: list[list[str]],
+) -> list[dict[str, Any]]:
+    origins = _markdown_projected_grid_source_row_numbers(block, grid)
+    projected_rows_by_source: dict[int, int] = {
+        source_row: projected_row
+        for projected_row, source_row in enumerate(origins)
+        if source_row is not None
+    }
+    semantic_lineage = block.get("semantic_row_provenance")
+    semantic_lineage = semantic_lineage if isinstance(semantic_lineage, list) else []
+    projected_lineage = _markdown_projected_grid_row_provenance(block, grid)
+    projected_rows_by_ref: dict[str, list[int]] = {}
+    for projected_row, lineage in enumerate(projected_lineage):
+        for row_ref in lineage.get("source_row_refs", []) or []:
+            source_ref = str(row_ref or "").strip()
+            if source_ref:
+                projected_rows_by_ref.setdefault(source_ref, []).append(projected_row)
+    projected: list[dict[str, Any]] = []
+    for span in block.get("presentation_spans", []) or []:
+        if not isinstance(span, dict):
+            continue
+        try:
+            source_row = int(span.get("row", -1))
+            rowspan = max(1, int(span.get("rowspan", 1) or 1))
+            col = int(span.get("col", -1))
+            colspan = max(1, int(span.get("colspan", 1) or 1))
+        except (TypeError, ValueError):
+            continue
+        semantic_row_indices = list(range(source_row, source_row + rowspan))
+        projected_rows: list[int | None] = []
+        if semantic_lineage and max(semantic_row_indices, default=-1) < len(semantic_lineage):
+            for semantic_row_index in semantic_row_indices:
+                lineage = semantic_lineage[semantic_row_index]
+                row_refs = list(lineage.get("source_row_refs", []) or []) if isinstance(lineage, dict) else []
+                candidates = sorted(
+                    {
+                        projected_row
+                        for row_ref in row_refs
+                        for projected_row in projected_rows_by_ref.get(str(row_ref or "").strip(), [])
+                    }
+                )
+                projected_rows.append(candidates[0] if len(candidates) == 1 else None)
+        if not projected_rows or any(row is None for row in projected_rows):
+            source_row_numbers = [row + 1 for row in semantic_row_indices]
+            projected_rows = [
+                projected_rows_by_source.get(row_number)
+                for row_number in source_row_numbers
+            ]
+        if any(row is None for row in projected_rows):
+            continue
+        concrete_rows = [int(row) for row in projected_rows if row is not None]
+        if concrete_rows != list(range(concrete_rows[0], concrete_rows[0] + rowspan)):
+            continue
+        projected.append(
+            {
+                **span,
+                "row": concrete_rows[0],
+                "col": col,
+                "rowspan": rowspan,
+                "colspan": colspan,
+            }
+        )
+    return projected
+
+
+def _markdown_extend_trailing_presentation_spans_over_continuation_prefix(
+    spans: list[dict[str, Any]],
+    *,
+    merged_row_count: int,
+    continuation: dict[str, Any],
+    continuation_rows: list[list[str]],
+) -> None:
+    if not continuation_rows or not _markdown_table_has_inherited_semantic_schema(continuation):
+        return
+    for span in spans:
+        try:
+            row = int(span.get("row", -1))
+            col = int(span.get("col", -1))
+            rowspan = max(1, int(span.get("rowspan", 1) or 1))
+        except (TypeError, ValueError):
+            continue
+        text = _markdown_compact_table_text(span.get("text"))
+        if row < 0 or col < 0 or row + rowspan != merged_row_count or not text:
+            continue
+        if not _markdown_continuation_source_omits_group_text(continuation, text):
+            continue
+        prefix_count = 0
+        for continuation_row in continuation_rows:
+            value = continuation_row[col] if col < len(continuation_row) else ""
+            if _markdown_compact_table_text(value) != text:
+                break
+            prefix_count += 1
+        if prefix_count:
+            span["rowspan"] = rowspan + prefix_count
+
+
+def _markdown_table_has_inherited_semantic_schema(block: dict[str, Any]) -> bool:
+    projection = block.get("semantic_projection_v2") or {}
+    if not isinstance(projection, dict):
+        return False
+    return any(
+        isinstance(payload, dict)
+        and bool(payload.get("continuation_schema_inherited") or payload.get("schema_inherited"))
+        for payload in projection.values()
+    )
+
+
+def _markdown_continuation_source_omits_group_text(
+    continuation: dict[str, Any],
+    compact_group_text: str,
+) -> bool:
+    source_grid = continuation.get("display_grid") or continuation.get("raw_grid") or []
+    if not isinstance(source_grid, list) or not source_grid:
+        return False
+    return all(
+        _markdown_compact_table_text(cell) != compact_group_text
+        for row in source_grid
+        if isinstance(row, list)
+        for cell in row
+    )
+
+
+def _markdown_equivalent_continued_table_header_rows(grid: list[list[str]]) -> list[list[str]]:
+    if not grid:
+        return []
+    headers = [list(grid[0])]
+    if len(grid) >= 2 and _markdown_grid_rows_are_multilevel_header_pair(grid[0], grid[1]):
+        headers.append(list(grid[1]))
+    return headers
+
+
+def _markdown_consume_continued_table_header_prefix(
+    rows: list[list[str]],
+    equivalent_headers: list[list[str]],
+) -> tuple[list[list[str]], int]:
+    remaining_headers = [list(header) for header in equivalent_headers if header]
+    remaining_rows = list(rows)
+    skipped = 0
+    while remaining_rows and remaining_headers:
+        matched_index = next(
+            (
+                index
+                for index, candidate in enumerate(remaining_headers)
+                if _markdown_header_rows_equivalent(remaining_rows[0], candidate)
+            ),
+            None,
+        )
+        if matched_index is None:
+            break
+        remaining_rows = remaining_rows[1:]
+        remaining_headers.pop(matched_index)
+        skipped += 1
+    return remaining_rows, skipped
+
+
+def _markdown_grid_rows_are_multilevel_header_pair(top_row: list[Any], leaf_row: list[Any]) -> bool:
+    if not top_row or not leaf_row or len(top_row) != len(leaf_row):
+        return False
+    top_norms = [_markdown_compact_table_text(cell) for cell in top_row]
+    leaf_norms = [_markdown_compact_table_text(cell) for cell in leaf_row]
+    if top_norms == leaf_norms:
+        return False
+    repeated_top = len([text for text in top_norms if text and top_norms.count(text) >= 2])
+    if repeated_top < 2:
+        return False
+    differing_leaf_cells = sum(1 for top, leaf in zip(top_norms, leaf_norms) if top and leaf and top != leaf)
+    return differing_leaf_cells >= 2
+
+
+def _merge_continued_table_chain_semantic_attachments(
+    merged: dict[str, Any],
+    chain: list[dict[str, Any]],
+) -> None:
+    if len(chain) <= 1:
+        return
+    for key in ("note_blocks", "content_segments", "caption_blocks"):
+        segments: list[Any] = []
+        for table in chain:
+            table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+            for segment in table.get(key, []) or []:
+                if not isinstance(segment, dict):
+                    segments.append(segment)
+                    continue
+                segment_copy = copy.deepcopy(segment)
+                if table_id and not str(segment_copy.get("source_table_id") or "").strip():
+                    segment_copy["source_table_id"] = table_id
+                if table.get("page") is not None and segment_copy.get("source_page") is None:
+                    segment_copy["source_page"] = table.get("page")
+                segments.append(segment_copy)
+        if segments:
+            merged[key] = _dedupe_markdown_table_note_segments(segments)
+        else:
+            merged.pop(key, None)
+
+    for key in ("header_note_refs", "cell_note_refs"):
+        refs: list[Any] = []
+        seen: set[str] = set()
+        for table in chain:
+            table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+            for ref in table.get(key, []) or []:
+                if not isinstance(ref, dict):
+                    refs.append(ref)
+                    continue
+                ref_copy = copy.deepcopy(ref)
+                if table_id and not str(ref_copy.get("source_table_id") or "").strip():
+                    ref_copy["source_table_id"] = table_id
+                if table.get("page") is not None and ref_copy.get("source_page") is None:
+                    ref_copy["source_page"] = table.get("page")
+                ref_key = json.dumps(ref_copy, ensure_ascii=False, sort_keys=True, default=str)
+                if ref_key in seen:
+                    continue
+                seen.add(ref_key)
+                refs.append(ref_copy)
+        if refs:
+            merged[key] = refs
+        else:
+            merged.pop(key, None)
+
+
+def _markdown_continued_table_chain_boundary_title(
+    root: dict[str, Any],
+    continuation: dict[str, Any],
+    *,
+    table_export_mode: str = "markdown",
+) -> str:
+    title = str(continuation.get("title") or continuation.get("caption_text") or "").strip()
+    if not title:
+        return ""
+    root_title = str(root.get("title") or root.get("caption_text") or "").strip()
+    if not _markdown_should_preserve_continuation_title(continuation, title, table_export_mode):
+        return ""
+    if not _markdown_table_titles_are_redundant(root_title, title):
+        return title
+    if int(continuation.get("page", 0) or 0) != int(root.get("page", 0) or 0):
+        return title
+    return ""
+
+
+def _markdown_should_preserve_continuation_title(
+    block: dict[str, Any],
+    title: str,
+    table_export_mode: str = "markdown",
+    *,
+    previous_visible_title: str = "",
+) -> bool:
+    if str(table_export_mode or "").strip().lower() != "evidence_markdown":
+        return False
+    if not _markdown_continued_table_title_has_review_locator(title):
+        return False
+    if _markdown_continued_table_title_is_generic_continued_label(title):
+        return False
+    if (
+        previous_visible_title
+        and _markdown_table_titles_are_redundant(previous_visible_title, title)
+        and not _markdown_continued_table_title_has_subtable_locator(title)
+    ):
+        return False
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    if isinstance(projection.get("dose_response_result_panel_projection"), dict):
+        return True
+    family = str(block.get("table_family") or "").strip()
+    if family in {"comparison_matrix", "dose_response_result_panel"}:
+        return True
+    return False
+
+
+def _markdown_continued_table_title_has_subtable_locator(title: str) -> bool:
+    return bool(re.search(r"\b\d+(?:\.\d+){2,}[A-Za-z]\b", str(title or "")))
+
+
+def _markdown_continued_table_title_is_generic_continued_label(title: str) -> bool:
+    cleaned = re.sub(r"\s+", " ", str(title or "").strip())
+    if not cleaned:
+        return False
+    return bool(re.fullmatch(r"(?:table|tab\.?|表)\s*[A-Za-z0-9一二三四五六七八九十]*\s*[:：.\-]?\s*(?:continued|续表|续)\.?", cleaned, re.IGNORECASE))
+
+
+def _markdown_continued_table_title_has_review_locator(title: str) -> bool:
+    cleaned = str(title or "").strip()
+    if not cleaned:
+        return False
+    if re.search(r"(?:续|\(续\)|（续）|continued)", cleaned, re.IGNORECASE):
+        return True
+    if re.search(r"(?:试验编号|报告编号|study\s*(?:no\.?|number)|report\s*(?:no\.?|number))", cleaned, re.IGNORECASE):
+        return True
+    if re.search(r"\b\d+(?:\.\d+){2,}[A-Za-z]?\b", cleaned):
+        return True
+    if re.search(r"示例\s*#?\s*\d+", cleaned, re.IGNORECASE):
+        return True
+    return False
 
 
 def _markdown_header_rows_equivalent(left: list[Any], right: list[Any]) -> bool:
@@ -2631,6 +4117,11 @@ def _append_markdown_image(
         title_norm = _markdown_compact_table_text(caption)
         if title_norm:
             suppressed_text_norms.add(title_norm)
+    visible_title = "" if suppress_visible_title else _markdown_image_visible_title(block)
+    if visible_title:
+        visible_title_norm = _markdown_compact_table_text(visible_title)
+        if visible_title_norm:
+            suppressed_text_norms.add(visible_title_norm)
     alt_source = str(block.get("figure_ref") or image_id or "image").strip() if owned_caption_blocks or suppress_visible_title else caption
     alt_text = alt_source.replace("[", "(").replace("]", ")")
     image_markdown = None
@@ -2658,9 +4149,12 @@ def _append_markdown_image(
     if image_markdown is None:
         target = f"#{image_id}" if image_id else ""
         image_markdown = f"![{alt_text}]({target})"
-    roles = {"caption", "legend", "note"}
+    roles = {"caption", "legend", "note", "nearby_context"}
     if not suppress_embedded_text:
         roles.update({"embedded_text", "embedded_code"})
+    if visible_title:
+        lines.append(f"**{visible_title}**")
+        lines.append("")
     _append_markdown_float_owned_text(
         lines,
         block,
@@ -2680,6 +4174,36 @@ def _append_markdown_image(
     )
 
 
+def _markdown_image_visible_title(block: dict[str, Any]) -> str:
+    title = str(block.get("caption_text") or block.get("title") or "").strip()
+    if not title:
+        return ""
+    composite = block.get("composite_object")
+    composite = composite if isinstance(composite, dict) else {}
+    if (
+        composite.get("title_policy") == "owned_object_title"
+        or composite.get("visible_title_owner") == "figure"
+    ):
+        return title
+    for segment in block.get("content_segments", []) or []:
+        if not isinstance(segment, dict):
+            continue
+        if (
+            str(segment.get("role") or "").strip() == "caption"
+            and str(segment.get("relation") or "").strip().lower() == "above"
+        ):
+            return title
+    for segment in block.get("caption_blocks", []) or []:
+        if not isinstance(segment, dict):
+            continue
+        if (
+            str(segment.get("role") or "").strip() == "caption"
+            and str(segment.get("relation") or "").strip().lower() == "above"
+        ):
+            return title
+    return ""
+
+
 def _append_markdown_float_owned_text(
     lines: list[str],
     block: dict[str, Any],
@@ -2688,22 +4212,24 @@ def _append_markdown_float_owned_text(
     relation_filter: set[str] | None = None,
     exclude_relation: set[str] | None = None,
     suppress_text_norms: set[str] | None = None,
+    table_grid_text_norms: set[str] | None = None,
 ) -> None:
-    segments = list(block.get("content_segments", []) or [])
-    if not segments:
-        segments = list(block.get("note_blocks", []) or []) + list(block.get("caption_blocks", []) or [])
+    segments = _markdown_float_owned_text_segments(block)
     segments = _order_markdown_float_segments(block, segments)
     accepted_roles = set(roles)
     if "note" in accepted_roles:
         accepted_roles.add("table_note")
     paragraph_parts: list[str] = []
     seen: set[str] = set()
-    table_grid_text_norms = _markdown_table_grid_cell_text_norms(block)
+    if table_grid_text_norms is None:
+        table_grid_text_norms = _markdown_table_grid_cell_text_norms(block)
     for segment in segments:
         if not isinstance(segment, dict):
             continue
         role = str(segment.get("role") or "").strip()
         if role not in accepted_roles:
+            continue
+        if role == "nearby_context" and not _markdown_nearby_context_segment_is_float_title(block, segment):
             continue
         relation = str(segment.get("relation") or "").strip().lower()
         if relation_filter is not None and relation not in relation_filter:
@@ -2718,16 +4244,666 @@ def _append_markdown_float_owned_text(
             continue
         if suppress_text_norms is not None and norm in suppress_text_norms:
             continue
-        if norm in table_grid_text_norms:
+        if norm in table_grid_text_norms and not _markdown_float_owned_segment_should_survive_table_grid_dedupe(segment):
             continue
         seen.add(norm)
         paragraph_parts.append(text)
     if not paragraph_parts:
         return
-    paragraph = _markdown_linkify_visible_urls(" ".join(paragraph_parts).strip())
+    if _markdown_float_owned_segments_should_render_as_lines(block, segments):
+        for part in paragraph_parts:
+            paragraph = _repair_markdown_float_owned_note_paragraph(part.strip())
+            paragraph = _markdown_linkify_visible_urls(paragraph)
+            if paragraph:
+                lines.append(paragraph)
+        lines.append("")
+        return
+    if _markdown_note_texts_form_marker_run(paragraph_parts):
+        for part in _sort_markdown_marker_note_texts(paragraph_parts):
+            paragraph = _repair_markdown_float_owned_note_paragraph(part.strip())
+            paragraph = _markdown_linkify_visible_urls(paragraph)
+            if paragraph:
+                lines.append(paragraph)
+        lines.append("")
+        return
+    paragraph = _repair_markdown_float_owned_note_paragraph(" ".join(paragraph_parts).strip())
+    paragraph = _markdown_linkify_visible_urls(paragraph)
     if paragraph:
         lines.append(paragraph)
         lines.append("")
+
+
+def _markdown_float_owned_segment_should_survive_table_grid_dedupe(segment: dict[str, Any]) -> bool:
+    if str(segment.get("role") or "").strip() not in {"note", "table_note", "legend"}:
+        return False
+    source = str(segment.get("source") or "").strip()
+    relation = str(segment.get("relation") or "").strip().lower()
+    if source == "cross_page_result_matrix_statistical_note":
+        return _markdown_result_matrix_statistical_note_text(str(segment.get("text") or ""))
+    if source in {
+        "dose_response_result_panel_note_row",
+        "explicit_new_panel_boundary_note_reassignment",
+        "dose_response_continuation_note_row",
+        "dose_response_top_continuation_note",
+        "result_matrix_statistical_note_after_table",
+        "trailing_table_note_row",
+    }:
+        return True
+    if relation.startswith("cross_page"):
+        return True
+    return False
+
+
+def _markdown_float_owned_segments_should_render_as_lines(block: dict[str, Any], segments: list[Any]) -> bool:
+    if str(block.get("block_type") or "").strip().lower() != "table":
+        return False
+    meaningful_segments = [
+        segment
+        for segment in segments
+        if isinstance(segment, dict)
+        and str(segment.get("role") or "").strip() in {"note", "table_note", "legend"}
+        and str(segment.get("text") or "").strip()
+    ]
+    if len(meaningful_segments) < 2:
+        return False
+    line_groups: dict[str, list[dict[str, Any]]] = {}
+    for segment in meaningful_segments:
+        group_id = str(segment.get("note_group_id") or "").strip()
+        if group_id and str(segment.get("presentation_mode") or "").strip() == "lines":
+            line_groups.setdefault(group_id, []).append(segment)
+    if any(len(group) >= 2 for group in line_groups.values()):
+        return True
+    physical_pages = [
+        _markdown_float_owned_segment_physical_page(segment)
+        for segment in meaningful_segments
+        if _markdown_block_bbox(segment) is not None
+        and _markdown_float_owned_segment_physical_page(segment) > 0
+    ]
+    if len(physical_pages) == len(meaningful_segments) and len(set(physical_pages)) >= 2:
+        return True
+    sources = {str(segment.get("source") or "").strip() for segment in meaningful_segments}
+    if (
+        "cross_page_result_matrix_statistical_note" in sources
+        and "explicit_new_panel_boundary_note_reassignment" in sources
+    ):
+        return True
+    if (
+        "study_condition_result_matrix_note_row" in sources
+        and "cross_page_result_matrix_statistical_note" in sources
+    ):
+        return True
+    if sources == {"ind_study_result_matrix_word_recovery"} and all(
+        _markdown_ind_study_result_matrix_note_row_segment(segment)
+        for segment in meaningful_segments
+    ):
+        return True
+    return False
+
+
+def _markdown_ind_study_result_matrix_note_row_segment(segment: dict[str, Any]) -> bool:
+    if _markdown_block_bbox(segment) is None:
+        return False
+    text = str(segment.get("text") or "").strip()
+    if not text:
+        return False
+    if _markdown_definition_note_segment(segment):
+        return True
+    if _markdown_result_matrix_statistical_note_text(text):
+        return True
+    marker = _markdown_note_text_primary_marker(text)
+    return bool(marker and re.fullmatch(r"[a-z]|\d{1,3}", marker))
+
+
+def _markdown_definition_note_segment(segment: dict[str, Any]) -> bool:
+    profile = segment.get("note_profile") if isinstance(segment.get("note_profile"), dict) else None
+    if isinstance(profile, dict) and profile.get("profile_type") == "definition_note":
+        return True
+    return _markdown_definition_note_text(str(segment.get("text") or ""))
+
+
+def _markdown_definition_note_text(text: str) -> bool:
+    cleaned = _clean_markdown_float_owned_text(str(text or ""))
+    if not cleaned:
+        return False
+    match = re.match(
+        r"^\s*(?P<term>(?:[%A-Za-z][%A-Za-z0-9%/_+\-.]{0,24}|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9%/_+\-.]{0,24}))\s*[=＝]\s*(?P<definition>.+?)\s*$",
+        cleaned,
+    )
+    if not match:
+        return False
+    term = str(match.group("term") or "").strip()
+    definition = str(match.group("definition") or "").strip()
+    if not term or not definition:
+        return False
+    compact_term = re.sub(r"\s+", "", term)
+    return len(compact_term) >= 2 or "%" in compact_term or bool(re.search(r"[\u4e00-\u9fff]", compact_term))
+
+
+def _markdown_float_owned_text_segments(block: dict[str, Any]) -> list[Any]:
+    content_segments = list(block.get("content_segments", []) or [])
+    fallback_segments = list(block.get("note_blocks", []) or []) + list(block.get("caption_blocks", []) or [])
+    if str(block.get("block_type") or "").strip().lower() == "table":
+        return _dedupe_markdown_table_note_segments(
+            [
+                segment
+                for segment in content_segments + fallback_segments
+                if not _markdown_float_owned_segment_renders_in_main_flow(segment)
+            ]
+        )
+    return content_segments or fallback_segments
+
+
+def _markdown_float_owned_segment_renders_in_main_flow(segment: Any) -> bool:
+    if not isinstance(segment, dict):
+        return False
+    return str(segment.get("float_render_policy") or segment.get("render_policy") or "").strip() == "main_flow_at_source"
+
+
+def _markdown_deferred_main_flow_float_segments(page_blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    page_source_ids = {
+        str(block.get("block_id") or block.get("source_id") or "").strip()
+        for block in page_blocks
+        if str(block.get("block_id") or block.get("source_id") or "").strip()
+    }
+    segments: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for block in page_blocks:
+        if str(block.get("block_type") or "").strip().lower() not in {"table", "image"}:
+            continue
+        for key in ("content_segments", "note_blocks", "caption_blocks"):
+            for segment in block.get(key, []) or []:
+                if not _markdown_float_owned_segment_renders_in_main_flow(segment):
+                    continue
+                segment = dict(segment)
+                source_ids = _markdown_segment_source_block_ids(segment)
+                if source_ids and any(source_id in page_source_ids for source_id in source_ids):
+                    continue
+                segment_key = _markdown_deferred_float_segment_key(segment)
+                if segment_key in seen:
+                    continue
+                seen.add(segment_key)
+                segments.append(segment)
+    return [
+        segment
+        for _, segment in sorted(
+            enumerate(segments),
+            key=lambda item: (
+                (_markdown_block_bbox(item[1]) or (0.0, 0.0, 0.0, 0.0))[1],
+                (_markdown_block_bbox(item[1]) or (0.0, 0.0, 0.0, 0.0))[0],
+                item[0],
+            ),
+        )
+    ]
+
+
+def _markdown_segment_source_block_ids(segment: dict[str, Any]) -> set[str]:
+    source_ids = {
+        str(segment.get(key) or "").strip()
+        for key in ("source_block_id", "block_id", "source_id")
+        if str(segment.get(key) or "").strip()
+    }
+    source_ids.update(
+        str(source_block_id or "").strip()
+        for source_block_id in segment.get("source_block_ids", []) or []
+        if str(source_block_id or "").strip()
+    )
+    return source_ids
+
+
+def _markdown_deferred_float_segment_key(segment: dict[str, Any]) -> str:
+    source_ids = sorted(_markdown_segment_source_block_ids(segment))
+    norm = _markdown_compact_table_text(segment.get("text") or "")
+    bbox = _markdown_block_bbox(segment)
+    bbox_key = ",".join(f"{value:.2f}" for value in bbox) if bbox is not None else ""
+    return "|".join([norm, ",".join(source_ids), bbox_key])
+
+
+def _append_markdown_deferred_main_flow_float_segment(lines: list[str], segment: dict[str, Any]) -> bool:
+    text = _clean_markdown_float_owned_text(str(segment.get("text") or ""))
+    if not text:
+        return False
+    paragraph = _repair_markdown_float_owned_note_paragraph(text.strip())
+    paragraph = _markdown_linkify_visible_urls(paragraph)
+    if not paragraph:
+        return False
+    lines.append(paragraph)
+    lines.append("")
+    return True
+
+
+def _dedupe_markdown_table_note_segments(segments: list[Any]) -> list[Any]:
+    ordered = _dedupe_markdown_exact_segment_norms(segments)
+    ordered = _drop_markdown_table_combined_marker_note_segments(ordered)
+    keep: list[Any] = []
+    for index, segment in enumerate(ordered):
+        if _markdown_table_note_segment_covered_by_better_segment(segment, ordered, index):
+            continue
+        keep.append(segment)
+    return keep
+
+
+def _drop_markdown_table_combined_marker_note_segments(segments: list[Any]) -> list[Any]:
+    single_markers: set[str] = set()
+    marker_sets_by_index: dict[int, set[str]] = {}
+    for index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            continue
+        markers = _markdown_note_text_markers(str(segment.get("text") or ""))
+        if markers:
+            marker_sets_by_index[index] = markers
+        if len(markers) == 1:
+            single_markers.update(markers)
+    if not single_markers:
+        return segments
+    keep: list[Any] = []
+    for index, segment in enumerate(segments):
+        markers = marker_sets_by_index.get(index, set())
+        if len(markers) >= 2 and markers.issubset(single_markers):
+            continue
+        keep.append(segment)
+    return keep
+
+
+def _markdown_note_texts_form_marker_run(texts: list[str]) -> bool:
+    markers = [_markdown_note_text_primary_marker(text) for text in texts]
+    markers = [marker for marker in markers if marker]
+    if len(markers) < 2 or len(markers) != len(texts):
+        return False
+    if len(set(markers)) != len(markers):
+        return False
+    if all(re.fullmatch(r"[a-z]", marker) for marker in markers):
+        return True
+    return True
+
+
+def _sort_markdown_marker_note_texts(texts: list[str]) -> list[str]:
+    def key(text: str) -> tuple[int, str]:
+        marker = _markdown_note_text_primary_marker(text)
+        if re.fullmatch(r"[a-z]", marker):
+            return (ord(marker) - ord("a"), marker)
+        if marker.isdigit():
+            return (1000 + int(marker), marker)
+        return (2000, marker)
+
+    return [text for _, text in sorted(enumerate(texts), key=lambda item: (key(item[1]), item[0]))]
+
+
+def _markdown_note_text_markers(text: str) -> set[str]:
+    markers: set[str] = set()
+    for match in re.finditer(r"(?:^|\s)([A-Za-z]|\d+|[*#†‡§])\s*[-–—:：]", str(text or "")):
+        markers.add(match.group(1).lower())
+    return markers
+
+
+def _markdown_note_text_primary_marker(text: str) -> str:
+    match = re.match(r"^\s*([A-Za-z]|\d+|[*#†‡§])\s*[-–—:：]", str(text or ""))
+    if not match:
+        return ""
+    return match.group(1).lower()
+
+
+def _dedupe_markdown_exact_segment_norms(segments: list[Any]) -> list[Any]:
+    keep: list[Any] = []
+    seen: set[str] = set()
+    for segment in segments:
+        if not isinstance(segment, dict):
+            keep.append(segment)
+            continue
+        norm = _markdown_compact_table_text(segment.get("text") or "")
+        source_key = (
+            str(segment.get("source_block_id") or "").strip(),
+            str(segment.get("source") or "").strip(),
+            str(segment.get("role") or "").strip(),
+        )
+        key = f"{norm}|{source_key}"
+        if key in seen:
+            continue
+        seen.add(key)
+        keep.append(segment)
+    return keep
+
+
+def _markdown_table_note_segment_covered_by_better_segment(
+    segment: Any,
+    segments: list[Any],
+    index: int,
+) -> bool:
+    if not isinstance(segment, dict):
+        return False
+    role = str(segment.get("role") or "").strip()
+    if role not in {"note", "table_note"}:
+        return False
+    norm = _markdown_compact_table_text(segment.get("text") or "")
+    if len(norm) < 4:
+        return False
+    marker = _markdown_note_segment_marker(segment)
+    for other_index, other in enumerate(segments):
+        if other_index == index or not isinstance(other, dict):
+            continue
+        other_role = str(other.get("role") or "").strip()
+        if other_role not in {"note", "table_note"}:
+            continue
+        other_norm = _markdown_compact_table_text(other.get("text") or "")
+        if norm == other_norm:
+            if _markdown_table_note_label_text(str(segment.get("text") or "")):
+                segment_has_bbox = _markdown_block_bbox(segment) is not None
+                other_has_bbox = _markdown_block_bbox(other) is not None
+                if segment_has_bbox != other_has_bbox:
+                    return not segment_has_bbox and other_has_bbox
+            return _markdown_table_note_segment_quality(other) > _markdown_table_note_segment_quality(segment)
+        if len(other_norm) > len(norm) and norm in other_norm:
+            other_marker = _markdown_note_segment_marker(other)
+            if marker and other_marker and marker != other_marker:
+                continue
+            return True
+    return False
+
+
+def _markdown_table_note_label_text(text: str) -> bool:
+    return bool(
+        re.fullmatch(
+            r"(?:附加信息|补充信息|备注|注释|说明|Note|Notes)\s*[:：]?",
+            re.sub(r"\s+", " ", str(text or "")).strip(),
+            re.IGNORECASE,
+        )
+    )
+
+
+def _markdown_note_segment_marker(segment: dict[str, Any]) -> str:
+    marker = str(segment.get("marker") or "").strip()
+    if marker:
+        return marker.lower()
+    text = str(segment.get("text") or "").strip()
+    match = re.match(r"^\s*([A-Za-z*#†‡§]|\d+)\s*[-–—:：]", text)
+    if match:
+        return match.group(1).lower()
+    return ""
+
+
+def _markdown_table_note_segment_quality(segment: dict[str, Any]) -> int:
+    score = 0
+    if str(segment.get("source_block_id") or "").strip():
+        score += 4
+    if segment.get("source_block_ids"):
+        score += 2
+    if _markdown_block_bbox(segment) is not None:
+        score += 2
+    if str(segment.get("relation") or "").strip().lower() in {"below", "above"}:
+        score += 2
+    if str(segment.get("source") or "").strip():
+        score -= 1
+    return score
+
+
+def _normalize_markdown_table_note_fields(document: dict[str, Any]) -> dict[str, Any]:
+    normalized = copy.deepcopy(document)
+    preferred_note_owner_by_occurrence = _markdown_preferred_table_note_owner_by_occurrence(
+        normalized.get("table_asts", []) or []
+    )
+    for table in normalized.get("table_asts", []) or []:
+        if not isinstance(table, dict):
+            continue
+        note_blocks = list(table.get("note_blocks", []) or [])
+        content_segments = list(table.get("content_segments", []) or [])
+        if note_blocks:
+            table["note_blocks"] = _filter_markdown_table_notes_for_preferred_owner(
+                table,
+                _dedupe_markdown_table_note_segments(note_blocks),
+                preferred_note_owner_by_occurrence,
+            )
+        if content_segments:
+            table["content_segments"] = _filter_markdown_table_notes_for_preferred_owner(
+                table,
+                _dedupe_markdown_table_note_segments(content_segments),
+                preferred_note_owner_by_occurrence,
+            )
+    table_by_id = {
+        str(table.get("table_id") or "").strip(): table
+        for table in normalized.get("table_asts", []) or []
+        if isinstance(table, dict) and str(table.get("table_id") or "").strip()
+    }
+    for page in (normalized.get("document_ast", {}) or {}).get("pages", []) or []:
+        if not isinstance(page, dict):
+            continue
+        updated_blocks: list[Any] = []
+        for block in page.get("blocks", []) or []:
+            if isinstance(block, dict) and str(block.get("block_type") or "").strip().lower() == "table":
+                table_id = str(block.get("table_id") or block.get("block_id") or "").strip()
+                table = table_by_id.get(table_id)
+                if table is None:
+                    updated_blocks.append(_normalize_markdown_table_block_note_fields(block))
+                else:
+                    updated_blocks.append(
+                        _normalize_markdown_table_block_note_fields({**block, **table, "block_type": block.get("block_type")})
+                    )
+            else:
+                updated_blocks.append(block)
+        page["blocks"] = updated_blocks
+    return normalized
+
+
+def _markdown_preferred_table_note_owner_by_occurrence(tables: list[Any]) -> dict[tuple[str, int], str]:
+    candidates: dict[tuple[str, int], list[tuple[int, str]]] = {}
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+        if not table_id:
+            continue
+        occurrence_keys = _markdown_table_renderable_note_occurrence_keys(table)
+        if not occurrence_keys:
+            continue
+        score = _markdown_table_note_owner_score(table)
+        for occurrence_key in occurrence_keys:
+            candidates.setdefault(occurrence_key, []).append(
+                (
+                    score + _markdown_explicit_table_note_owner_score(
+                        table,
+                        occurrence_key[0],
+                        occurrence_page=occurrence_key[1],
+                    ),
+                    table_id,
+                )
+            )
+    preferred: dict[tuple[str, int], str] = {}
+    for occurrence_key, scored_tables in candidates.items():
+        if len(scored_tables) <= 1:
+            continue
+        scored_tables.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        if scored_tables[0][0] > scored_tables[1][0]:
+            preferred[occurrence_key] = scored_tables[0][1]
+    return preferred
+
+
+def _markdown_table_note_owner_score(table: dict[str, Any]) -> int:
+    score = 0
+    if table.get("cell_note_refs"):
+        score += 20
+    if table.get("header_note_refs"):
+        score += 16
+    composite = table.get("composite_object")
+    if isinstance(composite, dict) and composite.get("note_anchor_refs"):
+        score += 12
+    projection = table.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    if isinstance(projection.get("study_condition_grouped_result_matrix_projection"), dict):
+        score += 4
+    for segment in table.get("content_segments", []) or []:
+        if not isinstance(segment, dict):
+            continue
+        if (
+            str(segment.get("source") or "").strip() == "cross_page_result_matrix_statistical_note"
+            and not str(segment.get("owner_table_id") or "").strip()
+        ):
+            score -= 4
+    return score
+
+
+def _markdown_explicit_table_note_owner_score(
+    table: dict[str, Any],
+    norm: str,
+    *,
+    occurrence_page: int,
+) -> int:
+    table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+    if not table_id or not norm:
+        return 0
+    for key in ("note_blocks", "content_segments"):
+        for segment in table.get(key, []) or []:
+            if not isinstance(segment, dict):
+                continue
+            if _markdown_compact_table_text(segment.get("text") or "") != norm:
+                continue
+            if _markdown_table_note_occurrence_page(segment, table) != occurrence_page:
+                continue
+            if (
+                str(segment.get("owner_table_id") or "").strip() == table_id
+                and str(segment.get("note_scope") or "").strip() == "previous_table"
+            ):
+                return 100
+    return 0
+
+
+def _markdown_table_note_occurrence_page(segment: dict[str, Any], table: dict[str, Any]) -> int:
+    for value in (
+        segment.get("physical_page"),
+        segment.get("continuation_page"),
+        segment.get("continued_on_page"),
+        segment.get("page"),
+        table.get("page"),
+    ):
+        try:
+            page = int(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if page > 0:
+            return page
+    return 0
+
+
+def _markdown_table_renderable_note_occurrence_keys(table: dict[str, Any]) -> set[tuple[str, int]]:
+    keys: set[tuple[str, int]] = set()
+    for key in ("note_blocks", "content_segments"):
+        for item in table.get(key, []) or []:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role") or "").strip()
+            if key == "content_segments" and role not in {"note", "table_note"}:
+                continue
+            norm = _markdown_compact_table_text(item.get("text") or "")
+            if norm:
+                keys.add((norm, _markdown_table_note_occurrence_page(item, table)))
+    return keys
+
+
+def _markdown_table_renderable_note_norms(table: dict[str, Any]) -> set[str]:
+    norms: set[str] = set()
+    for key in ("note_blocks", "content_segments"):
+        for item in table.get(key, []) or []:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role") or "").strip()
+            if key == "content_segments" and role not in {"note", "table_note"}:
+                continue
+            norm = _markdown_compact_table_text(item.get("text") or "")
+            if norm:
+                norms.add(norm)
+    return norms
+
+
+def _markdown_table_note_norms(table: dict[str, Any]) -> set[str]:
+    norms: set[str] = set()
+    norms.update(_markdown_table_renderable_note_norms(table))
+    for ref_key in ("cell_note_refs", "header_note_refs"):
+        for ref in table.get(ref_key, []) or []:
+            if not isinstance(ref, dict):
+                continue
+            norm = _markdown_compact_table_text(ref.get("note_text") or "")
+            if norm:
+                norms.add(norm)
+    return norms
+
+
+def _filter_markdown_table_notes_for_preferred_owner(
+    table: dict[str, Any],
+    segments: list[Any],
+    preferred_owner_by_occurrence: dict[tuple[str, int], str],
+) -> list[Any]:
+    if not preferred_owner_by_occurrence:
+        return segments
+    table_id = str(table.get("table_id") or table.get("block_id") or "").strip()
+    if not table_id:
+        return segments
+    keep: list[Any] = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            keep.append(segment)
+            continue
+        if _markdown_float_owned_segment_can_repeat_across_tables(segment):
+            keep.append(segment)
+            continue
+        norm = _markdown_compact_table_text(segment.get("text") or "")
+        occurrence_key = (norm, _markdown_table_note_occurrence_page(segment, table))
+        preferred_owner = preferred_owner_by_occurrence.get(occurrence_key)
+        if preferred_owner and preferred_owner != table_id:
+            continue
+        keep.append(segment)
+    return keep
+
+
+def _markdown_float_owned_segment_can_repeat_across_tables(segment: dict[str, Any]) -> bool:
+    if str(segment.get("role") or "").strip() not in {"note", "table_note", "legend"}:
+        return False
+    if str(segment.get("note_group_id") or "").strip():
+        return True
+    source = str(segment.get("source") or "").strip()
+    text = str(segment.get("text") or "")
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    if re.fullmatch(
+        r"(?:附加信息|补充信息|备注|注释|说明|Note|Notes)\s*[:：]?",
+        cleaned,
+        re.IGNORECASE,
+    ):
+        return True
+    if source == "study_condition_result_matrix_note_row":
+        return True
+    if source == "cross_page_result_matrix_statistical_note":
+        return _markdown_result_matrix_statistical_note_text(text)
+    if source in {"dose_response_result_panel_note_row", "result_matrix_statistical_note_after_table"}:
+        return _markdown_result_matrix_statistical_note_text(text)
+    return False
+
+
+def _markdown_result_matrix_statistical_note_text(text: str) -> bool:
+    cleaned = re.sub(r"\s+", " ", str(text or "").strip())
+    if not cleaned:
+        return False
+    if cleaned.startswith("-无值得注意的结果"):
+        return True
+    if re.search(r"\b(?:Dunnett|Fisher)\b", cleaned, re.IGNORECASE):
+        return True
+    if re.search(r"\*+\s*-\s*p\s*<\s*0\.\d+", cleaned, re.IGNORECASE):
+        return True
+    return False
+
+
+def _normalize_markdown_table_block_note_fields(block: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(block)
+    note_blocks = list(normalized.get("note_blocks", []) or [])
+    content_segments = list(normalized.get("content_segments", []) or [])
+    if note_blocks:
+        normalized["note_blocks"] = _dedupe_markdown_table_note_segments(note_blocks)
+    if content_segments:
+        normalized["content_segments"] = _dedupe_markdown_table_note_segments(content_segments)
+    return normalized
+
+
+def _repair_markdown_float_owned_note_paragraph(text: str) -> str:
+    repaired = str(text or "").strip()
+    repaired = re.sub(r"未检\s+测(?=\s*[；;，,。])", "未检测", repaired)
+    repaired = re.sub(r"未检\s*测(?=\s*[；;，,。])", "未检测", repaired)
+    repaired = re.sub(r"^([*+-])(?=\s)", r"\\\1", repaired)
+    return repaired
 
 
 def _markdown_table_grid_cell_text_norms(block: dict[str, Any]) -> set[str]:
@@ -2738,19 +4914,25 @@ def _markdown_table_grid_cell_text_norms(block: dict[str, Any]) -> set[str]:
         grid = block.get(key)
         if not isinstance(grid, list):
             continue
-        for row in grid:
-            if not isinstance(row, list):
-                continue
-            row_text_parts: list[str] = []
-            for cell in row:
-                text = _markdown_escape_table_cell(cell)
-                norm = _markdown_compact_table_text(text)
-                if norm:
-                    norms.add(norm)
-                    row_text_parts.append(text)
-            row_norm = _markdown_compact_table_text(" ".join(row_text_parts))
-            if row_norm:
-                norms.add(row_norm)
+        norms.update(_markdown_grid_cell_text_norms(grid))
+    return norms
+
+
+def _markdown_grid_cell_text_norms(grid: list[list[Any]]) -> set[str]:
+    norms: set[str] = set()
+    for row in grid:
+        if not isinstance(row, list):
+            continue
+        row_text_parts: list[str] = []
+        for cell in row:
+            text = _markdown_escape_table_cell(cell)
+            norm = _markdown_compact_table_text(text)
+            if norm:
+                norms.add(norm)
+                row_text_parts.append(text)
+        row_norm = _markdown_compact_table_text(" ".join(row_text_parts))
+        if row_norm:
+            norms.add(row_norm)
     return norms
 
 
@@ -2775,6 +4957,14 @@ def _markdown_image_has_renderable_semantics(block: dict[str, Any]) -> bool:
 def _order_markdown_float_segments(block: dict[str, Any], segments: list[Any]) -> list[Any]:
     if not segments:
         return []
+    if str(block.get("block_type") or "").strip().lower() == "table":
+        return [
+            segment
+            for _, segment in sorted(
+                enumerate(segments),
+                key=lambda item: _markdown_table_float_segment_order_key(item[1], item[0]),
+            )
+        ]
     caption_relation = ""
     for segment in segments:
         if not isinstance(segment, dict) or str(segment.get("role") or "") != "caption":
@@ -2803,6 +4993,77 @@ def _order_markdown_float_segments(block: dict[str, Any], segments: list[Any]) -
         ),
         )
     ]
+
+
+def _markdown_table_float_segment_order_key(segment: Any, original_index: int) -> tuple[int, float, int]:
+    if not isinstance(segment, dict):
+        return (9, float(original_index), original_index)
+    role = str(segment.get("role") or "").strip()
+    relation = str(segment.get("relation") or "").strip().lower()
+    source = str(segment.get("source") or "").strip()
+    bbox = _markdown_block_bbox(segment)
+    note_group_id = str(segment.get("note_group_id") or "").strip()
+    if note_group_id and str(segment.get("presentation_mode") or "").strip() == "lines":
+        try:
+            line_index = int(segment.get("note_line_index", original_index) or 0)
+        except (TypeError, ValueError):
+            line_index = original_index
+        return (19, float(line_index), original_index)
+    try:
+        source_order_y = float(segment.get("source_order_y"))
+        source_order_x = float(segment.get("source_order_x", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        source_order_y = None
+        source_order_x = 0.0
+    if role in {"note", "table_note", "legend"} and (
+        bbox is not None or source_order_y is not None
+    ) and _markdown_float_owned_segment_uses_physical_note_order(segment):
+        page_rank = _markdown_float_owned_segment_physical_page(segment)
+        order_y = bbox[1] if bbox is not None else source_order_y
+        order_x = bbox[0] if bbox is not None else source_order_x
+        return (
+            20,
+            float(page_rank) * 1000000.0 + float(order_y) * 1000.0 + float(order_x),
+            original_index,
+        )
+    role_rank = {
+        "embedded_text": 0,
+        "embedded_code": 0,
+        "caption": 1,
+        "legend": 2,
+        "note": 2,
+        "table_note": 2,
+    }.get(role, 3)
+    if relation == "above":
+        relation_rank = 0
+    elif source == "trailing_table_note_row":
+        relation_rank = 2
+    elif relation == "below":
+        relation_rank = 3
+    else:
+        relation_rank = 1
+    y0 = bbox[1] if bbox is not None else float(original_index)
+    return (role_rank * 10 + relation_rank, y0, original_index)
+
+
+def _markdown_float_owned_segment_uses_physical_note_order(segment: dict[str, Any]) -> bool:
+    return _markdown_float_owned_segment_physical_page(segment) > 0
+
+
+def _markdown_float_owned_segment_physical_page(segment: dict[str, Any]) -> int:
+    for value in (
+        segment.get("physical_page"),
+        segment.get("continuation_page"),
+        segment.get("continued_on_page"),
+        segment.get("page"),
+    ):
+        try:
+            page = int(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if page > 0:
+            return page
+    return 0
 
 
 def _markdown_block_bbox_overlap(
@@ -2963,6 +5224,26 @@ def _render_pdf_bbox_crop_markdown(
     return f"![{safe_alt}](data:image/png;base64,{encoded})"
 
 
+def _markdown_text_block_is_unmarked_list_item(block: dict[str, Any]) -> bool:
+    return (
+        str(block.get("block_type") or "").strip().lower() == "text"
+        and str(block.get("semantic_role") or "").strip() == "body_list_item"
+        and str(block.get("list_style") or "").strip() == "unmarked_indented"
+    )
+
+
+def _normalize_markdown_explicit_bullet_text(text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return raw
+    return re.sub(
+        r"^\s*[\u2022\u25cf\u25cb\u25aa\u25e6\u2219\uf06c\uf0b7\u00b7\x01]\s*",
+        "- ",
+        raw,
+        count=1,
+    )
+
+
 def _append_markdown_text_block(lines: list[str], block: dict[str, Any], *, text_override: str | None = None) -> None:
     text = (
         _repair_markdown_text_with_contextual_inline_atoms(text_override)
@@ -2975,7 +5256,21 @@ def _append_markdown_text_block(lines: list[str], block: dict[str, Any], *, text
         return
     text = _append_markdown_footnote_ref_suffix(text, block)
     text = _markdown_linkify_visible_urls(text)
+    if _markdown_text_block_is_unmarked_list_item(block) and not _markdown_text_starts_bullet_item(text):
+        text = f"- {text}"
+    else:
+        text = _normalize_markdown_explicit_bullet_text(text)
     lines.append(text)
+    lines.append("")
+
+
+def _append_markdown_centered_front_matter_title_block(lines: list[str], block: dict[str, Any]) -> None:
+    text = _project_markdown_text_with_inline_formulas(block)
+    if not text:
+        return
+    text = _append_markdown_footnote_ref_suffix(text, block)
+    text = _markdown_linkify_visible_urls(text)
+    lines.append(f"**{text}**")
     lines.append("")
 
 
@@ -3043,6 +5338,46 @@ def _clean_structure_template_markdown_title(value: Any) -> str:
     return title
 
 
+def _structure_template_markdown_title_is_instruction_like(value: Any) -> bool:
+    compact = _markdown_compact_table_text(value)
+    if not compact:
+        return False
+    prefixes = [
+        "\u5e94\u6309\u7167\u4ee5\u4e0b\u987a\u5e8f",
+        "\u6309\u7167\u4ee5\u4e0b\u987a\u5e8f",
+        "\u4ee5\u4e0b\u987a\u5e8f",
+        "\u5efa\u8bae\u91c7\u7528\u4ee5\u4e0b",
+        "submitinthefollowingorder",
+        "followingorder",
+    ]
+    return any(compact.startswith(_markdown_compact_table_text(prefix)) for prefix in prefixes)
+
+
+def _markdown_title_without_leading_outline_marker(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return re.sub(
+        r"^\s*(?:[A-Z]\.?|[IVXLCDM]+\.?|\d+(?:\.\d+)*)\s*[:\uff1a.\-]?\s*",
+        "",
+        text,
+        count=1,
+    ).strip()
+
+
+def _markdown_titles_equivalent_ignoring_outline_marker(
+    primary_title: Any,
+    candidate_title: Any,
+) -> bool:
+    primary_norm = _markdown_compact_table_text(
+        _markdown_title_without_leading_outline_marker(primary_title)
+    )
+    candidate_norm = _markdown_compact_table_text(
+        _markdown_title_without_leading_outline_marker(candidate_title)
+    )
+    return bool(primary_norm and candidate_norm and primary_norm == candidate_norm)
+
+
 def _structure_template_markdown_heading(block: dict[str, Any]) -> str:
     section_context = dict(block.get("section_context", {}) or {})
     section_title = _clean_structure_template_markdown_title(section_context.get("section_title"))
@@ -3054,17 +5389,26 @@ def _structure_template_markdown_heading(block: dict[str, Any]) -> str:
         title = _clean_structure_template_markdown_title(block.get("continued_from_title"))
     if str(block.get("template_profile") or "") == "tabular_form_template":
         label = title or section_title or "\u8868\u683c\u5f0f\u7ed3\u6784"
-        suffix = "\uff08\u7eed\uff09" if is_continuation else ""
+        suffix = _structure_template_markdown_continuation_suffix(label, is_continuation)
         return f"{label}{suffix}"
     if title:
-        suffix = "\uff08\u7eed\uff09" if is_continuation else ""
+        suffix = _structure_template_markdown_continuation_suffix(title, is_continuation)
         return f"{title}{suffix}"
     if not section_title and title:
         section_title = re.sub(r"(?:应按照以下顺序提交|以下顺序提交|按照以下顺序提交|提交|：|:)+", "", title).strip()
     if section_title:
-        suffix = "（续）" if is_continuation else ""
+        suffix = _structure_template_markdown_continuation_suffix(section_title, is_continuation)
         return f"{section_title}{suffix}"
     return "\u8868\u683c\u5f0f\u7ed3\u6784"
+
+
+def _structure_template_markdown_continuation_suffix(heading: Any, is_continuation: bool) -> str:
+    if not is_continuation:
+        return ""
+    text = str(heading or "")
+    if re.search(r"(?:\(\s*\u7eed\s*\)|\uff08\s*\u7eed\s*\uff09|continued)", text, re.IGNORECASE):
+        return ""
+    return "\uff08\u7eed\uff09"
 
 
 def _structure_template_markdown_heading_is_internal_fallback(
@@ -3082,6 +5426,203 @@ def _structure_template_markdown_heading_is_internal_fallback(
             section_context.get("section_title"),
         )
     )
+
+
+def _structure_template_markdown_heading_redundant_with_previous_visible_title(
+    block: dict[str, Any],
+    heading: str,
+    previous_visible_title: str,
+) -> bool:
+    if not previous_visible_title:
+        return False
+    if bool(block.get("is_structure_template_continuation", False)):
+        return False
+    if not _structure_template_markdown_title_is_instruction_like(block.get("title")):
+        return False
+    return _markdown_titles_equivalent_ignoring_outline_marker(previous_visible_title, heading)
+
+
+def _structure_template_markdown_heading_is_visible(
+    block: dict[str, Any],
+    heading: str,
+    previous_visible_title: str = "",
+) -> bool:
+    if _structure_template_markdown_heading_is_internal_fallback(block, heading):
+        return False
+    if _markdown_object_title_redundant_with_previous_heading(block, previous_visible_title):
+        return False
+    if _structure_template_markdown_heading_redundant_with_previous_visible_title(
+        block,
+        heading,
+        previous_visible_title,
+    ):
+        return False
+    return True
+
+
+def _markdown_structure_template_above_title_prelude(
+    block: dict[str, Any],
+    nearby_blocks: list[dict[str, Any]],
+    *,
+    already_rendered_source_ids: set[str] | None = None,
+) -> tuple[list[str], set[str]]:
+    if str(block.get("block_type") or "").strip().lower() != "structure_template":
+        return [], set()
+    explicit_preludes = [
+        dict(prelude)
+        for prelude in block.get("prelude_blocks", []) or []
+        if isinstance(prelude, dict) and str(prelude.get("text") or "").strip()
+    ]
+    if explicit_preludes:
+        rendered_source_ids = already_rendered_source_ids or set()
+        texts: list[str] = []
+        ids: set[str] = set()
+        for prelude in sorted(
+            explicit_preludes,
+            key=lambda item: (
+                (_markdown_block_bbox(item) or (0.0, 0.0, 0.0, 0.0))[1],
+                (_markdown_block_bbox(item) or (0.0, 0.0, 0.0, 0.0))[0],
+            ),
+        ):
+            source_id = str(
+                prelude.get("source_block_id")
+                or prelude.get("block_id")
+                or prelude.get("source_id")
+                or prelude.get("source_row_ref")
+                or ""
+            ).strip()
+            if source_id and source_id in rendered_source_ids:
+                continue
+            texts.append(str(prelude.get("text") or "").strip())
+            if source_id:
+                ids.add(source_id)
+        return texts, ids
+    template_bbox = _markdown_block_bbox(block)
+    if template_bbox is None:
+        return [], set()
+    title_norm = _markdown_compact_table_text(
+        _clean_structure_template_markdown_title(block.get("title") or "")
+    )
+    prelude_blocks: list[dict[str, Any]] = []
+    title_top = _markdown_structure_template_title_top(block, title_norm, nearby_blocks)
+    previous_blocks = nearby_blocks[: nearby_blocks.index(block)] if block in nearby_blocks else nearby_blocks
+    for candidate in reversed(previous_blocks[-8:]):
+        if str(candidate.get("block_type") or "").strip().lower() != "text":
+            continue
+        text = str(candidate.get("display_text") or candidate.get("text") or "").strip()
+        if not _markdown_text_looks_like_object_prelude_label(text):
+            if prelude_blocks:
+                break
+            continue
+        bbox = _markdown_block_bbox(candidate)
+        if bbox is None:
+            continue
+        if bbox[3] > template_bbox[1] + 72.0:
+            continue
+        if bbox[3] < template_bbox[1] - 96.0:
+            break
+        if _markdown_block_bbox_overlap({"bbox": bbox}, {"bbox": template_bbox}) < 0.04 and bbox[0] > template_bbox[2]:
+            continue
+        role = str(candidate.get("semantic_role") or "").strip()
+        if role in {"table_note", "note", "footnote", "footnote_continuation", "page_header", "page_footer"}:
+            continue
+        prelude_blocks.append(candidate)
+    for candidate in nearby_blocks:
+        if candidate is block or not isinstance(candidate, dict):
+            continue
+        if str(candidate.get("block_type") or "").strip().lower() != "text":
+            continue
+        text = str(candidate.get("display_text") or candidate.get("text") or "").strip()
+        if not _markdown_text_looks_like_object_prelude_label(text):
+            continue
+        bbox = _markdown_block_bbox(candidate)
+        if bbox is None:
+            continue
+        if title_top is not None and bbox[1] >= title_top:
+            continue
+        if bbox[1] < template_bbox[1] - 8.0 or bbox[3] > template_bbox[3] + 2.0:
+            continue
+        role = str(candidate.get("semantic_role") or "").strip()
+        if role in {"table_note", "note", "footnote", "footnote_continuation", "page_header", "page_footer"}:
+            continue
+        if candidate not in prelude_blocks:
+            prelude_blocks.append(candidate)
+    for candidate in block.get("source_blocks", []) or block.get("child_blocks", []) or []:
+        if not isinstance(candidate, dict):
+            continue
+        if str(candidate.get("block_type") or "").strip().lower() != "text":
+            continue
+        text = str(candidate.get("display_text") or candidate.get("text") or "").strip()
+        if not _markdown_text_looks_like_object_prelude_label(text):
+            continue
+        bbox = _markdown_block_bbox(candidate)
+        if bbox is None:
+            continue
+        if title_top is not None and bbox[1] >= title_top:
+            continue
+        if bbox[1] < template_bbox[1] - 8.0 or bbox[3] > template_bbox[3] + 2.0:
+            continue
+        role = str(candidate.get("semantic_role") or "").strip()
+        if role in {"table_note", "note", "footnote", "footnote_continuation", "page_header", "page_footer"}:
+            continue
+        if candidate not in prelude_blocks:
+            prelude_blocks.append(candidate)
+    if not prelude_blocks:
+        return [], set()
+    prelude_blocks.sort(key=lambda item: (_markdown_block_bbox(item) or (0.0, 0.0, 0.0, 0.0))[1])
+    texts: list[str] = []
+    ids: set[str] = set()
+    rendered_source_ids = already_rendered_source_ids or set()
+    for candidate in prelude_blocks:
+        text = str(candidate.get("display_text") or candidate.get("text") or "").strip()
+        if not text:
+            continue
+        if title_norm and _markdown_compact_table_text(text) == title_norm:
+            continue
+        candidate_id = str(candidate.get("block_id") or candidate.get("source_id") or "").strip()
+        if candidate_id and candidate_id in rendered_source_ids:
+            continue
+        texts.append(text)
+        if candidate_id:
+            ids.add(candidate_id)
+    return texts, ids
+
+
+def _markdown_structure_template_title_top(
+    block: dict[str, Any],
+    title_norm: str,
+    nearby_blocks: list[dict[str, Any]] | None = None,
+) -> float | None:
+    if not title_norm:
+        return None
+    candidates = []
+    source_blocks = list(block.get("source_blocks", []) or block.get("child_blocks", []) or [])
+    if nearby_blocks:
+        source_blocks.extend(nearby_blocks)
+    for source_block in source_blocks:
+        if not isinstance(source_block, dict):
+            continue
+        if source_block is block:
+            continue
+        text = str(source_block.get("display_text") or source_block.get("text") or "").strip()
+        if not text:
+            continue
+        norm = _markdown_compact_table_text(text)
+        if norm and (norm == title_norm or norm in title_norm or title_norm in norm):
+            bbox = _markdown_block_bbox(source_block)
+            if bbox is not None:
+                candidates.append(bbox[1])
+    if candidates:
+        return min(candidates)
+    bbox = _markdown_block_bbox(block)
+    return bbox[1] if bbox is not None else None
+
+
+def _markdown_text_looks_like_object_prelude_label(text: str) -> bool:
+    raw = str(text or "").strip()
+    if not raw or len(raw) > 24:
+        return False
+    return bool(re.fullmatch(r"示例|实例|例|Example|Examples|EXAMPLE|EXAMPLES", raw))
 
 
 def _structure_template_markdown_duplicate_title_row(
@@ -3119,6 +5660,324 @@ def _append_markdown_structure_template(lines: list[str], block: dict[str, Any])
     _append_markdown_structure_template_with_deferred_notes(lines, block, deferred_note_texts=set())
 
 
+def _markdown_structure_template_multilevel_header_grid_rows(block: dict[str, Any]) -> list[list[str]]:
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    multilevel_projection = projection.get("ruled_multilevel_template_header_projection")
+    if isinstance(multilevel_projection, dict) and str(multilevel_projection.get("semantic_profile") or "") == "ruled_multilevel_ctd_template_header":
+        semantic_grid = multilevel_projection.get("semantic_grid")
+        if isinstance(semantic_grid, list):
+            rows = [
+                [
+                    _markdown_escape_table_cell(cell)
+                    for cell in row
+                ]
+                for row in semantic_grid
+                if isinstance(row, list) and any(str(cell or "").strip() for cell in row)
+            ]
+            if rows and len(rows[0]) >= 2:
+                return rows
+    return []
+
+
+def _markdown_structure_template_projected_header_text_norms(block: dict[str, Any]) -> set[str]:
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    multilevel_projection = projection.get("ruled_multilevel_template_header_projection")
+    if not isinstance(multilevel_projection, dict):
+        return set()
+    if str(multilevel_projection.get("semantic_profile") or "") != "ruled_multilevel_ctd_template_header":
+        return set()
+    texts: list[Any] = []
+    for row in multilevel_projection.get("semantic_grid", []) or []:
+        if not isinstance(row, list):
+            continue
+        texts.extend(row)
+    texts.extend(multilevel_projection.get("logical_columns", []) or [])
+    for span_cell in multilevel_projection.get("span_header_cells", []) or []:
+        if isinstance(span_cell, dict):
+            texts.append(span_cell.get("text"))
+    for fragment in multilevel_projection.get("header_fragments", []) or []:
+        if isinstance(fragment, dict):
+            texts.append(fragment.get("text"))
+    texts.extend(multilevel_projection.get("consumed_header_row_texts", []) or [])
+    texts.extend(multilevel_projection.get("consumed_body_row_texts", []) or [])
+    return {
+        norm
+        for norm in (_markdown_compact_table_text(text) for text in texts)
+        if norm
+    }
+
+
+def _markdown_structure_template_blank_header_grid_rows(block: dict[str, Any]) -> list[list[str]]:
+    multilevel_rows = _markdown_structure_template_multilevel_header_grid_rows(block)
+    if multilevel_rows:
+        return multilevel_rows
+    projection = block.get("semantic_projection_v2")
+    projection = projection if isinstance(projection, dict) else {}
+    header_projection = projection.get("ruled_slot_template_header_projection")
+    if not isinstance(header_projection, dict):
+        header_projection = projection.get("blank_template_header_grid_projection")
+    if not isinstance(header_projection, dict):
+        return []
+    if str(header_projection.get("semantic_profile") or "") not in {
+        "blank_ctd_table_template_header",
+        "ruled_sparse_ctd_template_header",
+    }:
+        return []
+    columns = [
+        _markdown_escape_table_cell(column)
+        for column in header_projection.get("logical_columns", []) or []
+        if str(column or "").strip()
+    ]
+    if len(columns) < 2:
+        return []
+    return [columns]
+
+
+def _markdown_structure_template_empty_table_grid_rows(
+    block: dict[str, Any],
+    nearby_blocks: list[dict[str, Any]] | None,
+) -> list[list[str]]:
+    if str(block.get("template_profile") or "") != "tabular_form_template":
+        return []
+    if not nearby_blocks:
+        return []
+    owned_ids = {
+        str(item or "").strip()
+        for item in block.get("owned_text_block_ids", []) or []
+        if str(item or "").strip()
+    }
+    if not owned_ids:
+        return []
+    entry_blocks: list[dict[str, Any]] = []
+    for candidate in nearby_blocks:
+        candidate_id = str(candidate.get("block_id") or candidate.get("source_id") or "").strip()
+        if candidate_id not in owned_ids:
+            continue
+        if str(candidate.get("block_type") or "").strip().lower() != "text":
+            continue
+        if str(candidate.get("semantic_role") or "").strip() != "structure_template_entry":
+            continue
+        text = str(candidate.get("display_text") or candidate.get("text") or "").strip()
+        bbox = _markdown_block_bbox(candidate)
+        if not text or bbox is None:
+            continue
+        entry_blocks.append(candidate)
+    rows = _markdown_structure_template_entry_rows(entry_blocks)
+    if len(rows) < 2:
+        return []
+    top_row = rows[0]
+    if len(top_row) < 5:
+        return []
+    child_row = rows[1]
+    if not (1 <= len(child_row) < len(top_row)):
+        return []
+    parent_index, child_cells = _markdown_structure_template_header_child_group(top_row, child_row)
+    if parent_index is None or len(child_cells) < 2:
+        return []
+
+    top_headers = [_markdown_structure_template_entry_text(item) for item in top_row]
+    if any(not text for text in top_headers):
+        return []
+    child_headers = [_markdown_structure_template_entry_text(item) for item in child_cells]
+    top_header_row = [
+        *top_headers[:parent_index],
+        *([top_headers[parent_index]] * len(child_headers)),
+        *top_headers[parent_index + 1:],
+    ]
+    leaf_header_row = [
+        *top_headers[:parent_index],
+        *child_headers,
+        *top_headers[parent_index + 1:],
+    ]
+    column_count = len(top_header_row)
+    if column_count < len(top_headers):
+        return []
+
+    template_rows: list[list[str]] = []
+    first_header_bbox = _markdown_block_bbox(top_row[0])
+    parent_bbox = _markdown_block_bbox(top_row[parent_index])
+    if first_header_bbox is None or parent_bbox is None:
+        return []
+    for row in rows[2:]:
+        item = row[0]
+        text = _markdown_structure_template_entry_text(item)
+        bbox = _markdown_block_bbox(item)
+        if not text or bbox is None:
+            continue
+        if _markdown_compact_table_text(text) in {
+            _markdown_compact_table_text(header) for header in top_headers + child_headers
+        }:
+            continue
+        # Template row options live in the first template column. Isolated markers under
+        # later columns are local note refs, not blank data rows.
+        if abs(bbox[0] - first_header_bbox[0]) > max(32.0, (parent_bbox[0] - first_header_bbox[0]) * 0.35):
+            continue
+        template_rows.append([text, *([""] * (column_count - 1))])
+    if not template_rows:
+        return []
+    return [
+        [_markdown_escape_table_cell(cell) for cell in top_header_row],
+        [_markdown_escape_table_cell(cell) for cell in leaf_header_row],
+        *[[_markdown_escape_table_cell(cell) for cell in row] for row in template_rows],
+    ]
+
+
+def _markdown_structure_template_entry_rows(entry_blocks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    if not entry_blocks:
+        return []
+    items = [
+        item for item in entry_blocks
+        if _markdown_block_bbox(item) is not None
+    ]
+    items.sort(key=lambda item: (_markdown_block_bbox(item) or (0.0, 0.0, 0.0, 0.0))[1])
+    rows: list[list[dict[str, Any]]] = []
+    for item in items:
+        bbox = _markdown_block_bbox(item)
+        if bbox is None:
+            continue
+        center_y = (bbox[1] + bbox[3]) / 2.0
+        if not rows:
+            rows.append([item])
+            continue
+        previous_row = rows[-1]
+        previous_centers = [
+            ((_markdown_block_bbox(candidate) or (0.0, 0.0, 0.0, 0.0))[1] + (_markdown_block_bbox(candidate) or (0.0, 0.0, 0.0, 0.0))[3]) / 2.0
+            for candidate in previous_row
+        ]
+        previous_center = sum(previous_centers) / max(1, len(previous_centers))
+        if abs(center_y - previous_center) <= 8.0:
+            previous_row.append(item)
+        else:
+            rows.append([item])
+    for row in rows:
+        row.sort(key=lambda item: (_markdown_block_bbox(item) or (0.0, 0.0, 0.0, 0.0))[0])
+    return rows
+
+
+def _markdown_structure_template_header_child_group(
+    top_row: list[dict[str, Any]],
+    child_row: list[dict[str, Any]],
+) -> tuple[int | None, list[dict[str, Any]]]:
+    child_bboxes = [_markdown_block_bbox(item) for item in child_row]
+    child_bboxes = [bbox for bbox in child_bboxes if bbox is not None]
+    if len(child_bboxes) < 2:
+        return None, []
+    child_span = (
+        min(bbox[0] for bbox in child_bboxes),
+        max(bbox[2] for bbox in child_bboxes),
+    )
+    best_index: int | None = None
+    best_score = float("inf")
+    for index, item in enumerate(top_row):
+        bbox = _markdown_block_bbox(item)
+        if bbox is None:
+            continue
+        center_x = (bbox[0] + bbox[2]) / 2.0
+        if child_span[0] - 18.0 <= center_x <= child_span[1] + 18.0:
+            span_center = (child_span[0] + child_span[1]) / 2.0
+            score = abs(center_x - span_center)
+            if score < best_score:
+                best_index = index
+                best_score = score
+    if best_index is None:
+        return None, []
+    parent_bbox = _markdown_block_bbox(top_row[best_index])
+    if parent_bbox is None:
+        return None, []
+    parent_center = (parent_bbox[0] + parent_bbox[2]) / 2.0
+    grouped_children = [
+        item for item in child_row
+        for bbox in [_markdown_block_bbox(item)]
+        if bbox is not None and child_span[0] - 2.0 <= ((bbox[0] + bbox[2]) / 2.0) <= child_span[1] + 2.0
+    ]
+    if not grouped_children:
+        return None, []
+    if not (child_span[0] - 24.0 <= parent_center <= child_span[1] + 24.0):
+        return None, []
+    return best_index, grouped_children
+
+
+def _markdown_structure_template_entry_text(block: dict[str, Any]) -> str:
+    return str(block.get("display_text") or block.get("text") or "").strip()
+
+
+def _append_markdown_structure_template_form_rows(
+    lines: list[str],
+    block: dict[str, Any],
+    *,
+    heading: str,
+    fields: list[dict[str, Any]],
+    sections: list[dict[str, Any]],
+    all_note_blocks: list[dict[str, Any]],
+    template_profile: str,
+    excluded_row_norms: set[str] | None = None,
+) -> bool:
+    rendered_form_rows: set[str] = set()
+    excluded_norms = excluded_row_norms or set()
+    local_form_title_norm = _markdown_compact_table_text(block.get("local_form_title") or "")
+    visual_row_texts = _structure_template_markdown_visual_row_texts(block, all_note_blocks)
+    if visual_row_texts and template_profile in {
+        "tabular_form_template",
+        "blank_study_summary_template",
+        "blank_study_summary_template_continuation",
+        "sparse_tabular_form_skeleton",
+        "low_text_ruled_tabular_form_template",
+    }:
+        iterable_rows = visual_row_texts
+    else:
+        iterable_rows = [
+            str(item.get("text") or "")
+            for item in sorted(fields + sections, key=lambda row: int(row.get("row_index", 0) or 0))
+        ]
+    for raw_row_text in iterable_rows:
+        row_norm = _markdown_compact_table_text(raw_row_text)
+        if row_norm and row_norm in excluded_norms:
+            continue
+        if row_norm and row_norm == local_form_title_norm:
+            continue
+        row_text = _markdown_escape_inline_text(raw_row_text)
+        if not row_text or row_text in rendered_form_rows:
+            continue
+        if _structure_template_markdown_duplicate_title_row(
+            raw_row_text,
+            heading=heading,
+            block=block,
+        ):
+            continue
+        rendered_form_rows.add(row_text)
+        lines.append(f"- {_markdown_linkify_visible_urls(row_text)}")
+    if rendered_form_rows:
+        lines.append("")
+        return True
+    return False
+
+
+def _structure_template_markdown_has_renderable_content(
+    block: dict[str, Any],
+    *,
+    entries: list[dict[str, Any]],
+    fields: list[dict[str, Any]],
+    sections: list[dict[str, Any]],
+    note_blocks: list[dict[str, Any]],
+) -> bool:
+    if entries or fields or sections or note_blocks:
+        return True
+    if not _clean_structure_template_markdown_title(block.get("title")):
+        return False
+    if not str(block.get("title_source_block_id") or "").strip():
+        return False
+    if not bool(block.get("is_structure_template_continuation", False)):
+        return False
+    signals = block.get("semantic_signals")
+    signals = signals if isinstance(signals, dict) else {}
+    return (
+        str(signals.get("same_page_post_note_continuation_state") or "").strip()
+        == "pending_body_on_next_page"
+    )
+
+
 def _append_markdown_structure_template_with_deferred_notes(
     lines: list[str],
     block: dict[str, Any],
@@ -3126,6 +5985,7 @@ def _append_markdown_structure_template_with_deferred_notes(
     deferred_note_texts: set[str],
     previous_visible_title: str = "",
     suppress_form_rows: bool = False,
+    nearby_blocks: list[dict[str, Any]] | None = None,
 ) -> None:
     entries = [entry for entry in block.get("entries", []) or [] if isinstance(entry, dict)]
     fields = [field for field in block.get("fields", []) or [] if isinstance(field, dict)]
@@ -3138,15 +5998,31 @@ def _append_markdown_structure_template_with_deferred_notes(
             for note in note_blocks
             if _markdown_compact_table_text(note.get("text") or "") not in deferred_note_texts
         ]
-    if not entries and not fields and not sections and not note_blocks:
+    if not _structure_template_markdown_has_renderable_content(
+        block,
+        entries=entries,
+        fields=fields,
+        sections=sections,
+        note_blocks=note_blocks,
+    ):
         return
 
-    suppress_visible_title = _markdown_object_title_redundant_with_previous_heading(block, previous_visible_title)
-    continuation_title_suppressed = suppress_visible_title and bool(block.get("is_structure_template_continuation"))
     heading = _structure_template_markdown_heading(block)
-    internal_fallback_heading = _structure_template_markdown_heading_is_internal_fallback(block, heading)
-    if not internal_fallback_heading and not suppress_visible_title and not continuation_title_suppressed:
+    suppress_visible_title = _markdown_object_title_redundant_with_previous_heading(block, previous_visible_title)
+    heading_is_visible = _structure_template_markdown_heading_is_visible(
+        block,
+        heading,
+        previous_visible_title,
+    )
+    if heading_is_visible:
         lines.append(f"#### {_markdown_linkify_visible_urls(_markdown_escape_inline_text(heading))}")
+        lines.append("")
+    local_form_title = _markdown_escape_inline_text(block.get("local_form_title") or "")
+    if (
+        local_form_title
+        and not _markdown_titles_equivalent_ignoring_outline_marker(heading, local_form_title)
+    ):
+        lines.append(f"##### {_markdown_linkify_visible_urls(local_form_title)}")
         lines.append("")
     title = _markdown_escape_inline_text(block.get("title") or "")
     if (
@@ -3160,12 +6036,6 @@ def _append_markdown_structure_template_with_deferred_notes(
         lines.append("")
 
     if suppress_form_rows:
-        for note in note_blocks:
-            note_text = _markdown_escape_inline_text(note.get("text") or "")
-            if note_text:
-                lines.append(_markdown_linkify_visible_urls(note_text))
-        if note_blocks:
-            lines.append("")
         return
 
     template_profile = str(block.get("template_profile") or "")
@@ -3175,6 +6045,7 @@ def _append_markdown_structure_template_with_deferred_notes(
         in {
             "tabular_form_template",
             "blank_study_summary_template",
+            "blank_study_summary_template_continuation",
             "sparse_tabular_form_skeleton",
             "low_text_ruled_tabular_form_template",
             "populated_study_metadata",
@@ -3182,36 +6053,61 @@ def _append_markdown_structure_template_with_deferred_notes(
         or (template_kind in {"tabular_form", "study_metadata"} and bool(fields or sections))
     )
     if renders_form_rows:
-        rendered_form_rows: set[str] = set()
-        visual_row_texts = _structure_template_markdown_visual_row_texts(block, all_note_blocks)
-        if visual_row_texts and template_profile in {
-            "tabular_form_template",
-            "blank_study_summary_template",
-            "sparse_tabular_form_skeleton",
-            "low_text_ruled_tabular_form_template",
-        }:
-            iterable_rows = visual_row_texts
-        else:
-            iterable_rows = [
-                str(item.get("text") or "")
-                for item in sorted(fields + sections, key=lambda row: int(row.get("row_index", 0) or 0))
-            ]
-        for raw_row_text in iterable_rows:
-            row_text = _markdown_escape_inline_text(raw_row_text)
-            if not row_text or row_text in rendered_form_rows:
-                continue
-            if _structure_template_markdown_duplicate_title_row(
-                raw_row_text,
+        empty_table_grid_rows = _markdown_structure_template_empty_table_grid_rows(block, nearby_blocks)
+        if empty_table_grid_rows:
+            _append_markdown_pipe_table(lines, empty_table_grid_rows, len(empty_table_grid_rows[0]))
+            for note in note_blocks:
+                note_text = _markdown_structure_template_note_text(note.get("text") or "")
+                if note_text:
+                    lines.append(_markdown_linkify_visible_urls(note_text))
+            if note_blocks:
+                lines.append("")
+            return
+        multilevel_header_grid_rows = _markdown_structure_template_multilevel_header_grid_rows(block)
+        if multilevel_header_grid_rows:
+            _append_markdown_structure_template_form_rows(
+                lines,
+                block,
                 heading=heading,
-                block=block,
-            ):
-                continue
-            rendered_form_rows.add(row_text)
-            lines.append(f"- {_markdown_linkify_visible_urls(row_text)}")
-        if rendered_form_rows:
-            lines.append("")
+                fields=fields,
+                sections=sections,
+                all_note_blocks=all_note_blocks,
+                template_profile=template_profile,
+                excluded_row_norms=_markdown_structure_template_projected_header_text_norms(block),
+            )
+            _append_markdown_pipe_table(
+                lines,
+                multilevel_header_grid_rows,
+                len(multilevel_header_grid_rows[0]),
+            )
+            for note in note_blocks:
+                note_text = _markdown_structure_template_note_text(note.get("text") or "")
+                if note_text:
+                    lines.append(_markdown_linkify_visible_urls(note_text))
+            if note_blocks:
+                lines.append("")
+            return
+        blank_header_grid_rows = _markdown_structure_template_blank_header_grid_rows(block)
+        if blank_header_grid_rows:
+            _append_markdown_pipe_table(lines, blank_header_grid_rows, len(blank_header_grid_rows[0]))
+            for note in note_blocks:
+                note_text = _markdown_structure_template_note_text(note.get("text") or "")
+                if note_text:
+                    lines.append(_markdown_linkify_visible_urls(note_text))
+            if note_blocks:
+                lines.append("")
+            return
+        _append_markdown_structure_template_form_rows(
+            lines,
+            block,
+            heading=heading,
+            fields=fields,
+            sections=sections,
+            all_note_blocks=all_note_blocks,
+            template_profile=template_profile,
+        )
         for note in note_blocks:
-            note_text = _markdown_escape_inline_text(note.get("text") or "")
+            note_text = _markdown_structure_template_note_text(note.get("text") or "")
             if note_text:
                 lines.append(_markdown_linkify_visible_urls(note_text))
         if note_blocks:
@@ -3234,7 +6130,7 @@ def _append_markdown_structure_template_with_deferred_notes(
         lines.append("")
 
     for note in note_blocks:
-        note_text = _markdown_escape_inline_text(note.get("text") or "")
+        note_text = _markdown_structure_template_note_text(note.get("text") or "")
         if note_text:
             lines.append(_markdown_linkify_visible_urls(note_text))
     if note_blocks:
@@ -3396,7 +6292,7 @@ def _append_markdown_deferred_structure_template_notes(
     if not note_blocks:
         return
     for note in note_blocks:
-        note_text = _markdown_escape_inline_text(note.get("text") or "")
+        note_text = _markdown_structure_template_note_text(note.get("text") or "")
         if note_text:
             lines.append(_markdown_linkify_visible_urls(note_text))
     lines.append("")
@@ -3422,14 +6318,120 @@ def _structure_template_markdown_visual_row_texts(block: dict[str, Any], note_bl
         for note in note_blocks
         if _markdown_compact_table_text(str(note.get("text") or ""))
     }
+    inline_projection = (block.get("semantic_projection_v2") or {}).get("inline_form_row_projection", {})
+    projected_rows = [
+        dict(row)
+        for row in inline_projection.get("rows", []) or []
+        if isinstance(row, dict) and str(row.get("display_text") or "").strip()
+    ]
+    source_rows = [
+        dict(row)
+        for row in inline_projection.get("source_visual_rows", []) or []
+        if isinstance(row, dict)
+        and str(row.get("source_block_id") or "").strip()
+        and str(row.get("text") or "").strip()
+    ]
+    if inline_projection.get("source_visual_rows_complete") and source_rows:
+        source_ordered_rows = _structure_template_markdown_source_ordered_rows(
+            projected_rows,
+            source_rows,
+            note_signatures,
+        )
+        if source_ordered_rows is not None:
+            return source_ordered_rows
+    consumed_signatures = Counter(
+        _markdown_compact_table_text(str(text or ""))
+        for text in inline_projection.get("consumed_row_signatures", []) or []
+        if _markdown_compact_table_text(str(text or ""))
+    )
+    projected_row_signature_counts: list[Counter[str]] = []
+    for projected_row in projected_rows:
+        cell_signatures = Counter(
+            _markdown_compact_table_text(str(cell.get("text") or ""))
+            for cell in projected_row.get("cells", []) or []
+            if isinstance(cell, dict) and _markdown_compact_table_text(str(cell.get("text") or ""))
+        )
+        projected_row_signature_counts.append(cell_signatures)
+    if len(projected_rows) == 1 and not projected_row_signature_counts[0]:
+        projected_row_signature_counts[0] = Counter(consumed_signatures)
+
     rows: list[str] = []
+    inserted_projected_row_indexes: set[int] = set()
     for row in block.get("row_texts", []) or []:
         text = str(row or "").strip()
         if not text:
             continue
-        if _markdown_compact_table_text(text) in note_signatures:
+        signature = _markdown_compact_table_text(text)
+        if signature in note_signatures:
+            continue
+        if consumed_signatures.get(signature, 0) > 0:
+            consumed_signatures[signature] -= 1
+            projected_row_index = next(
+                (
+                    index
+                    for index, signature_counts in enumerate(projected_row_signature_counts)
+                    if index not in inserted_projected_row_indexes and signature_counts.get(signature, 0) > 0
+                ),
+                None,
+            )
+            if projected_row_index is not None:
+                projected_text = str(projected_rows[projected_row_index].get("display_text") or "").strip()
+                if projected_text and _markdown_compact_table_text(projected_text) not in note_signatures:
+                    rows.append(projected_text)
+                inserted_projected_row_indexes.add(projected_row_index)
             continue
         rows.append(text)
+    return rows
+
+
+def _structure_template_markdown_source_ordered_rows(
+    projected_rows: list[dict[str, Any]],
+    source_rows: list[dict[str, Any]],
+    note_signatures: set[str],
+) -> list[str] | None:
+    projected_index_by_source_id: dict[str, int] = {}
+    for index, projected in enumerate(projected_rows):
+        source_ids = [
+            str(source_id or "").strip()
+            for source_id in projected.get("source_block_ids", []) or []
+            if str(source_id or "").strip()
+        ]
+        if not source_ids:
+            return None
+        for source_id in source_ids:
+            if source_id in projected_index_by_source_id:
+                return None
+            projected_index_by_source_id[source_id] = index
+
+    rows: list[str] = []
+    inserted: set[int] = set()
+    seen_source_ids: set[str] = set()
+    ordered_sources = sorted(
+        source_rows,
+        key=lambda row: (
+            float((row.get("bbox") or [0.0, 0.0, 0.0, 0.0])[1]),
+            float((row.get("bbox") or [0.0, 0.0, 0.0, 0.0])[0]),
+            int(row.get("physical_order_index", 0) or 0),
+        ),
+    )
+    for source in ordered_sources:
+        source_id = str(source.get("source_block_id") or "").strip()
+        if not source_id or source_id in seen_source_ids:
+            return None
+        seen_source_ids.add(source_id)
+        projected_index = projected_index_by_source_id.get(source_id)
+        if projected_index is not None:
+            if projected_index not in inserted:
+                projected_text = str(projected_rows[projected_index].get("display_text") or "").strip()
+                if projected_text and _markdown_compact_table_text(projected_text) not in note_signatures:
+                    rows.append(projected_text)
+                inserted.add(projected_index)
+            continue
+        text = str(source.get("text") or "").strip()
+        if text and _markdown_compact_table_text(text) not in note_signatures:
+            rows.append(text)
+    if len(inserted) != len(projected_rows):
+        return None
     return rows
 
 
@@ -4309,6 +7311,16 @@ def _markdown_text_starts_bullet_item(text: str) -> bool:
     )
 
 
+def _markdown_text_starts_cross_page_continuation_punctuation(text: str) -> bool:
+    stripped = str(text or "").lstrip()
+    return bool(stripped) and stripped[0] in {
+        "(", "[", "{", "<",
+        "\uff08", "\u3010", "\u300a", "\u3008", "\u300c", "\u300e",
+        "\u201c", "\u2018", '"', "'",
+        ",", ";", ":", "\uff0c", "\uff1b", "\uff1a", "\u3001",
+    }
+
+
 def _markdown_heading_shape_profile(text: str) -> str | None:
     raw = re.sub(r"\s+", " ", str(text or "").strip())
     if not raw or len(raw) > 96:
@@ -4348,6 +7360,16 @@ def _markdown_heading_shape_profile(text: str) -> str | None:
         return "contents_title"
     if raw.endswith(":") and len(raw) <= 80 and re.search(r"[A-Za-z\u4e00-\u9fff]", raw):
         return "colon_title"
+    cjk_chars = re.findall(r"[\u4e00-\u9fff]", raw)
+    visible_chars = re.sub(r"\s+", "", raw)
+    if (
+        len(cjk_chars) >= 4
+        and len(visible_chars) <= 36
+        and len(cjk_chars) / max(1, len(visible_chars)) >= 0.55
+        and not re.search(r"[。！？!?；;，,、：:]", raw)
+        and not re.search(r"https?://|www\.", raw, re.IGNORECASE)
+    ):
+        return "cjk_unnumbered_title"
     terminal_sentence = bool(re.search(r"[.!?]\s*$", raw))
     words = re.findall(r"[A-Za-z][A-Za-z'/-]*|\d+", raw)
     if not words or len(words) > 10:
@@ -4629,6 +7651,155 @@ def _markdown_block_has_nearby_image_context(
     return False
 
 
+def _markdown_texts_form_parenthetical_date_continuation(left_text: str, right_text: str) -> bool:
+    left = re.sub(r"\s+", " ", str(left_text or "").strip())
+    right = re.sub(r"\s+", " ", str(right_text or "").strip())
+    if not left or not right:
+        return False
+    if len(right) > 40:
+        return False
+    open_parens = left.count("(") + left.count("（")
+    closed_parens = left.count(")") + left.count("）")
+    if open_parens <= closed_parens:
+        return False
+    if not re.search(r"[)）]\s*$", right):
+        return False
+    if re.match(r"^(?:\d{1,2}\s*)?月\s*\d{1,2}\s*日", right):
+        return True
+    if re.match(r"^\d{1,2}\s*日", right):
+        return True
+    if re.search(r"(?:19|20)\d{2}\s*年\s*\d{1,2}\s*$", left) and re.match(r"^\d{1,2}\s*月", right):
+        return True
+    if re.search(r"(?:19|20)\d{2}\s*年\s*$", left) and re.match(r"^\d{1,2}\s*月", right):
+        return True
+    return False
+
+
+def _markdown_texts_form_parenthetical_continuation(left_text: str, right_text: str) -> bool:
+    left = re.sub(r"\s+", " ", str(left_text or "").strip())
+    right = re.sub(r"\s+", " ", str(right_text or "").strip())
+    if not left or not right:
+        return False
+    if _markdown_texts_form_parenthetical_date_continuation(left, right):
+        return True
+    if len(right) > 40:
+        return False
+    open_parens = left.count("(") + left.count("（")
+    closed_parens = left.count(")") + left.count("）")
+    if open_parens <= closed_parens:
+        return False
+    if not re.search(r"[)）]\s*$", right):
+        return False
+    if _markdown_text_starts_bullet_item(right):
+        return False
+    if re.match(r"^(?:\d+(?:\.\d+){1,}|[A-Z]?\d+[.)、]|第\s*\d+\s*[章节条]|附录|表|图|Table|Figure)\b", right):
+        return False
+    return bool(re.search(r"[\u4e00-\u9fffA-Za-z0-9]", right))
+
+
+def _markdown_block_is_parenthetical_continuation(
+    previous_block: dict[str, Any] | None,
+    block: dict[str, Any],
+    *,
+    allow_cross_page: bool = False,
+) -> bool:
+    if previous_block is None:
+        return False
+    if str(previous_block.get("block_type") or "").strip().lower() != "text":
+        return False
+    if str(block.get("block_type") or "").strip().lower() != "text":
+        return False
+    previous_text = str(previous_block.get("display_text") or previous_block.get("text") or "").strip()
+    text = str(block.get("display_text") or block.get("text") or "").strip()
+    if not _markdown_texts_form_parenthetical_continuation(previous_text, text):
+        return False
+    previous_bbox = _markdown_block_bbox(previous_block)
+    bbox = _markdown_block_bbox(block)
+    if previous_bbox is None or bbox is None:
+        return True
+    previous_page = int(previous_block.get("page", 0) or previous_block.get("page_number", 0) or 0)
+    page = int(block.get("page", 0) or block.get("page_number", 0) or 0)
+    if allow_cross_page and previous_page > 0 and page == previous_page + 1:
+        return previous_bbox[3] >= 600.0 and bbox[1] <= 160.0
+    previous_height = max(1.0, previous_bbox[3] - previous_bbox[1])
+    height = max(1.0, bbox[3] - bbox[1])
+    vertical_gap = bbox[1] - previous_bbox[3]
+    return -max(previous_height, height) * 0.25 <= vertical_gap <= max(18.0, max(previous_height, height) * 1.5)
+
+
+def _markdown_block_is_cross_page_body_continuation(
+    previous_block: dict[str, Any] | None,
+    block: dict[str, Any],
+    *,
+    page_height: float,
+    toc_heading_lookup: dict[str, list[dict[str, Any]]],
+) -> bool:
+    if previous_block is None:
+        return False
+    if str(previous_block.get("block_type") or "").strip().lower() != "text":
+        return False
+    if str(block.get("block_type") or "").strip().lower() != "text":
+        return False
+    previous_page = int(previous_block.get("page", 0) or previous_block.get("page_number", 0) or 0)
+    current_page = int(block.get("page", 0) or block.get("page_number", 0) or 0)
+    if previous_page <= 0 or current_page != previous_page + 1:
+        return False
+    previous_text = str(previous_block.get("display_text") or previous_block.get("text") or "").strip()
+    text = str(block.get("display_text") or block.get("text") or "").strip()
+    if not previous_text or not text:
+        return False
+    if _markdown_text_block_is_unmarked_list_item(previous_block) or _markdown_text_block_is_unmarked_list_item(block):
+        return False
+    if _markdown_text_starts_bullet_item(previous_text) or _markdown_text_starts_bullet_item(text):
+        return False
+    if (
+        _markdown_heading_shape_profile(text) is not None
+        and not _markdown_text_starts_cross_page_continuation_punctuation(text)
+    ):
+        return False
+    previous_boundary = _markdown_text_block_boundary_kind(previous_block, toc_heading_lookup)
+    current_boundary = _markdown_text_block_boundary_kind(block, toc_heading_lookup)
+    if previous_boundary != "body" or current_boundary != "body":
+        return False
+    if re.search(r"[.!?。！？；;：:]\s*[)）\]\}】》」』”\"']*\s*$", previous_text):
+        return False
+    previous_bbox = _markdown_block_bbox(previous_block)
+    bbox = _markdown_block_bbox(block)
+    if previous_bbox is None or bbox is None:
+        return False
+    previous_page_height = float(previous_block.get("_markdown_page_height", 0.0) or 0.0)
+    previous_near_bottom = (
+        previous_bbox[3] >= previous_page_height * 0.84
+        if previous_page_height > 0
+        else previous_bbox[3] >= 600.0
+    )
+    current_near_top = (
+        bbox[1] <= page_height * 0.20
+        if page_height > 0
+        else bbox[1] <= 160.0
+    )
+    if not previous_near_bottom or not current_near_top:
+        return False
+    if bbox[0] - previous_bbox[0] > 10.0:
+        return False
+    if abs(bbox[0] - previous_bbox[0]) > 42.0:
+        return False
+    return True
+
+
+def _markdown_block_is_parenthetical_date_continuation(
+    previous_block: dict[str, Any] | None,
+    block: dict[str, Any],
+) -> bool:
+    if previous_block is None:
+        return False
+    previous_text = str(previous_block.get("display_text") or previous_block.get("text") or "").strip()
+    text = str(block.get("display_text") or block.get("text") or "").strip()
+    if not _markdown_texts_form_parenthetical_date_continuation(previous_text, text):
+        return False
+    return _markdown_block_is_parenthetical_continuation(previous_block, block)
+
+
 def _looks_like_markdown_visual_standalone_heading(
     block: dict[str, Any],
     previous_block: dict[str, Any] | None,
@@ -4655,6 +7826,8 @@ def _looks_like_markdown_visual_standalone_heading(
     text = str(block.get("display_text") or block.get("text") or "").strip()
     profile = _markdown_heading_shape_profile(text)
     if profile is None:
+        return False
+    if _markdown_block_is_parenthetical_continuation(previous_block, block, allow_cross_page=True):
         return False
     if toc_like_page:
         return profile == "contents_title"
@@ -4700,6 +7873,35 @@ def _looks_like_markdown_visual_standalone_heading(
         return visually_separated_before and visually_separated_after
     if profile == "colon_title":
         return visually_separated_before or visually_separated_after
+    if profile == "cjk_unnumbered_title":
+        if previous_same_visual_row or next_same_visual_row:
+            return False
+        text_width = x1 - x0
+        next_role = str((next_block or {}).get("semantic_role") or "").strip()
+        next_text = str((next_block or {}).get("display_text") or (next_block or {}).get("text") or "").strip()
+        next_bbox = _markdown_block_bbox(next_block or {})
+        next_looks_like_wide_body_line = (
+            next_bbox is not None
+            and next_role in {"", "text_block", "body"}
+            and (next_bbox[2] - next_bbox[0]) >= 340.0
+        )
+        next_is_body_or_section_boundary = (
+            not next_text
+            or next_role in {"section_heading", "body_list_item"}
+            or _markdown_text_starts_bullet_item(next_text)
+            or _markdown_heading_shape_profile(next_text) is None
+            or next_looks_like_wide_body_line
+        )
+        compact_or_indented_title = len(text) <= 28 or text_width <= 320.0
+        return (
+            compact_or_indented_title
+            and next_is_body_or_section_boundary
+            and (
+                near_page_top
+                or visually_separated_before
+                or visually_separated_after
+            )
+        )
     if profile == "titlecase_sentence_title":
         if _markdown_block_has_nearby_image_context(block, page_blocks or []):
             return visually_separated_before or visually_separated_after
@@ -4738,6 +7940,141 @@ def _looks_like_markdown_visual_standalone_heading(
             return True
         return (near_page_top and visually_separated_after) or (visually_separated_before and visually_separated_after)
     return False
+
+
+def _mark_markdown_centered_front_matter_title_clusters(
+    page_blocks: list[dict[str, Any]],
+    *,
+    page_width: float,
+    page_height: float,
+    page_previous_flow_block: dict[str, Any] | None = None,
+    toc_like_page: bool = False,
+    landscape_visual_panel: bool = False,
+) -> list[dict[str, Any]]:
+    if page_width <= 0 or page_height <= 0 or toc_like_page:
+        return page_blocks
+    updated_blocks = list(page_blocks)
+    for index, block in enumerate(page_blocks):
+        if not _markdown_block_is_centered_front_matter_terminal_heading(
+            block,
+            page_width=page_width,
+            page_height=page_height,
+        ):
+            continue
+        previous_block = page_blocks[index - 1] if index > 0 else page_previous_flow_block
+        next_block = page_blocks[index + 1] if index + 1 < len(page_blocks) else None
+        if not _looks_like_markdown_visual_standalone_heading(
+            block,
+            previous_block,
+            next_block,
+            page_height,
+            toc_like_page=False,
+            page_blocks=page_blocks,
+            landscape_visual_panel=landscape_visual_panel,
+        ):
+            continue
+        cluster_indexes: list[int] = []
+        scan_index = index - 1
+        while scan_index >= 0:
+            candidate = page_blocks[scan_index]
+            if not _markdown_block_is_centered_front_matter_title_cluster_line(
+                candidate,
+                page_width=page_width,
+                page_height=page_height,
+            ):
+                break
+            lower_block = page_blocks[cluster_indexes[-1]] if cluster_indexes else block
+            if not _markdown_centered_front_matter_lines_are_contiguous(candidate, lower_block):
+                break
+            cluster_indexes.append(scan_index)
+            scan_index -= 1
+        if len(cluster_indexes) < 2:
+            continue
+        for cluster_index in cluster_indexes:
+            updated_blocks[cluster_index] = {
+                **updated_blocks[cluster_index],
+                "_markdown_centered_front_matter_title_cluster": True,
+            }
+    return updated_blocks
+
+
+def _markdown_block_is_centered_front_matter_terminal_heading(
+    block: dict[str, Any],
+    *,
+    page_width: float,
+    page_height: float,
+) -> bool:
+    if not _markdown_block_is_centered_front_matter_title_cluster_line(
+        block,
+        page_width=page_width,
+        page_height=page_height,
+    ):
+        return False
+    bbox = _markdown_block_bbox(block)
+    if bbox is None:
+        return False
+    return bbox[1] <= page_height * 0.36
+
+
+def _markdown_block_is_centered_front_matter_title_cluster_line(
+    block: dict[str, Any],
+    *,
+    page_width: float,
+    page_height: float,
+) -> bool:
+    if str(block.get("block_type") or "").strip().lower() != "text":
+        return False
+    role = str(block.get("semantic_role") or "").strip()
+    if role in {
+        "section_heading",
+        "toc_entry",
+        "reference_entry",
+        "footnote",
+        "footnote_continuation",
+        "publication_footer",
+        "page_number",
+        "citation_metadata",
+    }:
+        return False
+    text = str(block.get("display_text") or block.get("text") or "").strip()
+    if not text or len(text) > 88:
+        return False
+    if _markdown_text_starts_bullet_item(text):
+        return False
+    if re.search(r"[,.!?;\uff0c\u3002\uff01\uff1f\uff1b]\s*$", text):
+        return False
+    if re.search(r"https?://|www\.", text, re.IGNORECASE):
+        return False
+    bbox = _markdown_block_bbox(block)
+    if bbox is None:
+        return False
+    x0, y0, x1, _y1 = bbox
+    width = x1 - x0
+    if width <= 0:
+        return False
+    if y0 <= page_height * 0.055 or y0 >= page_height * 0.45:
+        return False
+    if width >= page_width * 0.72:
+        return False
+    page_center = page_width / 2.0
+    block_center = (x0 + x1) / 2.0
+    if abs(block_center - page_center) > max(18.0, page_width * 0.08):
+        return False
+    return bool(re.search(r"[A-Za-z0-9\u4e00-\u9fff]", text))
+
+
+def _markdown_centered_front_matter_lines_are_contiguous(
+    upper_block: dict[str, Any],
+    lower_block: dict[str, Any],
+) -> bool:
+    upper_bbox = _markdown_block_bbox(upper_block)
+    lower_bbox = _markdown_block_bbox(lower_block)
+    if upper_bbox is None or lower_bbox is None:
+        return False
+    gap = lower_bbox[1] - upper_bbox[3]
+    upper_height = max(1.0, upper_bbox[3] - upper_bbox[1])
+    lower_height = max(1.0, lower_bbox[3] - lower_bbox[1])
+    return 0.0 <= gap <= max(42.0, (upper_height + lower_height) * 1.35)
 
 
 def _looks_like_markdown_toc_like_page(blocks: list[dict[str, Any]]) -> bool:
@@ -5059,9 +8396,100 @@ def _starts_new_indented_markdown_paragraph(
         next_height = max(1.0, next_bbox[3] - next_bbox[1])
         if abs(current_center_y - next_center_y) <= max(6.0, min(current_height, next_height) * 0.55):
             return False
+        vertical_gap = next_bbox[1] - current_bbox[3]
+        same_indent = abs(next_x0 - current_bbox[0]) <= 4.0
+        paragraph_gap = vertical_gap >= max(12.0, min(current_height, next_height) * 1.15)
+        sentence_boundary = bool(re.search(r"[.!?。！？；;：:)\]）]\s*$", str(current_text or "").strip()))
+        if same_indent and paragraph_gap and sentence_boundary:
+            return True
+        if _markdown_numbered_note_item_indented_continuation(
+            current_text=current_text,
+            next_text=next_text,
+            current_block=current_block,
+            next_block=next_block,
+            current_bbox=current_bbox,
+            next_bbox=next_bbox,
+            vertical_gap=vertical_gap,
+        ):
+            return False
     if current_bbox is not None and abs(next_x0 - current_bbox[0]) <= 4.0:
         return False
     return next_x0 - paragraph_base_x0 >= 8.0
+
+
+def _markdown_next_block_is_hanging_bullet_continuation(
+    *,
+    bullet_anchor_block: dict[str, Any],
+    current_block: dict[str, Any],
+    next_block: dict[str, Any],
+    current_text: str,
+    next_text: str,
+) -> bool:
+    if not _markdown_text_starts_bullet_item(current_text):
+        return False
+    if _markdown_text_starts_bullet_item(next_text):
+        return False
+    anchor_bbox = _markdown_block_bbox(bullet_anchor_block)
+    current_bbox = _markdown_block_bbox(current_block)
+    next_bbox = _markdown_block_bbox(next_block)
+    if anchor_bbox is None or current_bbox is None or next_bbox is None:
+        return False
+    current_height = max(1.0, current_bbox[3] - current_bbox[1])
+    next_height = max(1.0, next_bbox[3] - next_bbox[1])
+    vertical_gap = next_bbox[1] - current_bbox[3]
+    if vertical_gap < -3.0 or vertical_gap > max(14.0, min(current_height, next_height) * 1.35):
+        return False
+    indent_from_bullet = next_bbox[0] - anchor_bbox[0]
+    if indent_from_bullet < max(10.0, min(current_height, next_height) * 0.75):
+        return False
+    if indent_from_bullet > 72.0:
+        return False
+    if _markdown_heading_shape_profile(str(next_text or "")) in {"numbered_section_title", "ctd_numbered_section_title"}:
+        return False
+    return True
+
+
+def _markdown_numbered_note_item_indented_continuation(
+    *,
+    current_text: str,
+    next_text: str,
+    current_block: dict[str, Any],
+    next_block: dict[str, Any],
+    current_bbox: tuple[float, float, float, float],
+    next_bbox: tuple[float, float, float, float],
+    vertical_gap: float,
+) -> bool:
+    current_raw = str(current_block.get("display_text") or current_block.get("text") or current_text or "").strip()
+    next_raw = str(next_block.get("display_text") or next_block.get("text") or next_text or "").strip()
+    if not current_raw or not next_raw:
+        return False
+    if _markdown_numbered_note_item_marker(next_raw) is not None:
+        return False
+    if _markdown_numbered_note_item_marker(current_raw) is None:
+        return False
+    indent = float(next_bbox[0]) - float(current_bbox[0])
+    if indent < 6.0 or indent > 48.0:
+        return False
+    current_height = max(1.0, float(current_bbox[3]) - float(current_bbox[1]))
+    next_height = max(1.0, float(next_bbox[3]) - float(next_bbox[1]))
+    if vertical_gap < -3.0 or vertical_gap > max(12.0, min(current_height, next_height) * 1.25):
+        return False
+    if _markdown_heading_shape_profile(next_raw) in {"numbered_section_title", "ctd_numbered_section_title"}:
+        return False
+    return True
+
+
+def _markdown_numbered_note_item_marker(text: str) -> tuple[int, str] | None:
+    match = re.match(r"^\s*[（(]\s*(?P<number>\d{1,3})\s*[）)]\s*\S", str(text or ""))
+    if not match:
+        return None
+    try:
+        number = int(match.group("number"))
+    except (TypeError, ValueError):
+        return None
+    if number <= 0:
+        return None
+    return number, match.group(0)
 
 
 def _can_merge_markdown_body_paragraph_blocks(
@@ -5094,6 +8522,8 @@ def _can_merge_markdown_text_blocks(left_text: str, right_text: str) -> bool:
         return False
     if _is_markdown_duplicate_continuation_residue(left, right):
         return True
+    if _markdown_texts_form_parenthetical_continuation(left, right):
+        return True
     if left.endswith(("If", "if")) and re.fullmatch(r"\$[^$\n]+\$", right):
         return True
     if (left.endswith("$") or re.fullmatch(r"\$[^$\n]+\$", left)) and re.match(r"^then\b", right, re.IGNORECASE):
@@ -5107,6 +8537,81 @@ def _can_merge_markdown_text_blocks(left_text: str, right_text: str) -> bool:
     if re.search(r"[A-Za-z]$", left) and re.match(r"^[a-z]{2,}\b", right):
         return True
     return False
+
+
+def _merge_markdown_same_page_body_continuations_after_cross_page_block(
+    page_render_blocks: list[dict[str, Any]],
+    start_index: int,
+    current_text: str,
+    toc_heading_lookup: dict[str, list[dict[str, Any]]],
+) -> tuple[str, int]:
+    if start_index < 0 or start_index >= len(page_render_blocks):
+        return current_text, start_index
+    current_merge_block = page_render_blocks[start_index]
+    current_text = str(current_text or "").strip()
+    if not current_text:
+        return current_text, start_index
+    current_bbox = _markdown_block_bbox(current_merge_block)
+    paragraph_base_x0 = current_bbox[0] if current_bbox is not None else None
+    consumed_index = start_index
+    next_index = start_index + 1
+    while next_index < len(page_render_blocks):
+        next_block = page_render_blocks[next_index]
+        if str(next_block.get("block_type") or "").strip().lower() != "text":
+            break
+        next_text = _project_markdown_text_with_inline_formulas(next_block)
+        if not next_text:
+            next_index += 1
+            continue
+        if (
+            _markdown_text_block_is_unmarked_list_item(current_merge_block)
+            or _markdown_text_block_is_unmarked_list_item(next_block)
+            or _markdown_text_starts_bullet_item(current_text)
+            or _markdown_text_starts_bullet_item(next_text)
+        ):
+            break
+        if (
+            current_merge_block.get("_markdown_visual_standalone_heading")
+            or next_block.get("_markdown_visual_standalone_heading")
+        ):
+            break
+        current_is_body = (
+            bool(current_merge_block.get("_markdown_cross_page_body_continuation"))
+            or _is_markdown_body_paragraph_text_block(current_merge_block, toc_heading_lookup)
+        )
+        next_is_body = _is_markdown_body_paragraph_text_block(next_block, toc_heading_lookup)
+        can_merge_special = _can_merge_markdown_text_blocks(current_text, next_text)
+        can_merge_body = (
+            current_is_body
+            and next_is_body
+            and _can_merge_markdown_body_paragraph_blocks(
+                current_merge_block,
+                next_block,
+                current_text,
+                next_text,
+                paragraph_base_x0,
+            )
+        )
+        if not (can_merge_special or can_merge_body):
+            break
+        current_text = _repair_inline_math_segments_with_prose_cues(
+            _merge_markdown_text_fragments(current_text, next_text)
+        )
+        current_text = _repair_inline_math_residual_delimiters(current_text)
+        next_bbox = _markdown_block_bbox(next_block)
+        if (
+            can_merge_body
+            and next_bbox is not None
+            and (
+                paragraph_base_x0 is None
+                or next_bbox[0] < paragraph_base_x0
+            )
+        ):
+            paragraph_base_x0 = next_bbox[0]
+        current_merge_block = next_block
+        consumed_index = next_index
+        next_index += 1
+    return current_text, consumed_index
 
 
 def _normalize_markdown_duplicate_residue_text(value: str) -> str:
@@ -5137,6 +8642,13 @@ def _merge_markdown_text_fragments(left_text: str, right_text: str) -> str:
     right = str(right_text or "").strip()
     if _is_markdown_duplicate_continuation_residue(left, right):
         return left
+    if _markdown_texts_form_parenthetical_continuation(left, right):
+        return f"{left}{right}"
+    if (
+        _markdown_text_starts_cross_page_continuation_punctuation(right)
+        and re.search(r"[\u4e00-\u9fffA-Za-z0-9)\]\}\uff09\u3011\u300b\u3009\u300d\u300f\u201d\u2019]$", left)
+    ):
+        return f"{left}{right}"
     if left.endswith(("If", "if")) and re.fullmatch(r"\$[^$\n]+\$", right):
         return f"{left} {right}"
     if (left.endswith("$") or re.fullmatch(r"\$[^$\n]+\$", left)) and re.match(r"^then\b", right, re.IGNORECASE):
@@ -5179,6 +8691,17 @@ def _markdown_float_owned_text_block_ids(block: dict[str, Any]) -> set[str]:
         for segment in block.get(key, []) or []:
             if not isinstance(segment, dict):
                 continue
+            if _markdown_float_owned_segment_renders_in_main_flow(segment):
+                for source_block_id in [
+                    segment.get("source_block_id"),
+                    segment.get("block_id"),
+                    segment.get("source_id"),
+                    *(segment.get("source_block_ids", []) or []),
+                ]:
+                    source_block_id = str(source_block_id or "").strip()
+                    if source_block_id:
+                        owned_ids.discard(source_block_id)
+                continue
             role = str(segment.get("role") or "").strip()
             if role == "nearby_context" and _markdown_nearby_context_segment_is_float_title(block, segment):
                 source_block_id = str(
@@ -5199,6 +8722,92 @@ def _markdown_float_owned_text_block_ids(block: dict[str, Any]) -> set[str]:
                 source_block_id = str(source_block_id or "").strip()
                 if source_block_id:
                     owned_ids.add(source_block_id)
+    return owned_ids
+
+
+def _markdown_structure_template_owned_text_block_ids(
+    structure_template: dict[str, Any],
+    page_blocks: list[dict[str, Any]],
+) -> set[str]:
+    if str(structure_template.get("block_type") or "").strip().lower() != "structure_template":
+        return set()
+    owned_ids = {
+        str(source_block_id or "").strip()
+        for source_block_id in structure_template.get("owned_text_block_ids", []) or []
+        if str(source_block_id or "").strip()
+    }
+    template_bbox = _markdown_block_bbox(structure_template)
+    if template_bbox is None:
+        return owned_ids
+    template_text_norms = _markdown_structure_template_owned_text_norms(structure_template)
+    if not template_text_norms:
+        return owned_ids
+    for candidate in page_blocks:
+        if str(candidate.get("block_type") or "").strip().lower() != "text":
+            continue
+        candidate_id = str(candidate.get("block_id") or candidate.get("source_id") or "").strip()
+        if not candidate_id:
+            continue
+        candidate_bbox = _markdown_block_bbox(candidate)
+        if candidate_bbox is None or not _markdown_bbox_inside(candidate_bbox, template_bbox, tolerance=3.0):
+            continue
+        candidate_text = str(candidate.get("display_text") or candidate.get("text") or "").strip()
+        if _markdown_compact_table_text(candidate_text) in template_text_norms:
+            owned_ids.add(candidate_id)
+    return owned_ids
+
+
+def _markdown_structure_template_owned_text_norms(structure_template: dict[str, Any]) -> set[str]:
+    norms: set[str] = set()
+
+    def add_text(value: Any) -> None:
+        norm = _markdown_compact_table_text(value)
+        if norm:
+            norms.add(norm)
+
+    for text in structure_template.get("row_texts", []) or []:
+        add_text(text)
+    for key in ("fields", "sections", "entries", "note_blocks", "content_segments"):
+        for item in structure_template.get(key, []) or []:
+            if isinstance(item, dict):
+                add_text(item.get("text") or item.get("title") or item.get("label"))
+            else:
+                add_text(item)
+    return norms
+
+
+def _markdown_structure_template_continuation_marker_owned_ids(
+    page_blocks: list[dict[str, Any]],
+    structure_template_owned_ids: set[str],
+) -> set[str]:
+    owned_ids: set[str] = set()
+    if not structure_template_owned_ids:
+        return owned_ids
+    for index, block in enumerate(page_blocks):
+        block_id = str(block.get("block_id") or block.get("source_id") or "").strip()
+        if not block_id or block_id in structure_template_owned_ids:
+            continue
+        if str(block.get("block_type") or "").strip().lower() != "text":
+            continue
+        text = str(block.get("display_text") or block.get("text") or "").strip()
+        if not re.fullmatch(r"[\(（]\s*续\s*[\)）]", text):
+            continue
+        previous_owned = any(
+            str(candidate.get("block_id") or candidate.get("source_id") or "").strip() in structure_template_owned_ids
+            for candidate in reversed(page_blocks[max(0, index - 8):index])
+            if str(candidate.get("block_type") or "").strip().lower() == "text"
+        )
+        next_heading = next(
+            (
+                candidate
+                for candidate in page_blocks[index + 1:index + 5]
+                if str(candidate.get("block_type") or "").strip().lower() == "text"
+                and str(candidate.get("semantic_role") or "").strip() == "section_heading"
+            ),
+            None,
+        )
+        if previous_owned and next_heading is not None:
+            owned_ids.add(block_id)
     return owned_ids
 
 
@@ -5281,6 +8890,8 @@ def _markdown_page_block_role(block: dict[str, Any], page_context: dict[str, Any
         else:
             role = "float_owned_text"
         owned_by = "float"
+    elif block_id and block_id in set(page_context.get("structure_template_owned_text_block_ids") or []):
+        role = "structure_template_owned_text"
     elif _markdown_role_matches_any(semantic_role, {"logo", "brand_logo"}):
         role = "logo"
     elif block_type == "toc":
@@ -6058,7 +9669,8 @@ def _markdown_heading_for_text_block(
         continuation_text = str(block.get("_markdown_heading_continuation_text") or "").strip()
         if continuation_text and continuation_text not in text:
             text = f"{text} {continuation_text}"
-        return text, 1
+        visual_level = int(block.get("_markdown_visual_heading_level", 1) or 1)
+        return text, max(1, min(6, visual_level))
     marker_candidate = classify_outline_heading_candidate(
         text,
         toc_heading_lookup=toc_heading_lookup,
@@ -6109,6 +9721,7 @@ def _build_document_body_markdown_sections(
     render_toc_blocks: bool = False,
     skip_uncaptioned_image_placeholders: bool = False,
     visual_heading_projection: bool = False,
+    visual_heading_projection_profiles: set[str] | None = None,
     merge_safe_evidence_table_chains: bool = False,
 ) -> list[str]:
     document_ast = document.get("document_ast", {}) or {}
@@ -6156,10 +9769,16 @@ def _build_document_body_markdown_sections(
     previous_visible_heading_title = ""
     visible_title_by_table_id: dict[str, str] = {}
     visible_title_by_structure_template_id: dict[str, str] = {}
+    rendered_object_prelude_text_ids: set[str] = set()
+    rendered_main_flow_text_ids: set[str] = set()
+    suppressed_note_norms_by_context_template_id: dict[str, set[str]] = {}
+    trailing_metadata_rows_by_context_template_id: dict[str, list[list[Any]]] = {}
+    previous_page_last_flow_text_block: dict[str, Any] | None = None
     for page in ast_pages:
         page_number = page.get("page")
         blocks = [block for block in page.get("blocks", []) or [] if isinstance(block, dict)]
         if not blocks:
+            previous_page_last_flow_text_block = None
             continue
         page_render_blocks: list[dict[str, Any]] = []
         for block in blocks:
@@ -6171,15 +9790,46 @@ def _build_document_body_markdown_sections(
                 image_by_id=image_by_id,
                 toc_by_id=toc_by_id,
             )
+            if (
+                not str(block.get("block_type") or "").strip()
+                and str(block.get("role") or block.get("semantic_role") or "").strip() in {"text", "text_block"}
+            ):
+                block = {**block, "block_type": "text"}
             if source_path is not None:
                 block = {**block, "_source_path": source_path}
             page_render_blocks.append(block)
+        source_page = source_pages_by_number.get(int(page_number or 0), {})
+        page_height = float(page.get("height", source_page.get("height", 0.0)) or 0.0)
+        page_width = float(page.get("width", source_page.get("width", 0.0)) or 0.0)
+        page_previous_flow_block = previous_page_last_flow_text_block
         for index, block in enumerate(page_render_blocks):
             previous_block = page_render_blocks[index - 1] if index > 0 else None
             if _is_body_flow_continuation_block(previous_block, block):
                 page_render_blocks[index] = {
                     **block,
                     "_markdown_body_flow_continuation": True,
+                }
+        if page_render_blocks and page_previous_flow_block is not None:
+            first_flow_index = 0
+            first_block = page_render_blocks[first_flow_index]
+            if _markdown_block_is_parenthetical_continuation(
+                page_previous_flow_block,
+                first_block,
+                allow_cross_page=True,
+            ):
+                page_render_blocks[first_flow_index] = {
+                    **first_block,
+                    "_markdown_cross_page_parenthetical_continuation": True,
+                }
+            elif _markdown_block_is_cross_page_body_continuation(
+                page_previous_flow_block,
+                first_block,
+                page_height=page_height,
+                toc_heading_lookup=toc_heading_lookup,
+            ):
+                page_render_blocks[first_flow_index] = {
+                    **first_block,
+                    "_markdown_cross_page_body_continuation": True,
                 }
         for index, block in enumerate(page_render_blocks):
             if (
@@ -6221,15 +9871,21 @@ def _build_document_body_markdown_sections(
                     **page_render_blocks[index + offset],
                     "_markdown_heading_continuation_consumed": True,
                 }
-        source_page = source_pages_by_number.get(int(page_number or 0), {})
-        page_height = float(page.get("height", source_page.get("height", 0.0)) or 0.0)
-        page_width = float(page.get("width", source_page.get("width", 0.0)) or 0.0)
         toc_like_page = _looks_like_markdown_toc_like_page(page_render_blocks)
         landscape_visual_panel = _markdown_page_looks_like_landscape_visual_panel(
             page_render_blocks,
             page_width,
             page_height,
         )
+        if visual_heading_projection:
+            page_render_blocks = _mark_markdown_centered_front_matter_title_clusters(
+                page_render_blocks,
+                page_width=page_width,
+                page_height=page_height,
+                page_previous_flow_block=page_previous_flow_block,
+                toc_like_page=toc_like_page,
+                landscape_visual_panel=landscape_visual_panel,
+            )
         if toc_like_page:
             for index, block in enumerate(page_render_blocks):
                 if str(block.get("block_type") or "").strip().lower() != "text":
@@ -6242,8 +9898,16 @@ def _build_document_body_markdown_sections(
                     }
         if visual_heading_projection:
             for index, block in enumerate(page_render_blocks):
-                previous_block = page_render_blocks[index - 1] if index > 0 else None
+                previous_block = page_render_blocks[index - 1] if index > 0 else page_previous_flow_block
                 next_block = page_render_blocks[index + 1] if index + 1 < len(page_render_blocks) else None
+                heading_profile = _markdown_heading_shape_profile(
+                    str(block.get("display_text") or block.get("text") or "").strip()
+                )
+                if (
+                    visual_heading_projection_profiles is not None
+                    and heading_profile not in visual_heading_projection_profiles
+                ):
+                    continue
                 if _looks_like_markdown_visual_standalone_heading(
                     block,
                     previous_block,
@@ -6257,6 +9921,8 @@ def _build_document_body_markdown_sections(
                         **block,
                         "_markdown_visual_standalone_heading": True,
                     }
+                    if heading_profile == "cjk_unnumbered_title":
+                        updated_block["_markdown_visual_heading_level"] = 6
                     if (
                         str(block.get("semantic_role") or "").strip() == "body_list_item"
                         and _markdown_heading_shape_profile(str(block.get("text") or "")) == "numbered_section_title"
@@ -6338,6 +10004,22 @@ def _build_document_body_markdown_sections(
             for page_block in page_render_blocks
             for source_block_id in _markdown_metadata_only_source_block_ids(page_block)
         }
+        page_structure_template_owned_text_block_ids = {
+            source_block_id
+            for page_block in page_render_blocks
+            for source_block_id in _markdown_structure_template_owned_text_block_ids(
+                page_block,
+                page_render_blocks,
+            )
+        }
+        page_structure_template_owned_text_block_ids.update(
+            _markdown_structure_template_continuation_marker_owned_ids(
+                page_render_blocks,
+                page_structure_template_owned_text_block_ids,
+            )
+        )
+        deferred_main_flow_float_segments = _markdown_deferred_main_flow_float_segments(page_render_blocks)
+        rendered_deferred_main_flow_float_segment_keys: set[str] = set()
         page_context = {
             "page_number": page_number,
             "page_height": page_height,
@@ -6345,6 +10027,7 @@ def _build_document_body_markdown_sections(
             "equation_source_block_ids": page_equation_source_block_ids,
             "float_owned_text_block_ids": page_float_owned_text_block_ids,
             "metadata_only_source_block_ids": page_metadata_only_source_block_ids,
+            "structure_template_owned_text_block_ids": page_structure_template_owned_text_block_ids,
         }
         rendered_equation_source_block_ids: set[str] = set()
 
@@ -6361,10 +10044,54 @@ def _build_document_body_markdown_sections(
                 _append_markdown_text_block(lines, metadata_block)
             deferred_publication_metadata_flushed = True
 
+        def flush_deferred_main_flow_float_segments_before(anchor_block: dict[str, Any] | None) -> None:
+            anchor_bbox = _markdown_block_bbox(anchor_block or {})
+            if anchor_block is not None and anchor_bbox is None:
+                return
+            anchor_y = float(anchor_bbox[1]) if anchor_bbox is not None else float("inf")
+            for segment in deferred_main_flow_float_segments:
+                key = _markdown_deferred_float_segment_key(segment)
+                if key in rendered_deferred_main_flow_float_segment_keys:
+                    continue
+                segment_bbox = _markdown_block_bbox(segment)
+                if segment_bbox is not None and float(segment_bbox[1]) >= anchor_y - 0.5:
+                    continue
+                if _append_markdown_deferred_main_flow_float_segment(lines, segment):
+                    rendered_deferred_main_flow_float_segment_keys.add(key)
+
         block_index = 0
         while block_index < len(page_render_blocks):
             block = page_render_blocks[block_index]
+            flush_deferred_main_flow_float_segments_before(block)
             block_type = str(block.get("block_type") or "").strip().lower()
+            if block_type == "text" and (
+                block.get("_markdown_cross_page_parenthetical_continuation")
+                or block.get("_markdown_cross_page_body_continuation")
+            ):
+                continuation_text = _project_markdown_text_with_inline_formulas(block)
+                if continuation_text:
+                    consumed_index = block_index
+                    if block.get("_markdown_cross_page_body_continuation"):
+                        continuation_text, consumed_index = _merge_markdown_same_page_body_continuations_after_cross_page_block(
+                            page_render_blocks,
+                            block_index,
+                            continuation_text,
+                            toc_heading_lookup,
+                        )
+                    last_line_index = next(
+                        (
+                            index
+                            for index in range(len(lines) - 1, -1, -1)
+                            if str(lines[index]).strip()
+                        ),
+                        None,
+                    )
+                    if last_line_index is not None:
+                        lines[last_line_index] = _markdown_linkify_visible_urls(
+                            _merge_markdown_text_fragments(lines[last_line_index], continuation_text)
+                        )
+                        block_index = consumed_index + 1
+                        continue
             boundary_kind = _markdown_text_block_boundary_kind(block, toc_heading_lookup)
             if block.get("_markdown_body_flow_continuation"):
                 boundary_kind = "body"
@@ -6415,7 +10142,13 @@ def _build_document_body_markdown_sections(
             if block_id and block_id in deferred_publication_metadata_ids:
                 block_index += 1
                 continue
+            if block_id and block_id in rendered_object_prelude_text_ids:
+                block_index += 1
+                continue
             if block_id and block_id in page_float_owned_text_block_ids:
+                block_index += 1
+                continue
+            if block_id and block_id in page_structure_template_owned_text_block_ids:
                 block_index += 1
                 continue
             if (
@@ -6428,9 +10161,13 @@ def _build_document_body_markdown_sections(
                 block_type == "text"
                 and page_block_role["role"] != "heading"
                 and not block.get("_markdown_visual_standalone_heading")
+                and not block.get("_markdown_centered_front_matter_title_cluster")
             ):
                 current_text = _project_markdown_text_with_inline_formulas(block)
                 current_merge_block = block
+                explicit_bullet_anchor_block: dict[str, Any] | None = (
+                    block if _markdown_text_starts_bullet_item(current_text) else None
+                )
                 merged_text_blocks = [block]
                 paragraph_base_x0: float | None = None
                 if _is_markdown_body_paragraph_text_block(block, toc_heading_lookup):
@@ -6452,8 +10189,32 @@ def _build_document_body_markdown_sections(
                     next_boundary_kind = _markdown_text_block_boundary_kind(next_block, toc_heading_lookup)
                     next_role = _markdown_page_block_role(next_block, page_context)
                     if (
+                        _markdown_text_block_is_unmarked_list_item(current_merge_block)
+                        or _markdown_text_block_is_unmarked_list_item(next_block)
+                    ):
+                        break
+                    current_starts_explicit_bullet = _markdown_text_starts_bullet_item(current_text)
+                    next_starts_explicit_bullet = _markdown_text_starts_bullet_item(next_text)
+                    if current_starts_explicit_bullet and explicit_bullet_anchor_block is None:
+                        explicit_bullet_anchor_block = current_merge_block
+                    if current_starts_explicit_bullet and not next_starts_explicit_bullet:
+                        if not _markdown_next_block_is_hanging_bullet_continuation(
+                            bullet_anchor_block=explicit_bullet_anchor_block or current_merge_block,
+                            current_block=current_merge_block,
+                            next_block=next_block,
+                            current_text=current_text,
+                            next_text=next_text,
+                        ):
+                            break
+                    if not current_starts_explicit_bullet and next_starts_explicit_bullet:
+                        break
+                    if (
+                        current_merge_block.get("_markdown_visual_standalone_heading")
+                        or current_merge_block.get("_markdown_centered_front_matter_title_cluster")
+                        or
                         next_role["role"] == "heading"
                         or next_block.get("_markdown_visual_standalone_heading")
+                        or next_block.get("_markdown_centered_front_matter_title_cluster")
                     ):
                         break
                     if (
@@ -6489,6 +10250,8 @@ def _build_document_body_markdown_sections(
                     if not can_merge_special and next_block_id and next_block_id in deferred_publication_metadata_ids:
                         break
                     if not can_merge_special and next_block_id and next_block_id in page_float_owned_text_block_ids:
+                        break
+                    if not can_merge_special and next_block_id and next_block_id in page_structure_template_owned_text_block_ids:
                         break
                     if (
                         not can_merge_special
@@ -6569,7 +10332,16 @@ def _build_document_body_markdown_sections(
                     if continuation_id:
                         skipped_table_ids.add(continuation_id)
                 if len(chain) > 1:
-                    block = _merge_continued_table_chain(chain)
+                    block = _merge_continued_table_chain(chain, table_export_mode=table_export_mode)
+                trailing_metadata_rows = _markdown_table_trailing_metadata_rows_for_context(
+                    block,
+                    trailing_metadata_rows_by_context_template_id,
+                )
+                if trailing_metadata_rows:
+                    block = {
+                        **block,
+                        "_markdown_trailing_metadata_rows": trailing_metadata_rows,
+                    }
                 table_previous_visible_title = _markdown_table_chain_previous_visible_title(
                     block,
                     visible_title_by_table_id,
@@ -6579,6 +10351,10 @@ def _build_document_body_markdown_sections(
                     block,
                     table_export_mode=table_export_mode,
                     previous_visible_title=table_previous_visible_title,
+                    suppress_note_norms=_markdown_table_suppress_note_norms_for_context(
+                        block,
+                        suppressed_note_norms_by_context_template_id,
+                    ),
                 )
                 previous_visible_heading_title = _markdown_table_visible_title(block)
                 if table_id:
@@ -6597,20 +10373,43 @@ def _build_document_body_markdown_sections(
                     block,
                     following_blocks,
                 )
+                prelude_texts, prelude_ids = _markdown_structure_template_above_title_prelude(
+                    block,
+                    page_render_blocks,
+                    already_rendered_source_ids=rendered_main_flow_text_ids,
+                )
+                for prelude_text in prelude_texts:
+                    lines.append(_markdown_linkify_visible_urls(_markdown_escape_inline_text(prelude_text)))
+                    lines.append("")
+                rendered_object_prelude_text_ids.update(prelude_ids)
                 _append_markdown_structure_template_with_deferred_notes(
                     lines,
                     block,
                     deferred_note_texts=deferred_note_texts,
                     previous_visible_title=structure_template_previous_visible_title,
                     suppress_form_rows=suppress_form_rows,
+                    nearby_blocks=page_render_blocks,
                 )
+                if suppress_form_rows:
+                    template_id_for_notes = str(block.get("structure_template_id") or block.get("block_id") or "").strip()
+                    if template_id_for_notes:
+                        note_norms = _markdown_structure_template_note_norms_to_suppress_for_following_table(
+                            block,
+                            following_blocks,
+                        )
+                        if note_norms:
+                            suppressed_note_norms_by_context_template_id.setdefault(template_id_for_notes, set()).update(note_norms)
+                        metadata_rows = _markdown_structure_template_trailing_metadata_rows(block)
+                        if metadata_rows:
+                            trailing_metadata_rows_by_context_template_id[template_id_for_notes] = metadata_rows
                 structure_template_id = str(block.get("structure_template_id") or block.get("block_id") or "").strip()
                 structure_template_visible_title = _structure_template_markdown_heading(block)
                 if (
                     structure_template_id
-                    and not _structure_template_markdown_heading_is_internal_fallback(
+                    and _structure_template_markdown_heading_is_visible(
                         block,
                         structure_template_visible_title,
+                        structure_template_previous_visible_title,
                     )
                 ):
                     visible_title_by_structure_template_id[structure_template_id] = structure_template_visible_title
@@ -6648,7 +10447,11 @@ def _build_document_body_markdown_sections(
                                 continuation_id = str(continuation.get("table_id") or "").strip()
                                 if continuation_id:
                                     skipped_table_ids.add(continuation_id)
-                            render_table = _merge_continued_table_chain(chain) if len(chain) > 1 else candidate
+                            render_table = (
+                                _merge_continued_table_chain(chain, table_export_mode=table_export_mode)
+                                if len(chain) > 1
+                                else candidate
+                            )
                             candidate_previous_visible_title = _markdown_table_chain_previous_visible_title(
                                 render_table,
                                 visible_title_by_table_id,
@@ -6733,22 +10536,53 @@ def _build_document_body_markdown_sections(
             else:
                 if rendered_text_override is not None:
                     _append_markdown_text_block(lines, block, text_override=rendered_text_override)
+                    rendered_main_flow_text_ids.update(
+                        str(rendered_block.get("block_id") or rendered_block.get("source_id") or "").strip()
+                        for rendered_block in merged_text_blocks
+                        if str(rendered_block.get("block_id") or rendered_block.get("source_id") or "").strip()
+                    )
                     previous_visible_heading_title = ""
                 else:
                     if page_block_role["render_in_main_flow"]:
                         heading_for_visible_owner = _markdown_heading_for_text_block(block, toc_heading_lookup)
-                        _append_markdown_text_block_with_heading_context(
-                            lines,
-                            block,
-                            toc_heading_lookup,
-                            uri_link_records_by_page,
-                        )
+                        if block.get("_markdown_centered_front_matter_title_cluster"):
+                            _append_markdown_centered_front_matter_title_block(lines, block)
+                        else:
+                            _append_markdown_text_block_with_heading_context(
+                                lines,
+                                block,
+                                toc_heading_lookup,
+                                uri_link_records_by_page,
+                            )
+                        if block_id:
+                            rendered_main_flow_text_ids.add(block_id)
                         previous_visible_heading_title = (
                             heading_for_visible_owner[0]
                             if heading_for_visible_owner is not None
                             else ""
                         )
             block_index += 1
+        flush_deferred_main_flow_float_segments_before(None)
+        previous_page_last_flow_text_block = None
+        for candidate in reversed(page_render_blocks):
+            if str(candidate.get("block_type") or "").strip().lower() != "text":
+                continue
+            if candidate.get("_markdown_heading_continuation_consumed"):
+                continue
+            if candidate.get("_markdown_cross_page_parenthetical_continuation"):
+                continue
+            if candidate.get("_markdown_cross_page_body_continuation"):
+                continue
+            candidate_boundary = _markdown_text_block_boundary_kind(candidate, toc_heading_lookup)
+            if candidate.get("_markdown_body_flow_continuation"):
+                candidate_boundary = "body"
+            if candidate_boundary != "body":
+                continue
+            previous_page_last_flow_text_block = {
+                **candidate,
+                "_markdown_page_height": page_height,
+            }
+            break
     if footnote_definition_lines:
         lines.extend(footnote_definition_lines)
     return lines
@@ -7056,6 +10890,7 @@ def _build_full_markdown(
         "",
     ]
     for index, document in enumerate(parsed_documents):
+        document = _normalize_markdown_table_note_fields(document)
         filename = document.get("filename", f"document-{index + 1}")
         source_type = str(document.get("source_type", "unknown")).upper()
         lines.append(f"## {filename} ({source_type})")
@@ -7112,6 +10947,7 @@ def _build_ind_review_markdown(parsed_documents: list[dict[str, Any]]) -> str:
         "",
     ]
     for index, document in enumerate(parsed_documents):
+        document = _normalize_markdown_table_note_fields(document)
         filename = str(document.get("filename") or f"document-{index + 1}").strip()
         lines.append(f"## {filename}")
         lines.append("")
@@ -7127,6 +10963,8 @@ def _build_ind_review_markdown(parsed_documents: list[dict[str, Any]]) -> str:
             table_export_mode="evidence_markdown",
             image_text_mode="caption_only",
             body_heading=None,
+            visual_heading_projection=True,
+            visual_heading_projection_profiles={"cjk_unnumbered_title"},
             merge_safe_evidence_table_chains=True,
         )
         if body_sections:
@@ -7195,6 +11033,13 @@ def _build_ind_review_render_audit(document: dict[str, Any], markdown: str) -> d
         checked_count += 1
         visible_count = normalized_markdown.count(_normalize_ind_review_visibility_text(title))
         if visible_count > 1:
+            allowed_evidence = _ind_review_allowed_heading_duplicate_evidence(
+                document,
+                title,
+                markdown=markdown,
+            )
+            if allowed_evidence.get("reason"):
+                continue
             violation = {
                 "study_object_id": str(study.get("study_object_id") or "").strip(),
                 "title": title,
@@ -7300,7 +11145,13 @@ def _ind_review_document_scaffold_heading_duplicate(title: str) -> bool:
         return False
     if normalized.endswith(".pdf"):
         return True
-    return normalized in {"IND Review Markdown"}
+    if normalized in {"IND Review Markdown"}:
+        return True
+    return bool(
+        re.search(r"(?<![A-Za-z])ICH(?![A-Za-z])", normalized, re.IGNORECASE)
+        and "指导原则" in normalized
+        and len(normalized) <= 40
+    )
 
 
 def _ind_review_allowed_heading_duplicate_reason(document: dict[str, Any], title: str) -> str:
@@ -7316,6 +11167,9 @@ def _ind_review_allowed_heading_duplicate_evidence(
     normalized_title = _normalize_ind_review_visibility_text(title)
     if not normalized_title:
         return {}
+    table_image_title_evidence = _ind_review_table_image_title_duplicate_evidence(document, title)
+    if table_image_title_evidence:
+        return table_image_title_evidence
     matching_templates = [
         template
         for template in document.get("structure_templates", []) or []
@@ -7355,6 +11209,79 @@ def _ind_review_allowed_heading_duplicate_evidence(
         "data_populations": _ind_review_sorted_unique_values(
             template.get("data_population") for template in matching_templates
         ),
+    }
+
+
+def _ind_review_table_image_title_duplicate_evidence(document: dict[str, Any], title: str) -> dict[str, Any]:
+    normalized_title = _normalize_ind_review_visibility_text(title)
+    if not normalized_title:
+        return {}
+    matching_tables = [
+        table
+        for table in document.get("table_asts", []) or []
+        if isinstance(table, dict)
+        and _normalize_ind_review_visibility_text(table.get("title") or "") == normalized_title
+    ]
+    if not matching_tables:
+        return {}
+
+    image_title_sources: list[dict[str, Any]] = []
+    for image in document.get("image_blocks", []) or []:
+        if not isinstance(image, dict):
+            continue
+        for segment in image.get("content_segments", []) or []:
+            if not isinstance(segment, dict):
+                continue
+            if str(segment.get("role") or "").strip() != "nearby_context":
+                continue
+            if str(segment.get("relation") or "").strip().lower() != "above":
+                continue
+            if _normalize_ind_review_visibility_text(segment.get("text") or "") != normalized_title:
+                continue
+            if not _markdown_nearby_context_segment_is_float_title(image, segment):
+                continue
+            image_title_sources.append(
+                {
+                    "source_object_id": str(image.get("image_id") or image.get("block_id") or "").strip(),
+                    "page": image.get("page"),
+                    "source_block_id": str(
+                        segment.get("source_block_id")
+                        or segment.get("block_id")
+                        or segment.get("source_id")
+                        or ""
+                    ).strip(),
+                    "relation": "above",
+                    "gap": segment.get("gap"),
+                }
+            )
+    if not image_title_sources:
+        return {}
+
+    table_sources = [
+        {
+            "source_object_id": str(table.get("table_id") or table.get("block_id") or "").strip(),
+            "page": table.get("page"),
+            "semantic_role": str(table.get("semantic_role") or "").strip(),
+            "table_family": str(
+                ((table.get("semantic_projection_v2") or {}).get("table_family") if isinstance(table.get("semantic_projection_v2"), dict) else "")
+                or ""
+            ).strip(),
+        }
+        for table in matching_tables[:10]
+    ]
+    return {
+        "reason": "table_image_title_repetition",
+        "source_object_family": "table_and_image",
+        "source_objects": [
+            *table_sources,
+            *image_title_sources[:10],
+        ],
+        "pages": _ind_review_sorted_unique_values(
+            [source.get("page") for source in table_sources + image_title_sources]
+        ),
+        "template_profiles": ["table_title", "image_above_title"],
+        "ownership_domains": ["business_table", "figure"],
+        "data_populations": [],
     }
 
 
@@ -7997,6 +11924,170 @@ def _build_rule_structure_audit_records(
     return audit_records
 
 
+def _build_application_identity_projection(
+    package_inventory: dict[str, Any],
+    submission_scope: dict[str, Any],
+    parsed_documents: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Project deterministic root naming and semantic application-type evidence."""
+
+    project_context = dict(submission_scope.get("ectd_project_context", {}) or {})
+    sequence_packages = [
+        dict(item or {})
+        for item in list(project_context.get("sequence_packages", []) or [])
+    ]
+    vocabulary_contract = build_ectd_vocabulary_rule_contract()
+    sequence_semantic_contract = build_ectd_sequence_semantic_contract(
+        vocabulary_contract=vocabulary_contract,
+    )
+    content_signals: list[dict[str, Any]] = []
+    semantic_findings: list[dict[str, Any]] = []
+    for document in parsed_documents or []:
+        metadata = dict(document.get("metadata", {}) or {})
+        for signal in list(metadata.get("ectd_application_type_evidence") or []):
+            signal_payload = dict(signal or {})
+            signal_payload.setdefault("source_path", document.get("source_path"))
+            signal_payload.setdefault("filename", document.get("filename"))
+            content_signals.append(signal_payload)
+    applications: list[dict[str, Any]] = []
+    for application in list(package_inventory.get("application_roots", []) or []):
+        application_payload = dict(application or {})
+        root_name = str(application_payload.get("name") or "").strip()
+        matching_packages = [
+            package
+            for package in sequence_packages
+            if str(package.get("application_root_name") or package.get("application_key") or "").strip().lower()
+            == root_name.lower()
+        ]
+        vocabulary_checks: list[dict[str, Any]] = []
+        sequence_semantic_rows = [
+            {
+                "sequence_number": str(package.get("sequence_number") or package.get("sequence_name") or "").strip(),
+                "related_sequence": str(package.get("related_sequence_number") or "").strip(),
+                "regulatory_activity_type": str(package.get("regulatory_activity_type") or "").strip(),
+                "sequence_type": str(package.get("sequence_type") or "").strip(),
+                "sequence_description": str(package.get("sequence_description") or "").strip(),
+            }
+            for package in matching_packages
+        ]
+        sequence_semantic_validation = validate_ectd_sequence_semantics(
+            str(matching_packages[0].get("application_type") or "").strip() if matching_packages else "",
+            sequence_semantic_rows,
+            contract=sequence_semantic_contract,
+        )
+        for package in matching_packages:
+            envelope = {
+                "application-type": package.get("application_type"),
+                "product-type": package.get("product_type"),
+                "regulatory-activity-type": package.get("regulatory_activity_type"),
+                "sequence-type": package.get("sequence_type"),
+            }
+            if any(str(value or "").strip() for value in envelope.values()):
+                vocabulary_checks.append(
+                    {
+                        "sequence_package_id": str(package.get("sequence_package_id") or "").strip(),
+                        "sequence_number": str(package.get("sequence_number") or "").strip(),
+                        "relative_path": str(package.get("sequence_root") or "").strip(),
+                        "validation": validate_ectd_envelope_vocabulary(
+                            envelope,
+                            contract=vocabulary_contract,
+                        ),
+                    }
+                )
+        assessment = assess_application_identity(
+            root_name,
+            sequence_packages=matching_packages,
+            content_signals=content_signals,
+        )
+        applications.append(
+            {
+                **assessment,
+                "relative_path": str(application_payload.get("relative_path") or root_name).strip(),
+                "sequence_count": len(list(application_payload.get("sequences", []) or [])),
+                "controlled_vocabulary_checks": vocabulary_checks,
+                "sequence_semantic_validation": sequence_semantic_validation,
+            }
+        )
+        for finding in sequence_semantic_validation.get("findings", []) or []:
+            issue_code = str(finding.get("issue_code") or "").strip()
+            if issue_code.startswith("sequence_history"):
+                semantic_rule_id = "HR-ECTD-001"
+            elif issue_code == "sequence_description_too_long":
+                semantic_rule_id = "SR-ECTD-002"
+            elif issue_code in {"sequence_contact_incomplete", "sequence_contact_email_invalid"}:
+                semantic_rule_id = "HR-ECTD-014"
+            elif issue_code == "incompatible_type_triplet":
+                semantic_rule_id = "HR-ECTD-120"
+            elif str(sequence_semantic_validation.get("scenario") or "") == "table2_new_drug_application":
+                semantic_rule_id = "HR-ECTD-119"
+            elif issue_code.startswith("sequence_description_prohibited_use"):
+                semantic_rule_id = "SR-ECTD-055"
+            else:
+                semantic_rule_id = "HR-ECTD-118"
+            semantic_findings.append(
+                {
+                    "rule_id": semantic_rule_id,
+                    "status": "fail",
+                    "severity": "error",
+                    "scope": "sequence",
+                    "relative_path": str(application_payload.get("relative_path") or root_name).strip(),
+                    "message": "Clinical-trial sequence semantic evidence conflicts with the Table 1 related-sequence example contract.",
+                    "blocking": True,
+                    "details": {
+                        "issue_family": "clinical_trial_sequence_semantics",
+                        "issue_code": issue_code,
+                        "sequence_semantic_finding": finding,
+                    },
+                }
+            )
+        for review_item in sequence_semantic_validation.get("review_items", []) or []:
+            review_issue_code = str(review_item.get("issue_code") or "").strip()
+            semantic_findings.append(
+                {
+                    "rule_id": "SR-ECTD-055" if review_issue_code.startswith("sequence_description_prohibited_use") else ("HR-ECTD-119" if str(sequence_semantic_validation.get("scenario") or "") == "table2_new_drug_application" else "HR-ECTD-118"),
+                    "status": "manual_review",
+                    "severity": "warning",
+                    "scope": "sequence",
+                    "relative_path": str(application_payload.get("relative_path") or root_name).strip(),
+                    "message": "Clinical-trial sequence description intent needs manual confirmation against the Table 1 scenario.",
+                    "blocking": False,
+                    "details": {
+                        "issue_family": "clinical_trial_sequence_semantics",
+                        "review_item": review_item,
+                    },
+                }
+            )
+
+    counts = {
+        "supported_count": sum(item.get("status") == "supported" for item in applications),
+        "conflict_count": sum(item.get("status") == "conflict" for item in applications),
+        "insufficient_evidence_count": sum(
+            item.get("status") == "insufficient_evidence" for item in applications
+        ),
+        "review_required_count": sum(bool(item.get("review_required")) for item in applications),
+        "controlled_vocabulary_failure_count": sum(
+            1
+            for item in applications
+            for check in item.get("controlled_vocabulary_checks", []) or []
+            if str((check.get("validation") or {}).get("status") or "") == "fail"
+        ),
+    }
+    return {
+        "enabled": bool(applications),
+        "rule_id": "HR-ECTD-002",
+        "basis": {
+            "requirement_id": "cn_ectd_technical_specification:req_application_number_format",
+            "source_clause_id": "cn_ectd_technical_specification:sec_2_1_1",
+            "evidence_policy": "explicit envelope/application-form evidence is strong; title/keyword signals are non-authoritative",
+        },
+        "controlled_vocabulary_contract": vocabulary_contract,
+        "sequence_semantic_contract": sequence_semantic_contract,
+        "applications": applications,
+        "findings": semantic_findings,
+        "summary": counts,
+    }
+
+
 def _build_workbench(
     parsed_documents: list[dict[str, Any]],
     file_records: list[dict[str, Any]],
@@ -8008,6 +12099,8 @@ def _build_workbench(
     demo_report_markdown_download_url: str | None = None,
     demo_script_markdown_download_url: str | None = None,
     compliance_result: dict[str, Any] | None = None,
+    package_directory_paths: list[str] | None = None,
+    package_source_kind: str | None = None,
 ) -> dict[str, Any]:
     pdf_document: dict[str, Any] | None = None
     for document in parsed_documents:
@@ -8049,6 +12142,111 @@ def _build_workbench(
     content_consistency = build_content_consistency_projection(
         dict(compliance_payload.get("submission_scope", {}) or {})
     )
+    package_inventory = None
+    package_findings: list[dict[str, Any]] = []
+    application_identity: dict[str, Any] = {
+        "enabled": False,
+        "rule_id": "HR-ECTD-002",
+        "applications": [],
+        "summary": {
+            "supported_count": 0,
+            "conflict_count": 0,
+            "insufficient_evidence_count": 0,
+            "review_required_count": 0,
+        },
+    }
+    try:
+        if len(file_records) > 1 or any("/" in str(item.get("relative_path") or "") for item in file_records):
+            package_inventory = build_package_inventory(
+                PROJECT_ROOT,
+                file_records=file_records,
+                explicit_directory_paths=package_directory_paths,
+            )
+            if package_source_kind:
+                package_inventory["source_kind"] = package_source_kind
+            package_findings = validate_package_structure(package_inventory) + validate_package_naming(package_inventory)
+            application_identity = _build_application_identity_projection(
+                package_inventory,
+                dict(compliance_payload.get("submission_scope", {}) or {}),
+                parsed_documents,
+            )
+            package_findings.extend(application_identity.get("findings", []) or [])
+            for assessment in application_identity.get("applications", []) or []:
+                if not assessment.get("review_required"):
+                    continue
+                status = "fail" if assessment.get("status") == "conflict" else "human_review"
+                package_findings.append(
+                    {
+                        "rule_id": "HR-ECTD-002",
+                        "status": status,
+                        "severity": "error" if status == "fail" else "warning",
+                        "scope": "application",
+                        "relative_path": str(assessment.get("relative_path") or "").strip(),
+                        "message": (
+                            "Application-root prefix conflicts with application-type evidence."
+                            if status == "fail"
+                            else "Application-root prefix lacks sufficient application-type evidence and requires manual review."
+                        ),
+                        "blocking": status == "fail",
+                        "details": {
+                            "issue_family": "application_type_semantics",
+                            "issue_codes": list(assessment.get("issue_codes", []) or []),
+                            "application_identity": assessment,
+                        },
+                    }
+                )
+    except (OSError, ValueError) as exc:
+        package_findings = [{
+            "rule_id": "HR-ECTD-015",
+            "status": "human_review",
+            "severity": "warning",
+            "scope": "application",
+            "relative_path": "",
+            "message": f"Package inventory could not be built: {exc}",
+            "blocking": False,
+        }]
+    for finding in package_findings:
+        if not isinstance(finding, dict):
+            continue
+        details = dict(finding.get("details", {}) or {})
+        details.setdefault("regulatory_provenance", provenance_for_rule(str(finding.get("rule_id") or "")))
+        finding["details"] = details
+    submission_scope = dict(compliance_payload.get("submission_scope", {}) or {})
+    review_scope = str(submission_scope.get("scope") or "") or (
+        "application" if submission_scope.get("upload_mode") == "ectd_application_project" else
+        "sequence" if submission_scope.get("upload_mode") in {"ectd_sequence_package", "ectd_sequence_batch", "ectd_sequence_candidate"} else
+        "document"
+    )
+    documents = [
+        {
+            "file_id": document.get("file_id"),
+            "filename": document.get("filename"),
+            "relative_path": next((item.get("relative_path") for item in file_records if item.get("file_id") == document.get("file_id")), document.get("filename")),
+            "source_type": document.get("source_type"),
+            "status": "parsed",
+            "page_count": len(document.get("pages", []) or []),
+            "character_count": len(str(document.get("text") or "")),
+            "table_count": len(document.get("table_asts", []) or []),
+            "image_count": len(document.get("image_blocks", []) or []),
+            "parse_available": True,
+            "text_preview": _estimate_first_page_text(document),
+            "file_url": f"/api/v1/files/{document.get('file_id')}",
+        }
+        for document in parsed_documents
+    ]
+    workbench_files = [
+        {
+            "file_id": item.get("file_id"),
+            "filename": item.get("filename"),
+            "relative_path": item.get("relative_path") or item.get("filename"),
+            "status": item.get("status"),
+            "message": item.get("message"),
+            "progress": item.get("progress", 0),
+            "document_parse": item.get("document_parse", True),
+            "file_url": f"/api/v1/files/{item.get('file_id')}",
+        }
+        for item in file_records
+    ]
     rule_checks_for_demo_summary = {
         "enabled": bool(rule_items),
         "items": rule_items,
@@ -8108,6 +12306,13 @@ def _build_workbench(
 
     return {
         "pdf_document": pdf_document,
+        "documents": documents,
+        "files": workbench_files,
+        "selected_file_id": pdf_document.get("file_id") if pdf_document else (documents[0].get("file_id") if documents else None),
+        "review_scope": review_scope,
+        "package_inventory": package_inventory,
+        "package_findings": package_findings,
+        "application_identity": application_identity,
         "markdown": _build_ui_markdown(parsed_documents, file_records, consistency_rows),
         "full_markdown_download_url": markdown_download_url,
         "ind_review_markdown_download_url": ind_review_markdown_download_url,
@@ -8340,6 +12545,13 @@ def _build_audit_log(
     }
 
 
+def is_package_support_file(filename: str) -> bool:
+    """Return whether an eCTD utility/backbone file needs package validation, not document parsing."""
+    suffix = Path(str(filename or "")).suffix.lower()
+    name = Path(str(filename or "")).name.lower()
+    return suffix in {".dtd", ".xsl", ".xsd", ".txt"} or name in {"index-md5.txt"}
+
+
 def _process_job(job_id: str) -> None:
     with STORE_LOCK:
         job = JOB_STORE.get(job_id)
@@ -8374,6 +12586,23 @@ def _process_job(job_id: str) -> None:
             job["updated_at"] = _utc_now()
 
         try:
+            if file_record.get("document_parse") is False or is_package_support_file(
+                file_record.get("relative_path") or file_record.get("filename")
+            ):
+                file_status = "completed"
+                file_message = "Package support file received; content parsing skipped"
+                file_progress = 100
+                processed_ratio = (index + 1) / total_files
+                with STORE_LOCK:
+                    job = JOB_STORE[job_id]
+                    for item in job["files"]:
+                        if item["file_id"] == file_record["file_id"]:
+                            item["status"] = file_status
+                            item["message"] = file_message
+                            item["progress"] = file_progress
+                    job["progress"] = 5 + int(processed_ratio * 80)
+                    job["updated_at"] = _utc_now()
+                continue
             parsed = parse_file(Path(file_record["path"]))
             parsed["file_id"] = file_record["file_id"]
             parsed["filename"] = file_record["filename"]
@@ -8475,6 +12704,8 @@ def _process_job(job_id: str) -> None:
             demo_report_markdown_download_url=demo_report_markdown_download_url,
             demo_script_markdown_download_url=demo_script_markdown_download_url,
             compliance_result=compliance_result,
+            package_directory_paths=list(job.get("package_directory_paths") or []),
+            package_source_kind=str(job.get("package_source_kind") or "") or None,
         )
         demo_report_markdown_path.write_text(
             str(workbench.get("demo_report_markdown") or ""),
@@ -8539,12 +12770,16 @@ def create_app() -> FastAPI:
         background_tasks: BackgroundTasks,
         files: list[UploadFile] = File(...),
         relative_paths: list[str] = Form(default=[]),
+        directory_paths: list[str] = Form(default=[]),
     ) -> dict[str, Any]:
         if not files:
             raise HTTPException(status_code=400, detail="No files uploaded")
 
         job_id = uuid4().hex
         file_records: list[dict[str, Any]] = []
+        package_directory_paths: set[str] = set(directory_paths)
+        package_upload_detected = bool(package_directory_paths)
+        package_inventory_payload: dict[str, Any] | None = None
         created_at = _utc_now()
         logger.info("Upload request received. job_id=%s, files=%s", job_id, len(files))
 
@@ -8552,15 +12787,45 @@ def create_app() -> FastAPI:
             filename = incoming_file.filename or "uploaded_file"
             relative_path = str(relative_paths[index] if index < len(relative_paths) else filename).strip() or filename
             suffix = Path(filename).suffix.lower()
-            if suffix not in ALLOWED_EXTENSIONS:
+            if suffix not in ALLOWED_EXTENSIONS and not is_directory_upload_path(relative_path, filename):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Unsupported file type: {suffix}. Allowed: {sorted(ALLOWED_EXTENSIONS)}",
                 )
 
             file_id = uuid4().hex
+            payload = await incoming_file.read()
+            if suffix == ".zip":
+                package_upload_detected = True
+                extracted_root = UPLOAD_DIR / f"{file_id}_package"
+                try:
+                    extracted_records, package_inventory = records_from_zip_bytes(payload, output_root=extracted_root)
+                    package_directory_paths.update(package_inventory.get("directory_paths") or [])
+                    package_inventory_payload = package_inventory
+                except (OSError, ValueError, zipfile.BadZipFile) as exc:
+                    raise HTTPException(status_code=400, detail=f"Invalid eCTD ZIP package: {exc}") from exc
+                for extracted in extracted_records:
+                    extracted_file_id = uuid4().hex
+                    extracted_path = Path(extracted["path"])
+                    with STORE_LOCK:
+                        FILE_STORE[extracted_file_id] = extracted_path
+                    file_records.append({
+                        "file_id": extracted_file_id,
+                        "filename": extracted_path.name,
+                        "relative_path": extracted["relative_path"],
+                        "suffix": extracted_path.suffix.lower(),
+                        "path": str(extracted_path),
+                        "status": "queued",
+                        "message": "Queued from ZIP package",
+                        "progress": 0,
+                        "document_parse": extracted_path.suffix.lower() in ALLOWED_EXTENSIONS,
+                    })
+                continue
             target_path = UPLOAD_DIR / f"{file_id}_{_safe_filename(filename)}"
-            target_path.write_bytes(await incoming_file.read())
+            target_path.write_bytes(payload)
+
+            if is_directory_upload_path(relative_path, filename):
+                package_upload_detected = True
 
             with STORE_LOCK:
                 FILE_STORE[file_id] = target_path
@@ -8575,8 +12840,23 @@ def create_app() -> FastAPI:
                     "status": "queued",
                     "message": "Queued",
                     "progress": 0,
+                    "document_parse": suffix in ALLOWED_EXTENSIONS,
                 }
             )
+
+        if package_upload_detected and file_records and (
+            package_inventory_payload is None or package_inventory_payload.get("source_kind") != "zip"
+        ):
+            package_inventory_payload = build_package_inventory(
+                PROJECT_ROOT,
+                file_records=file_records,
+                explicit_directory_paths=sorted(package_directory_paths),
+            )
+            if package_inventory_payload.get("source_kind") != "zip" and package_inventory_payload is not None:
+                package_inventory_payload["source_kind"] = "folder" if any(
+                    is_directory_upload_path(item.get("relative_path"), item.get("filename"))
+                    for item in file_records
+                ) else "batch"
 
         upload_scope_overview = build_upload_scope_overview(file_records)
         job_record = {
@@ -8592,6 +12872,13 @@ def create_app() -> FastAPI:
             "parsed_documents": [],
             "workbench": None,
             "consistency_rows": [],
+            "package_directory_paths": sorted(package_directory_paths),
+            "package_inventory": package_inventory_payload,
+            "package_source_kind": (
+                str(package_inventory_payload.get("source_kind") or "")
+                if package_inventory_payload
+                else None
+            ),
         }
         with STORE_LOCK:
             JOB_STORE[job_id] = job_record
@@ -8605,6 +12892,7 @@ def create_app() -> FastAPI:
             "created_at": created_at,
             "updated_at": created_at,
             "upload_scope_overview": upload_scope_overview,
+            "package_inventory": package_inventory_payload,
             "files": [
                 {
                     "file_id": file_item["file_id"],
@@ -8632,6 +12920,7 @@ def create_app() -> FastAPI:
                 "created_at": job["created_at"],
                 "updated_at": job["updated_at"],
                 "upload_scope_overview": dict(job.get("upload_scope_overview", {}) or {}),
+                "package_inventory": job.get("package_inventory"),
                 "demo_sample": dict(job.get("demo_sample", {}) or {}) or None,
                 "files": [
                     {

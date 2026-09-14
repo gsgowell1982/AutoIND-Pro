@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ind-compliance-ai.local/schemas/ectd/ectd_pdf_presentation_contract.schema.json",
+  "title": "eCTD PDF presentation contract",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "scope",
+    "source_references",
+    "deterministic_checks",
+    "chinese_regional_requirements",
+    "ich_recommendations",
+    "automation_boundary"
+  ],
+  "properties": {
+    "schema_version": { "const": "ectd-pdf-presentation-contract-v1" },
+    "scope": { "const": "pdf_material_presentation_and_navigation" },
+    "source_references": { "type": "object", "minProperties": 3 },
+    "deterministic_checks": { "type": "object" },
+    "chinese_regional_requirements": { "type": "object" },
+    "ich_recommendations": { "type": "object" },
+    "automation_boundary": {
+      "type": "object",
+      "required": ["deterministic", "manual_review", "manual_review_status"],
+      "properties": {
+        "deterministic": { "type": "array", "items": { "type": "string" } },
+        "manual_review": { "type": "array", "items": { "type": "string" } },
+        "manual_review_status": { "const": "review_required" }
+      }
+    }
+  },
+  "additionalProperties": true
+}

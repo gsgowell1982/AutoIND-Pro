@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ectd:ectd xmlns:ectd="http://www.ich.org/ectd" xmlns:xlink="http://www.w3c.org/1999/xlink" dtd-version="3.2" xlink:xlink="http://www.w3c.org/1999/xlink">
+  <ectd:m2-common-technical-document-summaries>
+    <ectd:m3-2-s-drug-substance substance="API-A" manufacturer="MFR-Y">
+      <ectd:leaf ID="s001" operation="delete" checksum="abc123" checksum-type="md5" modified-file="s001">
+        <ectd:title>质量标准.pdf</ectd:title>
+      </ectd:leaf>
+      <ectd:leaf ID="s004" operation="new" checksum="abc123" checksum-type="md5" xlink:href="m3/32s/spec-new.pdf">
+        <ectd:title>质量标准-更新.pdf</ectd:title>
+      </ectd:leaf>
+    </ectd:m3-2-s-drug-substance>
+  </ectd:m2-common-technical-document-summaries>
+</ectd:ectd>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<m3-quality xmlns:xlink="http://www.w3.org/1999/xlink">
+  <m3-2-body-of-data>
+    <m3-2-r-regional-information>
+      <node-extension>
+        <title>3.2.R.1工艺验证</title>
+        <leaf ID="Nfe004c7c5faa4988ba8b347e2e731d6d" operation="new" xlink:type="simple" xlink:href="m3/32-body-data/32r-reg-info/cn32r1/pro-val.pdf" checksum="8276007158343bb5a3e3bad475134b34" checksum-type="MD5">
+          <title>工艺验证</title>
+        </leaf>
+      </node-extension>
+      <node-extension>
+        <title>3.2.R.2批记录</title>
+        <leaf ID="N9ce6108f0d2e4d64abfa5f6c451b6f91" operation="new" xlink:type="simple" xlink:href="m3/32-body-data/32r-reg-info/cn32r2/batch-record.pdf" checksum="8276007158343bb5a3e3bad475134b34" checksum-type="MD5">
+          <title>批记录</title>
+        </leaf>
+      </node-extension>
+    </m3-2-r-regional-information>
+  </m3-2-body-of-data>
+</m3-quality>

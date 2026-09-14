@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ind-compliance-ai.local/schemas/ectd/ectd-semantic-rule-contract.schema.json",
+  "title": "eCTD Semantic Controlled Vocabulary Rule Contract",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "vocabularies",
+    "field_bindings",
+    "application_prefix_mapping",
+    "type_compatibility"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "ectd-semantic-rule-contract-v1" },
+    "bundle_id": { "type": "string", "const": "cn_ectd_attachment_1_2" },
+    "bundle_version": { "type": "string" },
+    "vocabularies": {
+      "type": "object",
+      "required": ["application-type", "product-type", "regulatory-activity-type", "sequence-type"],
+      "additionalProperties": {
+        "type": "object",
+        "required": ["vocabulary_name", "code_count", "codes", "entries"],
+        "properties": {
+          "vocabulary_name": { "type": "string" },
+          "version": { "type": "string" },
+          "valid_from": { "type": "string" },
+          "valid_to": { "type": "string" },
+          "code_count": { "type": "integer", "minimum": 0 },
+          "codes": { "type": "array", "items": { "type": "string" } },
+          "entries": { "type": "array", "items": { "type": "object" } },
+          "source_path": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "field_bindings": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["vocabulary_name", "requirement_id", "source_clause_id", "xml_locations", "evidence_sources"],
+        "properties": {
+          "vocabulary_name": { "type": "string" },
+          "requirement_id": { "type": "string" },
+          "source_clause_id": { "type": "string" },
+          "xml_locations": { "type": "array", "items": { "type": "string" } },
+          "evidence_sources": { "type": "array", "items": { "type": "string" } },
+          "required": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "application_prefix_mapping": {
+      "type": "object",
+      "required": ["x", "y", "l"],
+      "properties": {
+        "x": { "$ref": "#/$defs/applicationPrefixMapping" },
+        "y": { "$ref": "#/$defs/applicationPrefixMapping" },
+        "l": { "$ref": "#/$defs/applicationPrefixMapping" }
+      },
+      "additionalProperties": false
+    },
+    "type_compatibility": {
+      "type": "object",
+      "required": ["matrix_name", "row_count", "rows"],
+      "properties": {
+        "matrix_name": { "type": "string" },
+        "version": { "type": "string" },
+        "row_count": { "type": "integer", "minimum": 0 },
+        "source_path": { "type": "string" },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["application_type", "regulatory_activity_type", "sequence_type"],
+            "properties": {
+              "application_type": { "type": "string" },
+              "regulatory_activity_type": { "type": "string" },
+              "sequence_type": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "applicationPrefixMapping": {
+      "type": "object",
+      "required": ["application_type_code", "category"],
+      "properties": {
+        "application_type_code": { "type": "string", "pattern": "^cnapt[1-3]$" },
+        "category": { "type": "string", "enum": ["new_drug_application", "generic_drug_application", "clinical_trial_application"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -16,12 +16,13 @@ const client = axios.create({
   timeout: 60000,
 })
 
-export async function uploadFiles(files: File[]): Promise<UploadJobResponse> {
+export async function uploadFiles(files: File[], directoryPaths: string[] = []): Promise<UploadJobResponse> {
   const formData = new FormData()
   files.forEach((file) => {
     formData.append('files', file)
     formData.append('relative_paths', (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name)
   })
+  directoryPaths.forEach((path) => formData.append('directory_paths', path))
   // Let browser set multipart boundary automatically.
   const { data } = await client.post<UploadJobResponse>('/api/v1/uploads', formData)
   return data

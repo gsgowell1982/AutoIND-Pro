@@ -1088,6 +1088,42 @@ def _build_merged_row_metadata(grid: list[list[str | None]]) -> list[dict[str, A
     return merged_rows
 
 
+def _display_row_ref(table_id: str, row_number: int) -> str:
+    return f"{table_id}:display_row:{row_number}"
+
+
+def _attach_display_row_provenance(table: dict[str, Any]) -> None:
+    rows = [
+        row
+        for row in table.get("display_grid", []) or []
+        if isinstance(row, list)
+    ]
+    table_id = str(table.get("table_id") or table.get("block_id") or "table").strip()
+    provenance = [
+        {
+            "row_ref": _display_row_ref(table_id, row_number),
+            "source_grid": "display_grid",
+            "source_row_number": row_number,
+            "signature": _row_signature(row),
+        }
+        for row_number, row in enumerate(rows, start=1)
+    ]
+    table["display_row_provenance"] = provenance
+    by_number = {item["source_row_number"]: item for item in provenance}
+    for merged_row in table.get("merged_rows", []) or []:
+        if not isinstance(merged_row, dict):
+            continue
+        try:
+            row_number = int(merged_row.get("row", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        source = by_number.get(row_number)
+        if source is None:
+            continue
+        merged_row["source_grid"] = "display_grid"
+        merged_row["source_row_ref"] = source["row_ref"]
+
+
 def _is_table_note_title_row(grid: list[list[str | None]], row_index: int) -> bool:
     row = grid[row_index] if 0 <= row_index < len(grid) else []
     if len(row) < 2:
@@ -1656,6 +1692,10 @@ def extract_trailing_table_note_rows(table: dict[str, Any]) -> bool:
             raw_grid = raw_grid[:-1]
             continue
         col_idx, note_text = non_empty[0]
+        if col_idx <= 1 and _is_explicit_trailing_table_note_label(note_text):
+            extracted.append((len(raw_grid) - 1, note_text))
+            raw_grid = raw_grid[:-1]
+            continue
         marker = _table_note_row_marker(note_text)
         if marker:
             if col_idx > 1:
@@ -1685,6 +1725,17 @@ def extract_trailing_table_note_rows(table: dict[str, Any]) -> bool:
     table["grid"] = _clone_grid_rows(raw_grid)
     table["trailing_note_rows_extracted"] = True
     table_id = str(table.get("table_id") or "table").strip() or "table"
+    try:
+        physical_page = int(table.get("page", 0) or 0)
+    except (TypeError, ValueError):
+        physical_page = 0
+    table_bbox = table.get("bbox")
+    try:
+        source_order_x = float(table_bbox[0]) if len(table_bbox) >= 4 else None
+        source_order_y = float(table_bbox[3]) if len(table_bbox) >= 4 else None
+    except (TypeError, ValueError):
+        source_order_x = None
+        source_order_y = None
     existing_notes = [dict(item) for item in table.get("note_blocks", []) or [] if isinstance(item, dict)]
     seen_texts = {_semantic_cell_text(note.get("text")) for note in existing_notes}
     for row_idx, note_text in extracted:
@@ -1697,11 +1748,28 @@ def extract_trailing_table_note_rows(table: dict[str, Any]) -> bool:
                 "relation": "below",
                 "source": "trailing_table_note_row",
                 "source_block_id": f"{table_id}:trailing_note_row_{row_idx}",
+                "source_grid": "raw_grid",
+                "source_row_number": row_idx + 1,
+                "source_row_ref": f"{table_id}:raw_row:{row_idx + 1}",
+                "physical_page": physical_page,
+                **(
+                    {
+                        "source_order_x": source_order_x,
+                        "source_order_y": source_order_y,
+                    }
+                    if source_order_x is not None and source_order_y is not None
+                    else {}
+                ),
             }
         )
         seen_texts.add(_semantic_cell_text(note_text))
     table["note_blocks"] = existing_notes
     return True
+
+
+def _is_explicit_trailing_table_note_label(text: str) -> bool:
+    cleaned = _semantic_cell_text(text)
+    return bool(cleaned and re.fullmatch(r"(?:附加信息|备注|注释|说明)\s*[:：]?", cleaned))
 
 
 def _looks_like_trailing_explanatory_table_note_row(
@@ -2352,6 +2420,7 @@ def _restore_header_grammar_display_rows(
     table["display_grid"] = _trim_trailing_empty_columns(display_grid)
     table["display_row_texts"] = _render_row_texts(table["display_grid"])
     table["display_row_count"] = len(table["display_grid"])
+    _attach_display_row_provenance(table)
 
 
 def _looks_like_table_header_grammar_rows(
@@ -3046,6 +3115,7 @@ def _refresh_row_texts_from_grid(table: dict[str, Any]) -> None:
         table["merged_rows"] = merged_rows
     else:
         table.pop("merged_rows", None)
+    _attach_display_row_provenance(table)
     if structural_empty_rows:
         table["structural_empty_rows"] = structural_empty_rows
     else:
@@ -3232,6 +3302,7 @@ def project_simple_schema_header_data_views(table: dict[str, Any]) -> None:
     table["row_count"] = len(display_rows)
     table["data_row_count"] = len(display_rows)
     table["logical_row_count"] = len(display_rows)
+    _attach_display_row_provenance(table)
 
 
 def _raw_row_texts_with_external_title(
@@ -3959,6 +4030,7 @@ def _sync_display_grid_after_sparse_wrapped_content_compaction(
     table["display_row_texts"] = _render_row_texts(table["display_grid"])
     table["display_row_count"] = len(table["display_grid"])
     table["grid"] = _clone_grid_rows(table.get("data_grid") or table.get("grid") or [])
+    _attach_display_row_provenance(table)
 
 
 def _write_semantic_grid(table: dict[str, Any], semantic_grid: list[list[str | None]]) -> None:
@@ -4007,6 +4079,7 @@ def _write_semantic_projection(
     signature = _build_column_signature(len(normalized_header))
     table["column_signature"] = signature
     table["column_hash"] = _compute_column_hash(signature)
+    _attach_display_row_provenance(table)
 
 
 def _is_generic_column_header(text: str) -> bool:

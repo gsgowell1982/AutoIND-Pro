@@ -7,6 +7,1025 @@ import unittest
 
 
 class ParseMarkdownExportTests(unittest.TestCase):
+    def test_evidence_markdown_renders_header_only_canonical_spans_as_html(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        table = {
+            "block_type": "table",
+            "table_id": "tbl_dose_sex_header",
+            "semantic_grid": [
+                ["日剂量(mg/kg)", "0 M", "0 F", "10 M", "10 F"],
+                ["动物数量", "M:3", "F:3", "M:3", "F:3"],
+            ],
+            "display_grid": [
+                ["日剂量(mg/kg)", "0 M", "0 F", "10 M", "10 F"],
+                ["动物数量", "M:3", "F:3", "M:3", "F:3"],
+            ],
+            "cell_spans": [
+                {"role": "header", "row": 0, "col": 0, "rowspan": 2, "colspan": 1, "text": "日剂量(mg/kg)"},
+                {"role": "header", "row": 0, "col": 1, "rowspan": 1, "colspan": 2, "text": "0"},
+                {"role": "header", "row": 0, "col": 3, "rowspan": 1, "colspan": 2, "text": "10"},
+            ],
+        }
+
+        lines: list[str] = []
+        api_main._append_markdown_table(
+            lines,
+            table,
+            table_export_mode="evidence_markdown",
+        )
+        markdown = "\n".join(lines)
+
+        self.assertIn("<table>", markdown)
+        self.assertIn('<th rowspan="2">日剂量(mg/kg)</th>', markdown)
+        self.assertIn('<th colspan="2">0</th>', markdown)
+        self.assertIn('<th colspan="2">10</th>', markdown)
+        self.assertIn("<th>M</th>", markdown)
+        self.assertIn("<th>F</th>", markdown)
+
+    def test_canonical_three_level_header_materialization_preserves_leaf_columns(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        table = {
+            "block_type": "table",
+            "table_id": "tbl_three_level_header",
+            "semantic_grid": [
+                ["日剂量(mg/kg)", "M", "F", "M", "F", "犬"],
+                ["1", "-", "-", "2", "3", "4"],
+            ],
+            "cell_spans": [
+                {"role": "header", "row": 0, "col": 1, "rowspan": 1, "colspan": 4, "text": "稳态AUC"},
+                {"role": "header", "row": 1, "col": 1, "rowspan": 1, "colspan": 2, "text": "小鼠"},
+                {"role": "header", "row": 1, "col": 3, "rowspan": 1, "colspan": 2, "text": "大鼠"},
+            ],
+        }
+
+        projected = api_main._project_markdown_visible_semantic_grid(
+            table,
+            table["semantic_grid"],
+        )
+        self.assertEqual(
+            projected[:3],
+            [
+                ["", "稳态AUC", "", "", "", ""],
+                ["", "小鼠", "", "大鼠", "", ""],
+                ["日剂量(mg/kg)", "M", "F", "M", "F", "犬"],
+            ],
+        )
+
+        rendered_table = api_main._markdown_table_with_projected_presentation_surface(
+            table,
+            projected,
+        )
+        html = api_main._build_semantic_html_table(rendered_table)
+        self.assertIn('<th colspan="4">稳态AUC</th>', html)
+        self.assertIn('<th colspan="2">小鼠</th>', html)
+        self.assertIn('<th colspan="2">大鼠</th>', html)
+        self.assertIn("<th>犬</th>", html)
+
+    def test_semantic_html_prefers_canonical_cell_spans_over_legacy_spans(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        table = {
+            "semantic_grid": [
+                ["Group", "Results", "", ""],
+                ["", "A", "B", "C"],
+                ["X", "1", "2", "3"],
+                ["X", "4", "5", "6"],
+            ],
+            "cell_spans": [
+                {
+                    "role": "header",
+                    "coordinate_space": "semantic_grid",
+                    "row": 0,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "Group",
+                },
+                {
+                    "role": "header",
+                    "coordinate_space": "semantic_grid",
+                    "row": 0,
+                    "col": 1,
+                    "rowspan": 1,
+                    "colspan": 3,
+                    "text": "Results",
+                },
+                {
+                    "role": "body",
+                    "coordinate_space": "semantic_grid",
+                    "row": 2,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "X",
+                },
+            ],
+            "logical_cells": [
+                {
+                    "row": 0,
+                    "col": 1,
+                    "rowspan": 1,
+                    "colspan": 2,
+                    "text": "Results",
+                    "source": "legacy_wrong_header",
+                }
+            ],
+        }
+
+        html = api_main._build_semantic_html_table(table)
+
+        self.assertIsNotNone(html)
+        self.assertIn('<th rowspan="2">Group</th>', html)
+        self.assertIn('<th colspan="3">Results</th>', html)
+        self.assertNotIn('<th colspan="2">Results</th>', html)
+        self.assertIn('<td rowspan="2">X</td>', html)
+        self.assertEqual(html.count(">Group</th>"), 1)
+        self.assertEqual(html.count(">Results</th>"), 1)
+        self.assertEqual(html.count(">X</td>"), 1)
+
+    def test_ind_review_renders_source_backed_body_rowspan_without_mutating_semantic_rows(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        semantic_grid = [
+            ["Group", "Value"],
+            ["A", "1"],
+            ["A", "2"],
+        ]
+        table = {
+            "block_type": "table",
+            "block_id": "tbl_grouped",
+            "table_id": "tbl_grouped",
+            "semantic_role": "business_table",
+            "page": 1,
+            "data_start_row": 3,
+            "semantic_grid": [list(row) for row in semantic_grid],
+            "display_grid": [list(row) for row in semantic_grid],
+            "raw_grid": [list(row) for row in semantic_grid],
+            "presentation_spans": [
+                {
+                    "row": 1,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "A",
+                    "source": "source_body_row_group_presentation_projection",
+                }
+            ],
+            "semantic_projection_v2": {
+                "toxicology_summary_schema_projection": {
+                    "semantic_profile": "toxicology_summary_schema_table",
+                }
+            },
+        }
+        document = {
+            "filename": "source-rowspan.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {"pages": [{"page": 1, "blocks": [dict(table)]}]},
+            "table_asts": [dict(table)],
+        }
+
+        markdown = api_main._build_full_markdown([document], markdown_profile="ind-review")
+
+        self.assertIn('<td rowspan="2">A</td>', markdown)
+        self.assertNotIn("| A | 1 |", markdown)
+        self.assertEqual(table["semantic_grid"], semantic_grid)
+
+    def test_ind_review_keeps_source_repeated_values_without_presentation_span(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        table = {
+            "block_type": "table",
+            "block_id": "tbl_repeated",
+            "table_id": "tbl_repeated",
+            "semantic_role": "business_table",
+            "page": 1,
+            "semantic_grid": [["Group", "Value"], ["A", "1"], ["A", "2"]],
+            "display_grid": [["Group", "Value"], ["A", "1"], ["A", "2"]],
+            "raw_grid": [["Group", "Value"], ["A", "1"], ["A", "2"]],
+        }
+        document = {
+            "filename": "source-repeated.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {"pages": [{"page": 1, "blocks": [dict(table)]}]},
+            "table_asts": [dict(table)],
+        }
+
+        markdown = api_main._build_full_markdown([document], markdown_profile="ind-review")
+
+        self.assertEqual(markdown.count("| A |"), 2)
+        self.assertNotIn("rowspan=", markdown)
+
+    def test_ind_review_ignores_stale_data_start_for_study_metric_projection(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        semantic_grid = [
+            ["Batch", "Impurity", "Impurity", "Study"],
+            ["", "A", "B", ""],
+            ["LOT-1", "0.1", "0.2", "S-1"],
+            ["LOT-1", "", "", "S-2"],
+        ]
+        table = {
+            "block_type": "table",
+            "block_id": "tbl_metric",
+            "table_id": "tbl_metric",
+            "semantic_role": "business_table",
+            "page": 1,
+            "data_start_row": 6,
+            "semantic_grid": [list(row) for row in semantic_grid],
+            "display_grid": [list(row) for row in semantic_grid],
+            "raw_grid": [list(row) for row in semantic_grid],
+            "presentation_spans": [
+                {
+                    "row": 2,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "LOT-1",
+                    "source": "source_body_row_group_presentation_projection",
+                }
+            ],
+            "semantic_projection_v2": {
+                "study_metric_grouped_matrix_projection": {
+                    "semantic_profile": "study_metric_grouped_matrix",
+                }
+            },
+        }
+        document = {
+            "filename": "study-metric.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {"pages": [{"page": 1, "blocks": [dict(table)]}]},
+            "table_asts": [dict(table)],
+        }
+
+        markdown = api_main._build_full_markdown([document], markdown_profile="ind-review")
+
+        self.assertIn('<td rowspan="2">LOT-1</td>', markdown)
+        self.assertNotIn('<th rowspan="2">LOT-1</th>', markdown)
+
+    def test_continued_table_chain_extends_trailing_span_over_inherited_omitted_prefix(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        root = {
+            "table_id": "tbl_root",
+            "semantic_grid": [["Group", "Value"], ["A", "1"], ["A", "2"]],
+            "semantic_row_provenance": [
+                {"source_row_refs": ["tbl_root:display_row:1"]},
+                {"source_row_refs": ["tbl_root:display_row:2"]},
+                {"source_row_refs": ["tbl_root:display_row:3"]},
+            ],
+            "display_grid": [["Group", "Value"], ["A", "1"], [None, "2"]],
+            "presentation_spans": [
+                {
+                    "row": 1,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "A",
+                    "source": "source_body_row_group_presentation_projection",
+                }
+            ],
+            "semantic_projection_v2": {
+                "genotoxicity_assay_matrix_projection": {
+                    "semantic_profile": "genotoxicity_assay_matrix",
+                    "assay_kind": "example_matrix",
+                }
+            },
+        }
+        continuation = {
+            "table_id": "tbl_continuation",
+            "continued_from_table_id": "tbl_root",
+            "semantic_grid": [["Group", "Value"], ["A", "3"], ["A", "4"], ["B", "5"]],
+            "semantic_row_provenance": [
+                {"source_row_refs": []},
+                {"source_row_refs": ["tbl_continuation:display_row:1"]},
+                {"source_row_refs": ["tbl_continuation:display_row:2"]},
+                {"source_row_refs": ["tbl_continuation:display_row:3"]},
+            ],
+            "display_grid": [["3"], ["4"], ["B", "5"]],
+            "semantic_projection_v2": {
+                "genotoxicity_assay_matrix_projection": {
+                    "semantic_profile": "genotoxicity_assay_matrix",
+                    "assay_kind": "example_matrix",
+                    "continuation_schema_inherited": True,
+                }
+            },
+        }
+
+        merged = api_main._merge_continued_table_chain([root, continuation])
+
+        self.assertEqual(
+            merged.get("presentation_spans"),
+            [
+                {
+                    "row": 1,
+                    "col": 0,
+                    "rowspan": 4,
+                    "colspan": 1,
+                    "text": "A",
+                    "source": "source_body_row_group_presentation_projection",
+                }
+            ],
+        )
+        self.assertEqual(
+            [item.get("source_row_refs") for item in merged.get("semantic_row_provenance", [])],
+            [
+                ["tbl_root:display_row:1"],
+                ["tbl_root:display_row:2"],
+                ["tbl_root:display_row:3"],
+                ["tbl_continuation:display_row:1"],
+                ["tbl_continuation:display_row:2"],
+                ["tbl_continuation:display_row:3"],
+            ],
+        )
+
+    def test_continued_table_chain_extends_canonical_body_span(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        root = {
+            "table_id": "tbl_root",
+            "page": 102,
+            "semantic_grid": [["Group", "Value"], ["A", "1"], ["A", "2"]],
+            "display_grid": [["Group", "Value"], ["A", "1"], [None, "2"]],
+            "presentation_spans": [
+                {
+                    "row": 1,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "A",
+                    "source": "source_body_row_group_presentation_projection",
+                }
+            ],
+            "cell_spans": [
+                {
+                    "span_id": "tbl_root:cell_span:1",
+                    "role": "body",
+                    "coordinate_space": "semantic_grid",
+                    "row": 1,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "A",
+                    "source_pages": [102],
+                    "source_table_ids": ["tbl_root"],
+                    "source_cell_refs": ["tbl_root:display_row:2", "tbl_root:display_row:3"],
+                    "span_group_id": "tbl_root:body_group:0:1:2",
+                    "evidence": "source_body_row_group_presentation_projection",
+                    "confidence": 0.94,
+                }
+            ],
+            "semantic_projection_v2": {
+                "genotoxicity_assay_matrix_projection": {
+                    "semantic_profile": "genotoxicity_assay_matrix",
+                    "assay_kind": "example_matrix",
+                }
+            },
+        }
+        continuation = {
+            "table_id": "tbl_continuation",
+            "page": 103,
+            "continued_from_table_id": "tbl_root",
+            "semantic_grid": [["Group", "Value"], ["A", "3"], ["A", "4"], ["B", "5"]],
+            "display_grid": [["3"], ["4"], ["B", "5"]],
+            "semantic_projection_v2": {
+                "genotoxicity_assay_matrix_projection": {
+                    "semantic_profile": "genotoxicity_assay_matrix",
+                    "assay_kind": "example_matrix",
+                    "continuation_schema_inherited": True,
+                }
+            },
+        }
+
+        merged = api_main._merge_continued_table_chain([root, continuation])
+
+        body_spans = [
+            span
+            for span in merged.get("cell_spans", []) or []
+            if isinstance(span, dict) and span.get("role") == "body"
+        ]
+        self.assertEqual(len(body_spans), 1)
+        span = body_spans[0]
+        self.assertEqual(
+            (span["coordinate_space"], span["row"], span["col"], span["rowspan"], span["colspan"]),
+            ("logical_table_chain", 1, 0, 4, 1),
+        )
+        self.assertEqual(span["source_pages"], [102, 103])
+        self.assertEqual(span["source_table_ids"], ["tbl_root", "tbl_continuation"])
+        self.assertEqual(span["span_group_id"], "tbl_root:body_group:0:1:2")
+
+    def test_continued_table_chain_drops_complete_inherited_multilevel_header_prefix(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        header = [
+            "代谢活化",
+            "供试品",
+            "浓度(µg/ml)",
+            "细胞毒性a(%对照)",
+            "平均细胞畸变率%",
+            "Abs/细胞",
+            "多倍体细胞总数",
+        ]
+        span = {
+            "row": 0,
+            "col": 3,
+            "rowspan": 1,
+            "colspan": 4,
+            "text": "细胞毒性a",
+            "source": "genotoxicity_multilevel_header_projection",
+        }
+        root = {
+            "table_id": "tbl_root",
+            "semantic_grid": [
+                header,
+                ["无代谢活化", "DMSO", "-", "100", "2.0", "0.02", "4"],
+            ],
+            "span_header_cells": [span],
+            "semantic_projection_v2": {
+                "genotoxicity_assay_matrix_projection": {
+                    "semantic_profile": "genotoxicity_assay_matrix",
+                    "assay_kind": "chromosomal_aberration_matrix",
+                    "span_header_cells": [span],
+                }
+            },
+        }
+        continuation = {
+            "table_id": "tbl_continuation",
+            "continued_from_table_id": "tbl_root",
+            "semantic_grid": [
+                header,
+                ["有代谢活化", "环磷酰胺", "4", "68", "36.5**", "0.63", "6"],
+            ],
+            "span_header_cells": [{**span, "inherited_from_table_id": "tbl_root"}],
+            "semantic_projection_v2": {
+                "genotoxicity_assay_matrix_projection": {
+                    "semantic_profile": "genotoxicity_assay_matrix",
+                    "assay_kind": "chromosomal_aberration_matrix",
+                    "continuation_schema_inherited": True,
+                    "span_header_cells": [{**span, "inherited_from_table_id": "tbl_root"}],
+                }
+            },
+        }
+
+        merged = api_main._merge_continued_table_chain([root, continuation])
+
+        self.assertEqual(
+            merged.get("semantic_grid"),
+            [
+                ["代谢活化", "供试品", "浓度(µg/ml)", "细胞毒性a", "细胞毒性a", "细胞毒性a", "细胞毒性a"],
+                header,
+                ["无代谢活化", "DMSO", "-", "100", "2.0", "0.02", "4"],
+                ["有代谢活化", "环磷酰胺", "4", "68", "36.5**", "0.63", "6"],
+            ],
+        )
+
+    def test_dose_response_header_projection_preserves_merged_row_source_alignment(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        table = {
+            "block_type": "table",
+            "block_id": "tbl_001",
+            "table_id": "tbl_001",
+            "semantic_role": "business_table",
+            "page": 1,
+            "semantic_grid": [
+                ["日剂量(mg/kg)", "0 M", "0 F", "200 M", "200 F"],
+                ["动物数量", "M:30", "F:30", "M:20", "F:20"],
+                ["附加检查", "-", "-", "-", "-"],
+                ["给药后评价：", "", "", "", ""],
+                ["评价数量", "10", "10", "0", "0"],
+            ],
+            "merged_rows": [
+                {
+                    "row": 4,
+                    "kind": "table_note_title",
+                    "text": "给药后评价：",
+                    "colspan": 5,
+                    "source": "single_leading_title_cell_with_following_tabular_rows",
+                }
+            ],
+            "semantic_projection_v2": {
+                "source": "table_semantic_projection_v2",
+                "dose_response_result_panel_projection": {
+                    "semantic_profile": "dose_response_result_panel",
+                    "has_sex_leaf_columns": True,
+                    "source_has_explicit_sex_header_row": False,
+                },
+            },
+        }
+        document = {
+            "filename": "dose-response-merged-row.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {"pages": [{"page": 1, "blocks": [dict(table)]}]},
+            "table_asts": [dict(table)],
+        }
+
+        markdown = api_main._build_full_markdown([document], markdown_profile="ind-review")
+
+        self.assertIn("| 日剂量(mg/kg) | 0 | 0 | 200 | 200 |", markdown)
+        self.assertNotIn("| 性别 | M | F | M | F |", markdown)
+        self.assertIn("| 附加检查 | - | - | - | - |", markdown)
+        self.assertIn("**给药后评价：**", markdown)
+        self.assertNotIn("| 给药后评价： |  |  |  |  |", markdown)
+
+    def test_dose_response_header_projection_keeps_source_backed_sex_row(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        rows = [
+            ["日剂量(mg/kg)", "0 M", "0 F", "200 M", "200 F"],
+            ["动物数量", "M:30", "F:30", "M:20", "F:20"],
+        ]
+        block = {
+            "semantic_projection_v2": {
+                "source": "table_semantic_projection_v2",
+                "dose_response_result_panel_projection": {
+                    "semantic_profile": "dose_response_result_panel",
+                    "has_sex_leaf_columns": True,
+                    "source_has_explicit_sex_header_row": True,
+                },
+            }
+        }
+
+        self.assertEqual(
+            api_main._project_markdown_visible_semantic_grid(block, rows)[:2],
+            [
+                ["日剂量(mg/kg)", "0", "0", "200", "200"],
+                ["性别", "M", "F", "M", "F"],
+            ],
+        )
+
+    def test_source_backed_projected_header_rebases_merged_row_coordinates(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        table = {
+            "block_type": "table",
+            "block_id": "tbl_001",
+            "table_id": "tbl_001",
+            "semantic_role": "business_table",
+            "page": 1,
+            "semantic_grid": [
+                ["日剂量(mg/kg)", "0 M", "0 F", "200 M", "200 F"],
+                ["动物数量", "M:30", "F:30", "M:20", "F:20"],
+                ["附加检查", "-", "-", "-", "-"],
+                ["给药后评价：", "", "", "", ""],
+                ["评价数量", "10", "10", "0", "0"],
+            ],
+            "merged_rows": [
+                {
+                    "row": 4,
+                    "kind": "table_note_title",
+                    "text": "给药后评价：",
+                    "colspan": 5,
+                    "source": "single_leading_title_cell_with_following_tabular_rows",
+                }
+            ],
+            "semantic_projection_v2": {
+                "source": "table_semantic_projection_v2",
+                "dose_response_result_panel_projection": {
+                    "semantic_profile": "dose_response_result_panel",
+                    "has_sex_leaf_columns": True,
+                    "source_has_explicit_sex_header_row": True,
+                },
+            },
+        }
+        document = {
+            "filename": "source-backed-sex-header.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {"pages": [{"page": 1, "blocks": [dict(table)]}]},
+            "table_asts": [dict(table)],
+        }
+
+        markdown = api_main._build_full_markdown([document], markdown_profile="ind-review")
+
+        self.assertIn("| 性别 | M | F | M | F |", markdown)
+        self.assertIn("| 附加检查 | - | - | - | - |", markdown)
+        self.assertIn("**给药后评价：**", markdown)
+        self.assertNotIn("| 给药后评价： |  |  |  |  |", markdown)
+
+    def test_source_backed_sex_header_keeps_structural_and_first_data_rows(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        table = {
+            "block_type": "table",
+            "block_id": "tbl_lineage",
+            "table_id": "tbl_lineage",
+            "semantic_role": "business_table",
+            "page": 1,
+            "display_grid": [
+                ["Dose", "0", "", "25", ""],
+                ["Sex", "M", "F", "M", "F"],
+                ["Toxicokinetics:", "", "", "", ""],
+                ["Day 28", "AUC", "10", "12", "14"],
+                ["Day 180 Css", "0.4", "0.5", "1.7", "0.3"],
+            ],
+            "semantic_grid": [
+                ["Dose", "0 M", "0 F", "25 M", "25 F"],
+                ["Toxicokinetics:", "", "", "", ""],
+                ["Day 28 AUC", "10", "12", "14", ""],
+                ["Day 180 Css", "0.4", "0.5", "1.7", "0.3"],
+            ],
+            "semantic_row_provenance": [
+                {
+                    "source_row_refs": [
+                        "tbl_lineage:display_row:1",
+                        "tbl_lineage:display_row:2",
+                    ]
+                },
+                {"source_row_refs": ["tbl_lineage:display_row:3"]},
+                {"source_row_refs": ["tbl_lineage:display_row:4"]},
+                {"source_row_refs": ["tbl_lineage:display_row:5"]},
+            ],
+            "merged_rows": [
+                {
+                    "row": 3,
+                    "source_grid": "display_grid",
+                    "source_row_ref": "tbl_lineage:display_row:3",
+                    "kind": "table_note_title",
+                    "text": "Toxicokinetics:",
+                    "colspan": 5,
+                }
+            ],
+            "semantic_projection_v2": {
+                "dose_response_result_panel_projection": {
+                    "semantic_profile": "dose_response_result_panel",
+                    "has_sex_leaf_columns": True,
+                    "source_has_explicit_sex_header_row": True,
+                }
+            },
+        }
+        document = {
+            "filename": "row-lineage.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {"pages": [{"page": 1, "blocks": [dict(table)]}]},
+            "table_asts": [dict(table)],
+        }
+
+        markdown = api_main._build_full_markdown([document], markdown_profile="ind-review")
+
+        self.assertEqual(markdown.count("Toxicokinetics:"), 1)
+        self.assertIn("| Day 28 AUC | 10 | 12 | 14 |  |", markdown)
+        self.assertIn("| Day 180 Css | 0.4 | 0.5 | 1.7 | 0.3 |", markdown)
+
+    def test_ambiguous_legacy_structural_signature_preserves_all_rows(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        table = {
+            "block_type": "table",
+            "block_id": "tbl_legacy",
+            "table_id": "tbl_legacy",
+            "semantic_role": "business_table",
+            "page": 1,
+            "semantic_grid": [
+                ["Label", "Value"],
+                ["Repeated:", ""],
+                ["Repeated:", ""],
+                ["Result", "10"],
+            ],
+            "merged_rows": [
+                {
+                    "row": 2,
+                    "kind": "table_note_title",
+                    "text": "Repeated:",
+                    "colspan": 2,
+                }
+            ],
+            "semantic_projection_v2": {
+                "toxicology_summary_schema_projection": {
+                    "semantic_profile": "toxicology_summary_schema_table",
+                }
+            },
+        }
+        document = {
+            "filename": "legacy-ambiguous.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {"pages": [{"page": 1, "blocks": [dict(table)]}]},
+            "table_asts": [dict(table)],
+        }
+
+        markdown = api_main._build_full_markdown([document], markdown_profile="ind-review")
+
+        self.assertEqual(markdown.count("| Repeated: |  |"), 2)
+        self.assertIn("| Result | 10 |", markdown)
+
+    def test_table_notes_keep_physical_order_across_local_and_cross_page_sources(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        local_legend = "-无值得注意的结果 +轻度 ++中度 +++显著"
+        local_stats = "Dunnett 氏检验：*-p<0.05 **-p<0.01"
+        cross_page_definition = "a-给药结束时。对照组给出组平均值。"
+        table = {
+            "block_type": "table",
+            "block_id": "tbl_001",
+            "table_id": "tbl_001",
+            "semantic_role": "business_table",
+            "page": 97,
+            "display_grid": [["日剂量(mg/kg)", "0", "200"], ["体重", "394 g", "-10*"]],
+            "note_blocks": [
+                {
+                    "role": "table_note",
+                    "text": local_legend,
+                    "source": "dose_response_result_panel_note_row",
+                    "page": 97,
+                    "bbox": [72, 464, 452, 476],
+                },
+                {
+                    "role": "table_note",
+                    "text": local_stats,
+                    "source": "dose_response_result_panel_note_row",
+                    "page": 97,
+                    "bbox": [72, 480, 264, 492],
+                },
+                {
+                    "role": "table_note",
+                    "text": cross_page_definition,
+                    "source": "cross_page_result_matrix_statistical_note",
+                    "page": 98,
+                    "bbox": [72, 92, 653, 104],
+                },
+            ],
+        }
+        document = {
+            "filename": "cross-page-table-notes.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 2, "parser_hint": "pdf"},
+            "document_ast": {"pages": [{"page": 97, "blocks": [dict(table)]}]},
+            "table_asts": [dict(table)],
+        }
+
+        markdown = api_main._build_full_markdown([document], markdown_profile="ind-review")
+
+        markdown_lines = markdown.splitlines()
+        for expected in (local_legend, local_stats, cross_page_definition):
+            self.assertIn(expected, markdown_lines, msg=markdown)
+        legend_index = markdown_lines.index(local_legend)
+        stats_index = markdown_lines.index(local_stats)
+        definition_index = markdown_lines.index(cross_page_definition)
+        self.assertLess(legend_index, stats_index)
+        self.assertLess(stats_index, definition_index)
+
+    def test_study_metric_grouped_matrix_materializes_all_header_levels_in_markdown(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        table = {
+            "block_type": "table",
+            "block_id": "tbl_auc",
+            "table_id": "tbl_auc",
+            "semantic_role": "business_table",
+            "page": 1,
+            "semantic_grid": [
+                ["日剂量（mg/kg）", "M", "F", "M", "F", "犬c", "雌兔b", "人f"],
+                ["25", "10", "12", "6", "8", "", "273", ""],
+            ],
+            "header_column_groups": [
+                {"row": 0, "start_col": 1, "end_col": 4, "colspan": 4, "text": "稳态AUC (µg-h/ml)"},
+                {"row": 1, "start_col": 1, "end_col": 2, "colspan": 2, "text": "小鼠a"},
+                {"row": 1, "start_col": 3, "end_col": 4, "colspan": 2, "text": "大鼠b"},
+                {"row": 1, "start_col": 5, "end_col": 5, "colspan": 1, "text": "犬c"},
+                {"row": 1, "start_col": 6, "end_col": 6, "colspan": 1, "text": "雌兔b"},
+                {"row": 1, "start_col": 7, "end_col": 7, "colspan": 1, "text": "人f"},
+            ],
+            "semantic_projection_v2": {
+                "source": "table_semantic_projection_v2",
+                "study_metric_grouped_matrix_projection": {
+                    "semantic_profile": "study_metric_grouped_matrix",
+                    "logical_column_count": 8,
+                },
+            },
+        }
+        document = {
+            "filename": "auc-grouped-header.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {"pages": [{"page": 1, "blocks": [dict(table)]}]},
+            "table_asts": [dict(table)],
+        }
+
+        markdown = api_main._build_full_markdown([document], markdown_profile="ind-review")
+
+        self.assertIn(
+            "|  | 稳态AUC (µg-h/ml) | 稳态AUC (µg-h/ml) | 稳态AUC (µg-h/ml) | 稳态AUC (µg-h/ml) |  |  |  |",
+            markdown,
+        )
+        self.assertIn(
+            "| 日剂量（mg/kg） | 小鼠a | 小鼠a | 大鼠b | 大鼠b | 犬c | 雌兔b | 人f |",
+            markdown,
+        )
+        self.assertIn("|  | M | F | M | F |  |  |  |", markdown)
+        self.assertIn("| 25 | 10 | 12 | 6 | 8 |  | 273 |  |", markdown)
+
+    def test_study_metric_grouped_matrix_does_not_add_header_rows_without_spans(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        rows = [["批号", "纯度(%)", "试验编号"], ["A001", "99.8", "T-1"]]
+        block = {
+            "header_column_groups": [
+                {"row": 0, "start_col": 0, "end_col": 0, "colspan": 1, "text": "批号"},
+                {"row": 0, "start_col": 1, "end_col": 1, "colspan": 1, "text": "纯度(%)"},
+            ],
+            "semantic_projection_v2": {
+                "source": "table_semantic_projection_v2",
+                "study_metric_grouped_matrix_projection": {
+                    "semantic_profile": "study_metric_grouped_matrix",
+                    "logical_column_count": 3,
+                },
+            },
+        }
+
+        self.assertEqual(api_main._project_markdown_visible_semantic_grid(block, rows), rows)
+
+    def test_study_panel_note_group_renders_literal_marker_lines_in_source_order(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        group_id = "tbl_001:note_group:1"
+        notes = [
+            {
+                "role": "note",
+                "text": "附加信息：",
+                "relation": "below",
+                "note_group_id": group_id,
+                "note_line_index": 0,
+                "presentation_mode": "lines",
+            },
+            {
+                "role": "note",
+                "text": "* - 为了采集胆汁，十二指肠给药。",
+                "marker": "*",
+                "relation": "cross_page_note_continuation",
+                "note_group_id": group_id,
+                "note_line_index": 1,
+                "presentation_mode": "lines",
+            },
+            {
+                "role": "note",
+                "text": "n.d.- 未检出",
+                "marker": "n.d.",
+                "relation": "cross_page_note_continuation",
+                "note_group_id": group_id,
+                "note_line_index": 2,
+                "presentation_mode": "lines",
+            },
+        ]
+        table = {
+            "block_type": "table",
+            "block_id": "tbl_001",
+            "table_id": "tbl_001",
+            "semantic_role": "business_table",
+            "page": 1,
+            "display_grid": [["分析物", "结果"], ["M1", "n.d."]],
+            "raw_grid": [["分析物", "结果"], ["M1", "n.d."]],
+            "note_blocks": notes,
+        }
+        document = {
+            "filename": "study-panel-note-group.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {"pages": [{"page": 1, "blocks": [dict(table)]}]},
+            "table_asts": [dict(table)],
+        }
+
+        markdown = api_main._build_full_markdown([document], markdown_profile="ind-review")
+
+        self.assertIn("\nn.d.- 未检出", markdown, msg=markdown)
+        label_pos = markdown.index("\n附加信息：\n")
+        marker_pos = markdown.index("\n\\* - 为了采集胆汁，十二指肠给药。\n")
+        definition_pos = markdown.index("\nn.d.- 未检出")
+        self.assertLess(label_pos, marker_pos)
+        self.assertLess(marker_pos, definition_pos)
+        self.assertNotIn("\n* - 为了采集胆汁", markdown)
+
+    def test_full_markdown_suppresses_table_note_subsegment_even_when_subsegment_has_stronger_source_evidence(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        full_note = (
+            "-No notable findings +mild ++moderate +++marked "
+            "Dunnett test: *-p<0.05 **-p<0.01 a-After dosing."
+        )
+        stats_note = "Dunnett test: *-p<0.05 **-p<0.01"
+        document = {
+            "filename": "table-note-subsegment.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {
+                "pages": [
+                    {
+                        "page": 1,
+                        "blocks": [
+                            {
+                                "block_type": "table",
+                                "block_id": "tbl_001",
+                                "table_id": "tbl_001",
+                                "semantic_role": "business_table",
+                                "raw_grid": [["Dose", "0", "10"], ["Body weight", "100 g", "-5*"]],
+                                "display_grid": [["Dose", "0", "10"], ["Body weight", "100 g", "-5*"]],
+                                "note_blocks": [
+                                    {"role": "table_note", "text": full_note},
+                                    {
+                                        "role": "table_note",
+                                        "text": stats_note,
+                                        "source_block_id": "txt_stats_note",
+                                        "source": "result_matrix_statistical_note_after_table",
+                                        "bbox": [72, 220, 260, 232],
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            },
+            "table_asts": [
+                {
+                    "block_type": "table",
+                    "block_id": "tbl_001",
+                    "table_id": "tbl_001",
+                    "semantic_role": "business_table",
+                    "page": 1,
+                    "raw_grid": [["Dose", "0", "10"], ["Body weight", "100 g", "-5*"]],
+                    "display_grid": [["Dose", "0", "10"], ["Body weight", "100 g", "-5*"]],
+                    "note_blocks": [
+                        {"role": "table_note", "text": full_note},
+                        {
+                            "role": "table_note",
+                            "text": stats_note,
+                            "source_block_id": "txt_stats_note",
+                            "source": "result_matrix_statistical_note_after_table",
+                            "bbox": [72, 220, 260, 232],
+                        },
+                    ],
+                }
+            ],
+        }
+
+        markdown = api_main._build_full_markdown([document])
+
+        self.assertEqual(markdown.count(full_note), 1, msg=markdown)
+        self.assertEqual(markdown.count(stats_note), 1, msg=markdown)
+        self.assertNotIn(f"\n{stats_note}\n", markdown, msg=markdown)
+
     def test_markdown_rendering_audit_reports_metadata_only_edge_suppression(self) -> None:
         try:
             api_main = importlib.import_module("api.main")
@@ -1246,6 +2265,54 @@ class ParseMarkdownExportTests(unittest.TestCase):
         self.assertNotIn(
             "This paragraph starts with an indented first line.\n\n"
             "It continues after a sentence boundary.",
+            markdown,
+        )
+
+    def test_full_markdown_breaks_between_single_line_indented_body_paragraphs(self) -> None:
+        try:
+            api_main = importlib.import_module("api.main")
+        except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+            raise unittest.SkipTest(f"api.main unavailable in this environment: {exc}") from exc
+
+        document = {
+            "filename": "single-line-indented-paragraphs.pdf",
+            "source_type": "pdf",
+            "metadata": {"page_count": 1, "parser_hint": "pdf"},
+            "document_ast": {
+                "pages": [
+                    {
+                        "page": 1,
+                        "blocks": [
+                            {
+                                "block_type": "text",
+                                "block_id": "txt_p1_001",
+                                "text": "First single-line body paragraph ends here.",
+                                "bbox": [84, 80, 320, 92],
+                            },
+                            {
+                                "block_type": "text",
+                                "block_id": "txt_p1_002",
+                                "text": "Second single-line body paragraph also starts indented.",
+                                "bbox": [84, 112, 340, 124],
+                            },
+                        ],
+                    }
+                ]
+            },
+            "pages": [{"page_number": 1, "block_count": 2}],
+            "text": "",
+        }
+
+        markdown = api_main._build_full_markdown([document])
+
+        self.assertIn(
+            "First single-line body paragraph ends here.\n\n"
+            "Second single-line body paragraph also starts indented.",
+            markdown,
+        )
+        self.assertNotIn(
+            "First single-line body paragraph ends here. "
+            "Second single-line body paragraph also starts indented.",
             markdown,
         )
 

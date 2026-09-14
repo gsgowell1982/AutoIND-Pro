@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ind-compliance-ai.local/schemas/ectd/ectd_foreign_reference_contract.schema.json",
+  "title": "eCTD foreign reference material and language classification contract",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "scope",
+    "source_references",
+    "language_classification",
+    "structure_requirements",
+    "lifecycle_consistency",
+    "automation_boundary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "ectd-foreign-reference-contract-v1"
+    },
+    "scope": {
+      "const": "foreign_reference_material_language_classification_and_structure"
+    },
+    "source_references": {
+      "type": "object",
+      "required": ["cn_technical_specification"],
+      "properties": {
+        "cn_technical_specification": {
+          "type": "object",
+          "required": ["source_filename", "section", "heading"],
+          "properties": {
+            "source_filename": {"type": "string"},
+            "section": {"type": "string"},
+            "heading": {"type": "string"}
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "language_classification": {
+      "type": "object",
+      "required": [
+        "classification_boundary",
+        "chinese_dossier_indicators",
+        "foreign_reference_indicators",
+        "iso639_1_requirement"
+      ],
+      "properties": {
+        "classification_boundary": {
+          "type": "string",
+          "description": "The rule for classifying leafs as Chinese dossier or foreign reference"
+        },
+        "chinese_dossier_indicators": {
+          "type": "object",
+          "required": ["xml_lang_values"],
+          "properties": {
+            "xml_lang_values": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "xml:lang values that indicate Chinese dossier material"
+            }
+          }
+        },
+        "foreign_reference_indicators": {
+          "type": "object",
+          "required": ["xml_lang_pattern"],
+          "properties": {
+            "xml_lang_pattern": {
+              "type": "string",
+              "description": "Pattern for xml:lang values indicating foreign reference material"
+            }
+          }
+        },
+        "iso639_1_requirement": {
+          "type": "object",
+          "required": ["standard", "validation_scope", "valid_codes"],
+          "properties": {
+            "standard": {"type": "string"},
+            "validation_scope": {"type": "string"},
+            "valid_codes": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Valid ISO 639-1 two-letter language codes"
+            }
+          }
+        }
+      }
+    },
+    "structure_requirements": {
+      "type": "object",
+      "required": [
+        "sibling_colocation",
+        "ordering_constraint"
+      ],
+      "properties": {
+        "sibling_colocation": {
+          "type": "object",
+          "required": ["requirement", "scope"],
+          "properties": {
+            "requirement": {"type": "string"},
+            "scope": {"type": "string"}
+          }
+        },
+        "ordering_constraint": {
+          "type": "object",
+          "required": ["requirement", "relative_position"],
+          "properties": {
+            "requirement": {"type": "string"},
+            "relative_position": {"type": "string"}
+          }
+        }
+      }
+    },
+    "lifecycle_consistency": {
+      "type": "object",
+      "required": [
+        "replace_operation_rule",
+        "matching_scope",
+        "consistency_requirement"
+      ],
+      "properties": {
+        "replace_operation_rule": {
+          "type": "string",
+          "description": "Rule for language class consistency in replace operations"
+        },
+        "matching_scope": {
+          "type": "string",
+          "description": "Scope for matching prior-sequence leafs"
+        },
+        "consistency_requirement": {
+          "type": "string",
+          "description": "The specific consistency requirement between sequences"
+        }
+      }
+    },
+    "automation_boundary": {
+      "type": "object",
+      "required": ["deterministic", "manual_review", "out_of_scope"],
+      "properties": {
+        "deterministic": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Checks that can be fully automated"
+        },
+        "manual_review": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Checks requiring human judgment"
+        },
+        "out_of_scope": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Checks explicitly excluded from automated validation"
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

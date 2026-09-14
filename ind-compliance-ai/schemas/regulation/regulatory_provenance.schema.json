@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autoind.local/schemas/regulation/regulatory_provenance.schema.json",
+  "title": "Regulatory provenance projection",
+  "type": "object",
+  "required": [
+    "requirement_id",
+    "regulation_id",
+    "source_filename",
+    "clause_id",
+    "section",
+    "rule_description",
+    "citation_anchor",
+    "source_excerpt",
+    "traceability_status"
+  ],
+  "properties": {
+    "requirement_id": {"type": "string"},
+    "regulation_id": {"type": "string"},
+    "source_filename": {"type": "string"},
+    "source_path": {"type": "string"},
+    "version": {"type": "string"},
+    "clause_id": {"type": "string"},
+    "chapter": {"type": "string"},
+    "section": {"type": "string"},
+    "chapter_title": {"type": "string"},
+    "section_heading": {"type": "string"},
+    "rule_description": {"type": "string"},
+    "review_focus": {"type": "string"},
+    "citation_anchor": {"type": "string"},
+    "source_locator": {"type": "object"},
+    "source_page": {"type": ["integer", "null"], "minimum": 1},
+    "source_excerpt": {"type": "string"},
+    "traceability_status": {
+      "type": "string",
+      "enum": ["exact_clause", "fallback_requirement_id_only"]
+    }
+  },
+  "additionalProperties": true
+}

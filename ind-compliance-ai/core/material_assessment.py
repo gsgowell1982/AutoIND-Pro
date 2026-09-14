@@ -12,6 +12,10 @@ from core.material_review_contract import (
     MATERIAL_REVIEW_CONTRACT_VERSION,
     build_material_review_contract,
 )
+from core.ectd_32r_semantics import build_ectd_32r_semantic_contract
+from core.ectd_file_reuse_contract import build_ectd_file_reuse_contract
+from core.ectd_pdf_presentation_contract import build_ectd_pdf_presentation_contract
+from core.ectd_foreign_reference_contract import build_ectd_foreign_reference_contract
 from core.outline_markers import (
     normalize_outline_marker,
     outline_titles_compatible,
@@ -179,6 +183,10 @@ _ECTD_VALIDATION_STANDARD_INDEX_ATTRIBUTE_EDGE_WHITESPACE_REQUIREMENT_ID = (
     "cn_ectd_validation_standard:req_index_attribute_value_edge_whitespace"
 )
 _ECTD_VALIDATION_STANDARD_INDEX_ATTRIBUTE_EDGE_WHITESPACE_CITATION = "cn_ectd_validation_standard#sec_3_28"
+_ECTD_METADATA_LIFECYCLE_COUPLING_REQUIREMENT_ID = (
+    "cn_ectd_technical_specification:req_metadata_lifecycle_coupling"
+)
+_ECTD_METADATA_LIFECYCLE_COUPLING_CITATION = "cn_ectd_technical_specification#sec_3_6"
 _ECTD_VALIDATION_STANDARD_INDEX_APPEND_NOT_REPLACED_LEAF_REQUIREMENT_ID = (
     "cn_ectd_validation_standard:req_index_append_must_not_target_replaced_leaf"
 )
@@ -1077,6 +1085,25 @@ _ECTD_32R_EXPECTED_PARENT_PATH = "m3-quality > m3-2-body-of-data > m3-2-r-region
 _ECTD_32R_EXPECTED_LEAF_HREF_EXAMPLE = "m3/32-body-data/32r-reg-info/cn32r1/pro-val.pdf"
 _ECTD_32R_TITLE_SLOT_PATTERN = re.compile(r"^3\.2\.R\.(\d)", re.IGNORECASE)
 _ECTD_32R_EXPECTED_LEAF_HREF_NOTE = "扩展节点 leaf 应位于模块 3 的 32r-reg-info 区域性药学信息路径下。"
+_ECTD_32R_SEMANTIC_CONTRACT = build_ectd_32r_semantic_contract()
+_ECTD_32R_AUDIT_CONTRACT_DETAILS = {
+    "semantic_contract_version": _ECTD_32R_SEMANTIC_CONTRACT["schema_version"],
+    "semantic_contract_schema": "schemas/ectd/ectd_32r_node_extension_contract.schema.json",
+    "figure2_skeleton_path": _ECTD_32R_SEMANTIC_CONTRACT["figure2_skeleton_path"],
+    "expected_parent_path": _ECTD_32R_SEMANTIC_CONTRACT["parent"]["ancestry"],
+    "required_leaf_attributes": _ECTD_32R_SEMANTIC_CONTRACT["leaf"]["required_attributes"],
+    "source_references": _ECTD_32R_SEMANTIC_CONTRACT["sources"],
+}
+_ECTD_FOREIGN_REFERENCE_CONTRACT = build_ectd_foreign_reference_contract()
+_ECTD_FOREIGN_REFERENCE_CONTRACT_DETAILS = {
+    "schema_version": _ECTD_FOREIGN_REFERENCE_CONTRACT["schema_version"],
+    "schema_path": "schemas/ectd/ectd_foreign_reference_contract.schema.json",
+    "language_classification": _ECTD_FOREIGN_REFERENCE_CONTRACT["language_classification"],
+    "structure_requirements": _ECTD_FOREIGN_REFERENCE_CONTRACT["structure_requirements"],
+    "lifecycle_consistency": _ECTD_FOREIGN_REFERENCE_CONTRACT["lifecycle_consistency"],
+    "automation_boundary": _ECTD_FOREIGN_REFERENCE_CONTRACT["automation_boundary"],
+    "source_references": _ECTD_FOREIGN_REFERENCE_CONTRACT["source_references"],
+}
 
 
 _CLASS3_SIGNAL_PATTERN = re.compile(r"(?<!\d)3\s*类|class\s*3|化学药品\s*3\s*类", re.IGNORECASE)
@@ -1876,6 +1903,13 @@ def build_default_material_rules() -> list[Rule]:
             category="hard",
             evaluator=_evaluate_ectd_index_content_reference_boundary_requirement,
             citation=_ECTD_VALIDATION_STANDARD_INDEX_CONTENT_REFERENCE_CITATION,
+            scope="sequence",
+        ),
+        Rule(
+            rule_id="HR-ECTD-200",
+            category="hard",
+            evaluator=_evaluate_ectd_metadata_lifecycle_coupling_requirement,
+            citation=_ECTD_METADATA_LIFECYCLE_COUPLING_CITATION,
             scope="sequence",
         ),
         Rule(
@@ -4592,6 +4626,8 @@ def _build_requirement_details(
     matched_documents: list[dict[str, Any]],
     extra_details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    from core.regulation_provenance import build_requirement_provenance
+
     resolved_citation_anchor = str(requirement.get("citation_anchor") or fallback_citation_anchor).strip()
     clause_metadata = _load_regulation_clause_metadata(resolved_citation_anchor)
     source_clause_id = str(requirement.get("source_clause_id") or "").strip()
@@ -4605,7 +4641,25 @@ def _build_requirement_details(
         "citation_anchor": resolved_citation_anchor,
         "match_strength": match_strength,
         "matched_documents": matched_documents,
+        "regulatory_provenance": build_requirement_provenance(
+            requirement,
+            fallback_requirement_id=fallback_requirement_id,
+            fallback_citation_anchor=fallback_citation_anchor,
+        ),
     }
+    if details["requirement_id"] in {
+        _ECTD_ENTITY_FILE_REUSE_WARNING_REQUIREMENT_ID,
+        _ECTD_CROSS_APPLICATION_REFERENCE_REQUIREMENT_ID,
+    }:
+        details["file_reuse_contract"] = build_ectd_file_reuse_contract()
+    requirement_id = details["requirement_id"]
+    if (
+        resolved_citation_anchor == "cn_ectd_technical_specification#sec_3_4"
+        or requirement_id.startswith("cn_ectd_validation_standard:req_pdf_")
+        or requirement_id == _ECTD_VALIDATION_STANDARD_LONG_PDF_BOOKMARKS_REQUIREMENT_ID
+        or requirement_id == _ECTD_VALIDATION_STANDARD_FILE_SIZE_LIMIT_REQUIREMENT_ID
+    ):
+        details["pdf_presentation_contract"] = build_ectd_pdf_presentation_contract()
     regulation_severity = str(clause_metadata.get("severity") or "").strip()
     if regulation_severity:
         details["regulation_severity"] = regulation_severity
@@ -11768,6 +11822,7 @@ def _evaluate_ectd_32r_node_extension_requirement(
                 match_strength="not_applicable",
                 matched_documents=[],
                 extra_details={
+                    **_ECTD_32R_AUDIT_CONTRACT_DETAILS,
                     "matched_extension_titles": [],
                     "invalid_extension_titles": [],
                     "invalid_leaf_hrefs": [],
@@ -11814,6 +11869,7 @@ def _evaluate_ectd_32r_node_extension_requirement(
                 match_strength="invalid_32r_node_extension_structure_or_titles",
                 matched_documents=_dedupe_documents_for_requirement_rows(failing_documents),
                 extra_details={
+                    **_ECTD_32R_AUDIT_CONTRACT_DETAILS,
                     "matched_extension_titles": _sorted_distinct_values(aggregated_titles),
                     "invalid_extension_titles": invalid_titles,
                     "invalid_leaf_hrefs": invalid_leaf_hrefs,
@@ -11837,6 +11893,7 @@ def _evaluate_ectd_32r_node_extension_requirement(
             match_strength="valid_32r_node_extension_structure",
             matched_documents=_dedupe_documents_for_requirement_rows(applicable_documents),
             extra_details={
+                **_ECTD_32R_AUDIT_CONTRACT_DETAILS,
                 "matched_extension_titles": _sorted_distinct_values(aggregated_titles),
                 "invalid_extension_titles": [],
                 "invalid_leaf_hrefs": [],
@@ -18930,6 +18987,99 @@ def _evaluate_ectd_content_reference_boundary_requirement(
     )
 
 
+def _evaluate_ectd_metadata_lifecycle_coupling_requirement(
+    material_contract: dict[str, Any],
+) -> tuple[str, str, dict[str, Any]]:
+    """
+    评估eCTD元数据生命周期耦合规则
+
+    规则: 当section的元数据属性变更时，其下的leaf文件内容必须完整更新
+
+    Args:
+        material_contract: 物料契约，包含当前序列和前序列信息
+
+    Returns:
+        (status, requirement_id, details) 元组
+    """
+    from core.ectd_metadata_lifecycle_validator import validate_metadata_lifecycle_coupling
+    from core.ectd_metadata_extractor import extract_sequence_metadata_index
+
+    # 获取当前序列路径
+    current_sequence_path = material_contract.get("sequence_root_path")
+    if not current_sequence_path:
+        return (
+            "na",
+            _ECTD_METADATA_LIFECYCLE_COUPLING_REQUIREMENT_ID,
+            {"reason": "sequence_root_path_not_available"}
+        )
+
+    # 获取前序列路径
+    previous_sequence_path = material_contract.get("previous_sequence_root_path")
+    if not previous_sequence_path:
+        # 初始序列（0000），无前序列可比对
+        return (
+            "na",
+            _ECTD_METADATA_LIFECYCLE_COUPLING_REQUIREMENT_ID,
+            {"reason": "initial_sequence_no_previous_sequence"}
+        )
+
+    try:
+        # 提取元数据索引
+        previous_index = extract_sequence_metadata_index(previous_sequence_path)
+        current_index = extract_sequence_metadata_index(current_sequence_path)
+
+        # 执行验证
+        validation_result = validate_metadata_lifecycle_coupling(previous_index, current_index)
+
+        # 转换为RuleEvaluationResult格式
+        if validation_result.is_fully_compliant():
+            return (
+                "pass",
+                _ECTD_METADATA_LIFECYCLE_COUPLING_REQUIREMENT_ID,
+                {
+                    "total_sections_analyzed": validation_result.total_sections_analyzed,
+                    "compliant_sections": validation_result.compliant_sections,
+                    "sequence_transition": f"{validation_result.previous_sequence_number} → {validation_result.sequence_number}"
+                }
+            )
+        else:
+            # 构建违规详情
+            violation_details = [
+                {
+                    "section_identifier": v.section_identifier,
+                    "section_path": v.section_path,
+                    "changed_attributes": v.changed_attributes,
+                    "violation_type": v.violation_type,
+                    "violation_message": v.violation_message,
+                    "leaf_ids": v.leaf_ids
+                }
+                for v in validation_result.violations
+            ]
+
+            return (
+                "fail",
+                _ECTD_METADATA_LIFECYCLE_COUPLING_REQUIREMENT_ID,
+                {
+                    "total_sections_analyzed": validation_result.total_sections_analyzed,
+                    "violation_count": validation_result.violation_count,
+                    "compliant_sections": validation_result.compliant_sections,
+                    "sequence_transition": f"{validation_result.previous_sequence_number} → {validation_result.sequence_number}",
+                    "violations": violation_details
+                }
+            )
+
+    except Exception as e:
+        # 处理任何异常情况
+        return (
+            "na",
+            _ECTD_METADATA_LIFECYCLE_COUPLING_REQUIREMENT_ID,
+            {
+                "reason": "evaluation_error",
+                "error": str(e)
+            }
+        )
+
+
 def _evaluate_ectd_index_content_reference_boundary_requirement(
     material_contract: dict[str, Any],
 ) -> tuple[str, str, dict[str, Any]]:
@@ -20629,6 +20779,7 @@ def _evaluate_ectd_leaf_xml_lang_requirement(
         "empty_xml_lang_leaf_hrefs": _dedupe_preserve_order_strings(empty_xml_lang_leaf_hrefs),
         "missing_xml_lang_leaf_hrefs": _dedupe_preserve_order_strings(missing_xml_lang_leaf_hrefs),
         "invalid_xml_lang_entries": invalid_xml_lang_entries,
+        "contract": _ECTD_FOREIGN_REFERENCE_CONTRACT_DETAILS,
     }
 
     if failing_documents:
@@ -20695,6 +20846,7 @@ def _evaluate_ectd_foreign_reference_structure_requirement(
                     "foreign_reference_leaf_hrefs": [],
                     "missing_chinese_sibling_foreign_leaf_hrefs": [],
                     "out_of_order_foreign_leaf_hrefs": [],
+                    "contract": _ECTD_FOREIGN_REFERENCE_CONTRACT_DETAILS,
                 },
             ),
         )
@@ -20762,6 +20914,7 @@ def _evaluate_ectd_foreign_reference_structure_requirement(
             missing_chinese_sibling_foreign_leaf_hrefs
         ),
         "out_of_order_foreign_leaf_hrefs": _dedupe_preserve_order_strings(out_of_order_foreign_leaf_hrefs),
+        "contract": _ECTD_FOREIGN_REFERENCE_CONTRACT_DETAILS,
     }
 
     if failing_documents:
@@ -20913,7 +21066,10 @@ def _evaluate_ectd_replace_language_consistency_requirement(
                 fallback_citation_anchor=_ECTD_REPLACE_LANGUAGE_CONSISTENCY_REQUIREMENT_CITATION,
                 match_strength="not_applicable",
                 matched_documents=[],
-                extra_details={"mismatched_replace_leaf_pairs": []},
+                extra_details={
+                    "mismatched_replace_leaf_pairs": [],
+                    "contract": _ECTD_FOREIGN_REFERENCE_CONTRACT_DETAILS,
+                },
             ),
         )
 
@@ -21020,7 +21176,10 @@ def _evaluate_ectd_replace_language_consistency_requirement(
                 fallback_citation_anchor=_ECTD_REPLACE_LANGUAGE_CONSISTENCY_REQUIREMENT_CITATION,
                 match_strength="not_applicable",
                 matched_documents=[],
-                extra_details={"mismatched_replace_leaf_pairs": []},
+                extra_details={
+                    "mismatched_replace_leaf_pairs": [],
+                    "contract": _ECTD_FOREIGN_REFERENCE_CONTRACT_DETAILS,
+                },
             ),
         )
 
@@ -21034,7 +21193,10 @@ def _evaluate_ectd_replace_language_consistency_requirement(
                 fallback_citation_anchor=_ECTD_REPLACE_LANGUAGE_CONSISTENCY_REQUIREMENT_CITATION,
                 match_strength="replace_language_class_mismatch",
                 matched_documents=failing_documents,
-                extra_details={"mismatched_replace_leaf_pairs": mismatched_pairs},
+                extra_details={
+                    "mismatched_replace_leaf_pairs": mismatched_pairs,
+                    "contract": _ECTD_FOREIGN_REFERENCE_CONTRACT_DETAILS,
+                },
             ),
         )
 

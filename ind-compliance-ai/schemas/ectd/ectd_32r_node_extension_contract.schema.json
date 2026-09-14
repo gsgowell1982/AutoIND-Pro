@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ind-compliance-ai.local/schemas/ectd/ectd-32r-node-extension-contract.schema.json",
+  "title": "eCTD 3.2.R Regional Information Contract",
+  "type": "object",
+  "required": ["schema_version", "section", "applicability", "parent", "leaf", "extension_nodes", "sources", "figure2_skeleton_path"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "ectd-32r-semantic-contract-v1" },
+    "section": { "type": "string", "const": "3.2.R" },
+    "applicability": {
+      "type": "object",
+      "required": ["regional_information_must_be_in_section", "biologic_requires_node_extensions_when_section_present", "non_biologic_must_not_be_forced_into_six_extensions", "content_category_adequacy_requires_document_review"],
+      "properties": {
+        "regional_information_must_be_in_section": { "type": "boolean", "const": true },
+        "biologic_requires_node_extensions_when_section_present": { "type": "boolean", "const": true },
+        "non_biologic_must_not_be_forced_into_six_extensions": { "type": "boolean", "const": true },
+        "content_category_adequacy_requires_document_review": { "type": "boolean", "const": true }
+      },
+      "additionalProperties": false
+    },
+    "parent": {
+      "type": "object",
+      "required": ["local_tag", "ancestry", "directory"],
+      "properties": {
+        "local_tag": { "type": "string", "const": "m3-2-r-regional-information" },
+        "ancestry": { "type": "array", "const": ["m3-quality", "m3-2-body-of-data", "m3-2-r-regional-information"] },
+        "directory": { "type": "string", "const": "m3/32-body-data/32r-reg-info" }
+      },
+      "additionalProperties": false
+    },
+    "leaf": {
+      "type": "object",
+      "required": ["href_pattern", "required_attributes", "title_required"],
+      "properties": {
+        "href_pattern": { "type": "string" },
+        "required_attributes": { "type": "array", "const": ["ID", "operation", "xlink:type", "xlink:href", "checksum", "checksum-type"] },
+        "title_required": { "type": "boolean", "const": true }
+      },
+      "additionalProperties": false
+    },
+    "extension_nodes": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": ["structure_number", "title", "folder"],
+        "properties": {
+          "structure_number": { "type": "string", "pattern": "^3\\.2\\.R\\.[1-6]$" },
+          "title": { "type": "string" },
+          "folder": { "type": "string", "pattern": "^cn32r[1-6]$" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sources": {
+      "type": "object",
+      "required": ["table4", "cn_technical_specification", "ich_technical_specification", "validation_standard", "figure2"],
+      "additionalProperties": { "type": "string" }
+    },
+    "figure2_skeleton_path": { "type": "string" }
+  },
+  "additionalProperties": false
+}

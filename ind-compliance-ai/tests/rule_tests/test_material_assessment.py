@@ -279,31 +279,38 @@ def _build_parsed_document(
         if str(evidence_item.get("source_type") or "").strip().lower() != "toc" and "section_context" not in evidence_item:
             evidence_item["section_context"] = dict(default_section_context)
 
+    metadata_dict = {
+        "page_count": 2,
+        "table_count": len(table_asts),
+        "image_count": len(image_blocks),
+        "figure_count": len(image_blocks),
+        "toc_count": toc_count,
+        "toc_sequence_count": toc_sequence_count,
+        "content_evidence_count": content_evidence_count,
+        "content_unit_count": content_unit_count,
+        "fact_extraction_unit_count": 1 if content_unit_count > 0 else 0,
+        "review_required_table_count": review_required_table_count,
+        "review_required_toc_count": review_required_toc_count,
+        "toc_review_item_count": review_required_toc_count,
+        "aggregated_toc_review_item_count": 0,
+        "continuation_table_count": 0,
+        "cross_page_table_links": 0,
+        "cross_page_boundary_row_merge_count": 0,
+        "low_confidence_table_count": 0,
+        "diagnostic_table_count": review_required_table_count,
+        **dict(extra_metadata or {}),
+    }
+
     return {
         "filename": filename,
         "source_type": "pdf",
         "source_path": source_path or f"D:\\{filename}",
-        "metadata": {
-            "page_count": 2,
-            "table_count": len(table_asts),
-            "image_count": len(image_blocks),
-            "figure_count": len(image_blocks),
-            "toc_count": toc_count,
-            "toc_sequence_count": toc_sequence_count,
-            "content_evidence_count": content_evidence_count,
-            "content_unit_count": content_unit_count,
-            "fact_extraction_unit_count": 1 if content_unit_count > 0 else 0,
-            "review_required_table_count": review_required_table_count,
-            "review_required_toc_count": review_required_toc_count,
-            "toc_review_item_count": review_required_toc_count,
-            "aggregated_toc_review_item_count": 0,
-            "continuation_table_count": 0,
-            "cross_page_table_links": 0,
-            "cross_page_boundary_row_merge_count": 0,
-            "low_confidence_table_count": 0,
-            "diagnostic_table_count": review_required_table_count,
-            **dict(extra_metadata or {}),
+        "submission_scope_kind": "submission_pdf",
+        "classification": {
+            "module_label": default_section_context["module_label"],
         },
+        "metadata": metadata_dict,
+        "summary": metadata_dict,
         "document_ast": {
             "pages": [{"page": 1}, {"page": 2}],
             "table_refs": [table["table_id"] for table in table_asts],
@@ -4350,6 +4357,9 @@ class RuleEngineProfileTests(unittest.TestCase):
             "no_duplicate_entity_file_submission_detected",
         )
         self.assertEqual(rules_by_id["SR-ECTD-011"]["details"]["duplicate_entity_file_groups"], [])
+        reuse_contract = rules_by_id["SR-ECTD-011"]["details"]["file_reuse_contract"]
+        self.assertEqual(reuse_contract["source_references"]["ich_appendix_6_file_reuse"]["pdf_page"], 103)
+        self.assertTrue(reuse_contract["reuse_modes"]["prior_sequence_same_application"]["requires_resolvable_target"])
         self.assertEqual(
             rules_by_id["SR-ECTD-011"]["details"]["prior_sequence_duplicate_entity_file_groups"],
             [],
@@ -5067,6 +5077,7 @@ class RuleEngineProfileTests(unittest.TestCase):
                 }
             ],
         )
+        self.assertFalse(rules_by_id["HR-ECTD-027"]["details"]["file_reuse_contract"]["reuse_modes"]["cross_application"]["allowed"])
 
     def test_build_compliance_result_payload_fails_when_package_contains_unreferenced_extra_directory(self) -> None:
         cn_regional_payload = """<?xml version="1.0" encoding="UTF-8"?>
@@ -15941,6 +15952,7 @@ class MaterialAssessmentTests(unittest.TestCase):
                 "HR-ECTD-114": "na",
                 "HR-ECTD-115": "na",
                 "HR-ECTD-116": "na",
+                "HR-ECTD-200": "na",
                 "HR-LAW-007": "na",
                 "HR-LAW-010": "na",
                 "HR-LAW-017": "na",

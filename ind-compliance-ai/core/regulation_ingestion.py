@@ -406,8 +406,8 @@ _ECTD_TECHNICAL_SPEC_CLAUSE_COVERAGE_OVERRIDES: dict[str, dict[str, Any]] = {
     },
     "sec_2_2_2": {
         "coverage_status": "partially_covered",
-        "implemented_rule_ids": ["SR-ECTD-003"],
-        "coverage_note": "Related-sequence reference integrity is covered at a bounded soft-rule level, not as a full history-hard exactness rule.",
+        "implemented_rule_ids": ["SR-ECTD-003", "HR-ECTD-118"],
+        "coverage_note": "Related-sequence reference integrity and clinical-trial Table 1 sequence semantics are executable for observed package history; full history-hard exactness remains outside the bounded subset.",
     },
     "sec_2_3": {
         "coverage_status": "covered",
@@ -2829,6 +2829,31 @@ def build_requirement_matrix(
                     review_focus="核对序列描述长度是否超限。",
                 )
             )
+            requirements.append(
+                _build_requirement_record(
+                    regulation_id=regulation_id,
+                    clause=sequence_description_clause,
+                    requirement_suffix="req_sequence_description_non_substitution",
+                    applicable_stage="ectd_sequence_submission",
+                    requirement_type="sequence_description_semantics",
+                    requirement_level="warning",
+                    requirement_text=(
+                        "Sequence-description should briefly identify the purpose of the submission and "
+                        "must not substitute for a response to a regulatory question, an explanatory letter, "
+                        "or a question addressed to the regulatory authority."
+                    ),
+                    expected_material_evidence=[
+                        "cn_regional_xml_envelope_metadata",
+                        "sequence_description",
+                        "regulatory_correspondence_evidence",
+                    ],
+                    review_focus=(
+                        "Flag descriptions containing regulatory-response, explanatory-letter or regulator-question "
+                        "language for human review. This is a semantic warning and does not replace the existing "
+                        "120-Chinese-character length rule."
+                    ),
+                )
+            )
 
         if sequence_contact_clause is not None:
             requirements.append(
@@ -3041,7 +3066,10 @@ def build_requirement_matrix(
                         "Bounded executable subset: surface local index.xml 3.2.R node-extension parent "
                         "placement, allowed title, and leaf href path-pattern issues as warning-level "
                         "evidence; do not infer full reviewer-facing content-category adequacy from "
-                        "title/path evidence alone."
+                        "title/path evidence alone. The executable contract is "
+                        "schemas/ectd/ectd_32r_node_extension_contract.schema.json and the Figure 2 "
+                        "skeleton is preserved at data/regulations/normalized/"
+                        "cn_ectd_technical_specification.32r_figure2_skeleton.xml."
                     ),
                 )
             )
@@ -3573,6 +3601,97 @@ def build_requirement_matrix(
                         "regulatory activity grouping; related-sequence is not a generic "
                         "previous-sequence pointer and full history-hard exactness remains "
                         "prerequisite/human-review scope."
+                    ),
+                )
+            )
+            requirements.append(
+                _build_requirement_record(
+                    regulation_id=regulation_id,
+                    clause=related_sequence_clause,
+                    requirement_suffix="req_clinical_trial_sequence_table1_semantics",
+                    applicable_stage="ectd_sequence_submission",
+                    requirement_type="sequence_semantics",
+                    requirement_level="warning",
+                    requirement_text=(
+                        "For clinical-trial applications, Table 1 defines the observed sequence "
+                        "scenarios 0000 through 0009: 0000 is the initial submission; 0001 is a "
+                        "response to 0000; 0002/0003 are a supplement and its response; 0004 is a "
+                        "new-indication or drug-combination submission; 0005/0006 are a supplement "
+                        "and its response; 0007 is a response to 0004; and 0008/0009 are development "
+                        "safety-report submissions. The 0000 start, four-digit contiguous numbering "
+                        "and related-sequence/type combinations are deterministic checks. The 0000-0009 "
+                        "range is an example, not a maximum sequence number."
+                    ),
+                    expected_material_evidence=[
+                        "application_type",
+                        "sequence_package_inventory",
+                        "cn_regional_xml_envelope_metadata",
+                        "sequence_description",
+                        "known_application_sequence_history",
+                    ],
+                    review_focus=(
+                        "Apply HR-ECTD-118 to compare observed clinical-trial sequence rows with "
+                        "the Table 1 contract, including related-sequence, regulatory-activity-type "
+                        "and sequence-type codes. Treat description intent as semantic evidence and "
+                        "route ambiguous or missing narrative evidence to human review; do not reject "
+                        "a valid sequence solely because its number is greater than 0009."
+                    ),
+                )
+            )
+            requirements.append(
+                _build_requirement_record(
+                    regulation_id=regulation_id,
+                    clause=related_sequence_clause,
+                    requirement_suffix="req_new_drug_sequence_table2_semantics",
+                    applicable_stage="ectd_sequence_submission",
+                    requirement_type="sequence_semantics",
+                    requirement_level="warning",
+                    requirement_text=(
+                        "For new-drug applications, Table 2 records the illustrative sequence "
+                        "scenarios 0000 through 0008, including initial application, responses, "
+                        "supplement manufacturing or analytical changes, new indication, renewal, "
+                        "and their related-sequence references. The example range is not a maximum; "
+                        "later contiguous sequences remain subject to the current controlled vocabulary "
+                        "and envelope evidence."
+                    ),
+                    expected_material_evidence=[
+                        "application_type",
+                        "sequence_package_inventory",
+                        "cn_regional_xml_envelope_metadata",
+                        "sequence_description",
+                    ],
+                    review_focus=(
+                        "Apply the Table 2 contract only when application-type is cnapt2. "
+                        "Deterministic mismatches in observed row fields are findings; sequence "
+                        "numbers outside 0000-0008 are not rejected solely for being outside the example "
+                        "range and should be reviewed against the authoritative dependency matrix."
+                    ),
+                )
+            )
+            requirements.append(
+                _build_requirement_record(
+                    regulation_id=regulation_id,
+                    clause=related_sequence_clause,
+                    requirement_suffix="req_application_activity_sequence_relationship_examples",
+                    applicable_stage="ectd_sequence_submission",
+                    requirement_type="relationship_examples",
+                    requirement_level="warning",
+                    requirement_text=(
+                        "Table 3 provides illustrative application-type, regulatory-activity-type and "
+                        "sequence-type relationships. The authoritative allowed combinations are defined "
+                        "by the current depend-apt-rat-sqt.xml controlled-vocabulary dependency matrix; "
+                        "Table 3 examples are non-exhaustive."
+                    ),
+                    expected_material_evidence=[
+                        "application_type",
+                        "regulatory_activity_type",
+                        "sequence_type",
+                        "depend_apt_rat_sqt_matrix",
+                    ],
+                    review_focus=(
+                        "Use the dependency matrix for deterministic compatibility. A combination that is "
+                        "not printed in Table 3 but is present in depend-apt-rat-sqt.xml is allowed; "
+                        "missing or ambiguous evidence is routed to manual review."
                     ),
                 )
             )

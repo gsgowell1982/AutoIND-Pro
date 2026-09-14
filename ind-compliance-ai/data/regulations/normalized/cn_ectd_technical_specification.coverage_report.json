@@ -219,10 +219,14 @@
       "automation_ready": true,
       "coverage_status": "partially_covered",
       "implemented_rule_ids": [
-        "SR-ECTD-003"
+          "SR-ECTD-003",
+          "HR-ECTD-118",
+          "HR-ECTD-119"
       ],
       "requirement_ids": [
-        "cn_ectd_technical_specification:req_related_sequence_reference"
+          "cn_ectd_technical_specification:req_related_sequence_reference",
+          "cn_ectd_technical_specification:req_clinical_trial_sequence_table1_semantics",
+          "cn_ectd_technical_specification:req_new_drug_sequence_table2_semantics"
       ],
       "traceability_gap": false,
       "coverage_note": "Related-sequence reference integrity is covered at a bounded soft-rule level, not as a full history-hard exactness rule."
@@ -288,7 +292,8 @@
         "SR-ECTD-002"
       ],
       "requirement_ids": [
-        "cn_ectd_technical_specification:req_sequence_description_length"
+        "cn_ectd_technical_specification:req_sequence_description_length",
+        "cn_ectd_technical_specification:req_sequence_description_non_substitution"
       ],
       "traceability_gap": false,
       "coverage_note": "Sequence-description length boundary is executable."
@@ -318,10 +323,12 @@
       "coverage_status": "covered",
       "implemented_rule_ids": [
         "HR-ECTD-017",
-        "HR-ECTD-018"
+          "HR-ECTD-018",
+          "HR-ECTD-120"
       ],
       "requirement_ids": [
-        "cn_ectd_technical_specification:req_application_registration_sequence_type_compatibility"
+          "cn_ectd_technical_specification:req_application_registration_sequence_type_compatibility",
+          "cn_ectd_technical_specification:req_application_activity_sequence_relationship_examples"
       ],
       "traceability_gap": false,
       "coverage_note": "Application/activity/sequence compatibility is executable against Attachment 1-2 support files."

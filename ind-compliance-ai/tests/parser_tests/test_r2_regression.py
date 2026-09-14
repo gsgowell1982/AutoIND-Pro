@@ -1,16 +1,697 @@
 from __future__ import annotations
 
 import os
+from html import escape
 from pathlib import Path
 import re
 import unittest
 
+from api import main as api_main
 from api.main import (
     _build_full_markdown,
     _build_ind_review_heading_like_duplicate_audit,
     _normalize_ind_review_visibility_text,
+    _structure_template_markdown_visual_row_texts,
 )
+from parsers.pdf import postprocess
+from parsers.pdf.table_modules import postprocess as table_postprocess
 from parsers.pdf_parser import parse_pdf
+
+
+class SourceBackedBodySpanProjectionTests(unittest.TestCase):
+    def test_projects_unique_source_row_group_to_semantic_presentation_span(self) -> None:
+        table = {
+            "table_id": "tbl_grouped",
+            "semantic_grid": [
+                ["Group", "Value"],
+                ["A", "1"],
+                ["A", "2"],
+                ["A", "3"],
+            ],
+            "row_groups": [
+                {
+                    "col": 0,
+                    "start_data_row": 1,
+                    "end_data_row": 3,
+                    "rowspan": 3,
+                    "text": "A",
+                    "source": "sparse_body_rowspan_projection",
+                }
+            ],
+        }
+
+        postprocess._project_source_body_row_groups_to_presentation_spans([table])
+
+        self.assertEqual(
+            table.get("presentation_spans"),
+            [
+                {
+                    "row": 1,
+                    "col": 0,
+                    "rowspan": 3,
+                    "colspan": 1,
+                    "text": "A",
+                    "source": "source_body_row_group_presentation_projection",
+                    "source_group_source": "sparse_body_rowspan_projection",
+                }
+            ],
+        )
+
+    def test_does_not_project_repeated_semantic_values_without_source_row_group(self) -> None:
+        table = {
+            "table_id": "tbl_repeated",
+            "semantic_grid": [
+                ["Group", "Value"],
+                ["A", "1"],
+                ["A", "2"],
+            ],
+        }
+
+        postprocess._project_source_body_row_groups_to_presentation_spans([table])
+
+        self.assertNotIn("presentation_spans", table)
+
+    def test_projects_repeated_equal_groups_by_source_row_lineage(self) -> None:
+        table = {
+            "table_id": "tbl_repeated_groups",
+            "semantic_grid": [
+                ["Activation", "Subject", "Value"],
+                ["No", "Control", "1"],
+                ["No", "MM-180801", "2"],
+                ["No", "MM-180801", "3"],
+                ["No", "Positive", "4"],
+                ["With", "Control", "5"],
+                ["With", "MM-180801", "6"],
+                ["With", "MM-180801", "7"],
+            ],
+            "semantic_row_provenance": [
+                {"semantic_row": 0, "source_row_refs": []},
+                {"semantic_row": 1, "source_row_refs": ["tbl_repeated_groups:display_row:3"]},
+                {"semantic_row": 2, "source_row_refs": []},
+                {"semantic_row": 3, "source_row_refs": []},
+                {"semantic_row": 4, "source_row_refs": []},
+                {"semantic_row": 5, "source_row_refs": ["tbl_repeated_groups:display_row:7"]},
+                {"semantic_row": 6, "source_row_refs": []},
+                {"semantic_row": 7, "source_row_refs": []},
+            ],
+            "row_groups": [
+                {
+                    "col": 1,
+                    "start_data_row": 3,
+                    "end_data_row": 4,
+                    "rowspan": 2,
+                    "text": "MM-180801",
+                    "source": "sparse_body_rowspan_projection",
+                },
+                {
+                    "col": 1,
+                    "start_data_row": 7,
+                    "end_data_row": 8,
+                    "rowspan": 2,
+                    "text": "MM-180801",
+                    "source": "sparse_body_rowspan_projection",
+                },
+            ],
+        }
+
+        postprocess._project_source_body_row_groups_to_presentation_spans([table])
+
+        spans = table.get("presentation_spans") or []
+        self.assertEqual(
+            [(span["row"], span["col"], span["rowspan"], span["text"]) for span in spans],
+            [(2, 1, 2, "MM-180801"), (6, 1, 2, "MM-180801")],
+        )
+        self.assertEqual(
+            [span.get("span_group_id") for span in spans],
+            [
+                "tbl_repeated_groups:body_group:1:3:4",
+                "tbl_repeated_groups:body_group:1:7:8",
+            ],
+        )
+
+    def test_resolves_one_based_source_group_by_exact_lineage_and_content(self) -> None:
+        semantic_grid = [
+            ["供试品", "剂量"],
+            ["溶媒", "0"],
+            ["MM-180801", "2"],
+            *[["", str(value)] for value in (2, 20, 20, 200, 200, 2000, 2000)],
+        ]
+        table = {
+            "table_id": "tbl_one_based_group",
+            "page": 105,
+            "semantic_grid": semantic_grid,
+            "semantic_row_provenance": [
+                {"semantic_row": 0, "source_row_refs": []},
+                *[
+                    {
+                        "semantic_row": semantic_row,
+                        "source_row_refs": [
+                            f"tbl_one_based_group:display_row:{semantic_row + 2}"
+                        ],
+                    }
+                    for semantic_row in range(1, 10)
+                ],
+            ],
+            "row_groups": [
+                {
+                    "col": 0,
+                    "start_data_row": 4,
+                    "end_data_row": 11,
+                    "rowspan": 8,
+                    "text": "MM-180801",
+                    "source": "sparse_body_rowspan_projection",
+                }
+            ],
+        }
+
+        postprocess._project_source_body_row_groups_to_presentation_spans([table])
+        postprocess._project_canonical_table_cell_spans([table])
+
+        self.assertEqual(
+            [
+                (
+                    span["role"],
+                    span["row"],
+                    span["col"],
+                    span["rowspan"],
+                    span["colspan"],
+                    span["text"],
+                )
+                for span in table.get("cell_spans", []) or []
+            ],
+            [("body", 2, 0, 8, 1, "MM-180801")],
+        )
+
+
+class FinalSemanticRowGroupResolutionTests(unittest.TestCase):
+    def test_keeps_equal_group_labels_separate_by_final_source_runs(self) -> None:
+        table = {
+            "table_id": "tbl_equal_groups",
+            "semantic_grid": [
+                ["Group", "Static", "Detail"],
+                ["A", "x", "1"],
+                ["", "", "2"],
+                ["A", "y", "3"],
+                ["", "", "4"],
+            ],
+            "semantic_row_provenance": [
+                {"semantic_row": 0, "role": "header"},
+                *[
+                    {
+                        "semantic_row": row,
+                        "role": "body",
+                        "source_word_refs": [f"word:equal:{row}"],
+                        "source_y_min": float(row * 10),
+                        "source_y_max": float(row * 10 + 4),
+                    }
+                    for row in range(1, 5)
+                ],
+            ],
+        }
+
+        postprocess._resolve_final_semantic_row_groups([table])
+
+        groups = table.get("semantic_row_groups", [])
+        self.assertEqual(
+            [(group.get("anchor_text"), group.get("start_semantic_row"), group.get("rowspan")) for group in groups],
+            [("A", 1, 2), ("A", 3, 2)],
+        )
+        self.assertEqual(len({group.get("semantic_group_id") for group in groups}), 2)
+
+    def test_rejects_sparse_metric_column_with_detail_columns_to_its_left(self) -> None:
+        table = {
+            "table_id": "tbl_metric_not_group_key",
+            "semantic_grid": [
+                ["Dose", "M", "F", "Observation"],
+                ["1", "", "", "baseline"],
+                ["5", "10", "12", "a"],
+                ["10", "", "", "b"],
+                ["20", "", "", "c"],
+                ["25", "20", "22", "d"],
+                ["40", "", "", "e"],
+                ["50", "", "", "f"],
+            ],
+            "semantic_row_provenance": [
+                {"semantic_row": 0, "role": "header"},
+                *[
+                    {
+                        "semantic_row": row,
+                        "role": "body",
+                        "source_word_refs": [f"word:metric:{row}"],
+                        "source_y_min": float(row * 10),
+                        "source_y_max": float(row * 10 + 4),
+                    }
+                    for row in range(1, 8)
+                ],
+            ],
+        }
+
+        postprocess._resolve_final_semantic_row_groups([table])
+
+        self.assertNotIn("semantic_row_groups", table)
+
+    def test_rejects_isolated_sparse_result_column_as_group_key(self) -> None:
+        table = {
+            "table_id": "tbl_sparse_results",
+            "semantic_grid": [
+                ["Dose", "M", "F", "Species"],
+                ["1", "", "", "9"],
+                ["5", "3", "", "25"],
+                ["10", "4", "", ""],
+                ["20", "10", "", ""],
+                ["25", "10", "12", "273"],
+                ["40", "10", "", ""],
+                ["50", "12", "", ""],
+            ],
+            "semantic_row_provenance": [
+                {"semantic_row": 0, "role": "header"},
+                *[
+                    {
+                        "semantic_row": row,
+                        "role": "body",
+                        "source_word_refs": [f"word:result:{row}"],
+                        "source_y_min": float(row * 10),
+                        "source_y_max": float(row * 10 + 4),
+                    }
+                    for row in range(1, 8)
+                ],
+            ],
+        }
+
+        postprocess._resolve_final_semantic_row_groups([table])
+
+        self.assertNotIn("semantic_row_groups", table)
+
+    def test_study_metric_projection_preserves_per_row_word_lineage(self) -> None:
+        rows = [
+            [
+                {"text": "A", "bbox": [8.0, 10.0, 12.0, 14.0], "source_word_ref": "word:a"},
+                {"text": "100", "bbox": [28.0, 10.0, 34.0, 14.0], "source_word_ref": "word:100"},
+                {"text": "alpha", "bbox": [48.0, 10.0, 58.0, 14.0], "source_word_ref": "word:alpha"},
+            ],
+            [
+                {"text": "", "bbox": [8.0, 20.0, 12.0, 24.0], "source_word_ref": "word:blank"},
+                {"text": "101", "bbox": [28.0, 20.0, 34.0, 24.0], "source_word_ref": "word:101"},
+                {"text": "beta", "bbox": [48.0, 20.0, 56.0, 24.0], "source_word_ref": "word:beta"},
+            ],
+        ]
+
+        projected = postprocess._project_study_metric_data_rows_with_provenance(
+            rows,
+            [10.0, 30.0, 50.0],
+            expected_col_count=3,
+        )
+
+        self.assertEqual(
+            [item["cells"] for item in projected],
+            [["A", "100", "alpha"], ["", "101", "beta"]],
+        )
+        self.assertEqual(
+            [item["source_word_refs"] for item in projected],
+            [["word:a", "word:100", "word:alpha"], ["word:101", "word:beta"]],
+        )
+        self.assertEqual(
+            [(item["source_y_min"], item["source_y_max"]) for item in projected],
+            [(10.0, 14.0), (20.0, 24.0)],
+        )
+
+    def test_resolves_variable_groups_from_final_semantic_rows_and_provenance(self) -> None:
+        table = {
+            "table_id": "tbl_final_groups",
+            "page": 7,
+            "semantic_grid": [
+                ["Batch", "Purity", "Study", "Type"],
+                ["A", "99.0", "100", "alpha"],
+                ["", "", "101", "beta"],
+                ["B", "98.0", "200", "gamma"],
+                ["", "", "201", "delta"],
+                ["", "", "202", "epsilon"],
+            ],
+            "semantic_row_provenance": [
+                {
+                    "semantic_row": 0,
+                    "role": "header",
+                    "source_page": 7,
+                    "source_word_refs": ["word:header"],
+                    "source_y_min": 10.0,
+                    "source_y_max": 12.0,
+                },
+                *[
+                    {
+                        "semantic_row": row,
+                        "role": "body",
+                        "source_page": 7,
+                        "source_word_refs": [f"word:row:{row}"],
+                        "source_y_min": float(20 + row * 10),
+                        "source_y_max": float(24 + row * 10),
+                    }
+                    for row in range(1, 6)
+                ],
+            ],
+        }
+
+        postprocess._resolve_final_semantic_row_groups([table])
+        postprocess._project_source_body_row_groups_to_presentation_spans([table])
+        postprocess._project_canonical_table_cell_spans([table])
+
+        self.assertEqual(
+            [
+                (
+                    group["start_semantic_row"],
+                    group["rowspan"],
+                    group["static_cols"],
+                    group["detail_cols"],
+                )
+                for group in table.get("semantic_row_groups", [])
+            ],
+            [(1, 2, [0, 1], [2, 3]), (3, 3, [0, 1], [2, 3])],
+        )
+        self.assertEqual(
+            [
+                (span["row"], span["col"], span["rowspan"], span["text"])
+                for span in table.get("cell_spans", [])
+                if span.get("role") == "body"
+            ],
+            [
+                (1, 0, 2, "A"),
+                (1, 1, 2, "99.0"),
+                (3, 0, 3, "B"),
+                (3, 1, 3, "98.0"),
+            ],
+        )
+        self.assertTrue(
+            all(
+                span.get("coordinate_space") == "semantic_grid"
+                for span in table.get("cell_spans", [])
+                if span.get("role") == "body"
+            )
+        )
+
+    def test_invalidates_stale_body_spans_when_semantic_grid_was_replaced(self) -> None:
+        table = {
+            "table_id": "tbl_replaced_grid",
+            "semantic_grid_replaced": True,
+            "semantic_grid": [
+                ["Group", "Detail"],
+                ["A", "1"],
+                ["", "2"],
+            ],
+            "row_groups": [
+                {
+                    "col": 0,
+                    "start_data_row": 1,
+                    "end_data_row": 2,
+                    "rowspan": 2,
+                    "text": "A",
+                    "source": "sparse_body_rowspan_projection",
+                }
+            ],
+            "presentation_spans": [
+                {
+                    "row": 1,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "A",
+                    "source": "source_body_row_group_presentation_projection",
+                }
+            ],
+            "cell_spans": [
+                {
+                    "span_id": "stale-body",
+                    "role": "body",
+                    "coordinate_space": "semantic_grid",
+                    "row": 1,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "A",
+                },
+                {
+                    "span_id": "keep-header",
+                    "role": "header",
+                    "coordinate_space": "semantic_grid",
+                    "row": 0,
+                    "col": 0,
+                    "rowspan": 1,
+                    "colspan": 2,
+                    "text": "Header",
+                },
+            ],
+        }
+
+        postprocess._resolve_final_semantic_row_groups([table])
+
+        self.assertNotIn("presentation_spans", table)
+        self.assertNotIn("semantic_row_groups", table)
+        self.assertEqual(
+            [span.get("span_id") for span in table.get("cell_spans", [])],
+            ["keep-header"],
+        )
+        self.assertTrue(table.get("stale_body_spans_invalidated"))
+
+
+class CanonicalTableCellSpanTests(unittest.TestCase):
+    def test_adapts_header_and_body_spans_to_one_provenanced_contract(self) -> None:
+        table = {
+            "table_id": "tbl_test",
+            "page": 102,
+            "semantic_grid": [
+                ["Group", "Value"],
+                ["", "Leaf"],
+                ["A", "1"],
+                ["A", "2"],
+                ["A", "3"],
+            ],
+            "span_header_cells": [
+                {
+                    "row": 0,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "Group",
+                    "source": "source_header_geometry",
+                }
+            ],
+            "presentation_spans": [
+                {
+                    "row": 2,
+                    "col": 0,
+                    "rowspan": 3,
+                    "colspan": 1,
+                    "text": "A",
+                    "source": "source_body_row_group_presentation_projection",
+                    "source_row_refs": [
+                        "tbl_test:display_row:2",
+                        "tbl_test:display_row:3",
+                        "tbl_test:display_row:4",
+                    ],
+                }
+            ],
+        }
+
+        postprocess._project_canonical_table_cell_spans([table])
+
+        spans = table.get("cell_spans") or []
+        self.assertEqual(
+            [
+                (span["role"], span["row"], span["col"], span["rowspan"], span["colspan"])
+                for span in spans
+            ],
+            [("header", 0, 0, 2, 1), ("body", 2, 0, 3, 1)],
+        )
+        self.assertEqual([span["span_id"] for span in spans], [
+            "tbl_test:cell_span:1",
+            "tbl_test:cell_span:2",
+        ])
+        self.assertTrue(all(span["coordinate_space"] == "semantic_grid" for span in spans))
+        self.assertTrue(all(span["source_pages"] == [102] for span in spans))
+        self.assertTrue(all(span["source_table_ids"] == ["tbl_test"] for span in spans))
+        self.assertEqual(spans[0]["evidence"], "source_header_geometry")
+        self.assertEqual(
+            spans[1]["source_cell_refs"],
+            [
+                "tbl_test:display_row:2",
+                "tbl_test:display_row:3",
+                "tbl_test:display_row:4",
+            ],
+        )
+        audit = (table.get("semantic_projection_v2") or {}).get("canonical_cell_span_projection", {})
+        self.assertEqual(audit.get("accepted_span_count"), 2)
+        self.assertEqual(audit.get("rejected_span_count"), 0)
+
+    def test_prefers_semantic_logical_header_span_over_overlapping_sparse_candidate(self) -> None:
+        table = {
+            "table_id": "tbl_header_priority",
+            "page": 85,
+            "semantic_grid": [
+                ["Stub", "A", "B", "C", "Value"],
+                ["row", "1", "2", "3", "4"],
+                ["row", "5", "6", "7", "8"],
+            ],
+            "logical_cells": [
+                {
+                    "row": 0,
+                    "col": 1,
+                    "rowspan": 1,
+                    "colspan": 2,
+                    "text": "Sparse parent",
+                    "source": "sparse_header_colspan_projection",
+                },
+                {
+                    "row": 0,
+                    "col": 1,
+                    "rowspan": 1,
+                    "colspan": 3,
+                    "text": "Semantic parent",
+                    "source": "grouped_multilevel_word_header_colspan_projection",
+                },
+            ],
+            "presentation_spans": [
+                {
+                    "row": 1,
+                    "col": 0,
+                    "rowspan": 2,
+                    "colspan": 1,
+                    "text": "row",
+                    "source": "source_body_row_group_presentation_projection",
+                }
+            ],
+        }
+
+        postprocess._project_canonical_table_cell_spans([table])
+
+        spans = table.get("cell_spans") or []
+        self.assertEqual(
+            [
+                (span["role"], span["col"], span["rowspan"], span["colspan"], span["text"])
+                for span in spans
+            ],
+            [
+                ("header", 1, 1, 3, "Semantic parent"),
+                ("body", 0, 2, 1, "row"),
+            ],
+        )
+
+
+class GeneralizedStudyContextFactTests(unittest.TestCase):
+    def test_study_context_parser_splits_inline_ind_fields(self) -> None:
+        facts = postprocess._study_context_fact_records(
+            "种属/品系：新西兰兔 剖腹产日：G29 CTD 中的位置：第6 卷，第200 页",
+            source_ref="unit:row:1",
+            source_owner="unit",
+            page=112,
+        )
+
+        self.assertEqual(
+            [(fact["label"], fact["value"]) for fact in facts],
+            [
+                ("种属/品系", "新西兰兔"),
+                ("剖腹产日", "G29"),
+                ("CTD 中的位置", "第6 卷，第200 页"),
+            ],
+        )
+
+    def test_absorbed_template_composite_field_uses_atomic_facts(self) -> None:
+        facts = postprocess._absorbed_template_field_fact_records(
+            {
+                "label": "种属/品系",
+                "value": "新西兰兔 剖腹产日：G29",
+                "field_index": 1,
+            },
+            row="种属/品系：新西兰兔 剖腹产日：G29",
+            source_template_id="structure_template_unit",
+            page=112,
+            fallback_bbox=[0, 0, 10, 10],
+        )
+
+        self.assertEqual(
+            [(fact["label"], fact["value"]) for fact in facts],
+            [("种属/品系", "新西兰兔"), ("剖腹产日", "G29")],
+        )
+
+    def test_template_transfer_does_not_append_already_owned_atomic_facts(self) -> None:
+        table = {
+            "table_id": "table:unit",
+            "page": 112,
+            "title": "2.6.7.13 单元",
+            "study_context_blocks": [
+                {
+                    "text": "种属/品系：新西兰兔 剖腹产日：G29",
+                    "source_ref": "table:unit:study_context:1",
+                },
+                {"text": "F1 仔畜：5 mg/kg", "source_ref": "table:unit:study_context:2"},
+            ],
+        }
+        template = {
+            "page": 112,
+            "bbox": [0, 0, 10, 10],
+            "fields": [
+                {
+                    "label": "种属/品系",
+                    "value": "新西兰兔 剖腹产日：G29",
+                    "text": "种属/品系：新西兰兔 剖腹产日：G29",
+                }
+            ],
+        }
+
+        postprocess._transfer_absorbed_template_study_context_to_business_table(
+            template=template,
+            table=table,
+            original_rows=[
+                "2.6.7.13 单元",
+                "种属/品系：新西兰兔 剖腹产日：G29",
+                "F1 仔畜：5 mg/kg",
+                "日剂量(mg/kg) 0 1 5",
+            ],
+            source_template_id="structure_template_unit",
+            require_title_anchor=True,
+        )
+
+        self.assertEqual(
+            [block["text"] for block in table["study_context_blocks"]],
+            ["种属/品系：新西兰兔 剖腹产日：G29", "F1 仔畜：5 mg/kg"],
+        )
+        audit = table["study_context_transfer_audits"][-1]
+        self.assertEqual(audit["transferred_fact_count"], 0)
+        self.assertEqual(audit["already_covered_fact_count"], 2)
+
+    def test_template_transfer_audits_conflicting_source_value_without_rendering_it(self) -> None:
+        table = {
+            "table_id": "table:conflict",
+            "page": 112,
+            "title": "2.6.7.13 单元",
+            "study_context_blocks": [
+                {"text": "种属/品系：新西兰兔", "source_ref": "table:conflict:study_context:1"},
+            ],
+        }
+        template = {
+            "page": 112,
+            "bbox": [0, 0, 10, 10],
+            "fields": [
+                {
+                    "label": "种属/品系",
+                    "value": "大白兔",
+                    "text": "种属/品系：大白兔",
+                }
+            ],
+        }
+
+        postprocess._transfer_absorbed_template_study_context_to_business_table(
+            template=template,
+            table=table,
+            original_rows=["2.6.7.13 单元", "种属/品系：大白兔", "日剂量(mg/kg) 0 1 5"],
+            source_template_id="structure_template_conflict",
+            require_title_anchor=True,
+        )
+
+        self.assertEqual(
+            [block["text"] for block in table["study_context_blocks"]],
+            ["种属/品系：新西兰兔"],
+        )
+        audit = table["study_context_transfer_audits"][-1]
+        self.assertEqual(audit["transferred_fact_count"], 0)
+        self.assertEqual(audit["conflict_fact_count"], 1)
 
 
 def _clean_text_for_test(text: str) -> str:
@@ -37,11 +718,2035 @@ def _business_table_surface_tokens_for_test(table: dict) -> list[str]:
     return tokens
 
 
+class TrailingTableNoteSourceOrderTests(unittest.TestCase):
+    def test_extracted_note_retains_raw_row_source_order(self) -> None:
+        table = {
+            "block_type": "table",
+            "table_id": "tbl_notes",
+            "page": 7,
+            "bbox": [10.0, 20.0, 190.0, 200.0],
+            "detection_method": "caption_anchored_horizontal_rules",
+            "raw_grid": [
+                ["Dose", "A", "B"],
+                ["1", "2", "3"],
+                ["2", "4", "5"],
+                ["Results were measured through day 7; not detec", None, None],
+            ],
+            "display_grid": [
+                ["Dose", "A", "B"],
+                ["1", "2", "3"],
+                ["2", "4", "5"],
+                ["Results were measured through day 7; not detec", None, None],
+            ],
+        }
+
+        extracted = table_postprocess.extract_trailing_table_note_rows(table)
+
+        self.assertTrue(extracted)
+        note = table["note_blocks"][0]
+        self.assertEqual(note["source_grid"], "raw_grid")
+        self.assertEqual(note["source_row_number"], 4)
+        self.assertEqual(note["source_row_ref"], "tbl_notes:raw_row:4")
+        self.assertEqual(note["physical_page"], 7)
+        self.assertEqual(note["source_order_y"], 200.0)
+        self.assertEqual(note["source_order_x"], 10.0)
+
+    def test_source_order_metadata_sorts_before_positioned_below_note(self) -> None:
+        table = {
+            "block_type": "table",
+            "table_id": "tbl_notes",
+            "page": 7,
+        }
+        segments = [
+            {
+                "role": "note",
+                "relation": "below",
+                "text": "ted; recovery included cage wash.",
+                "page": 7,
+                "bbox": [10.0, 210.0, 190.0, 220.0],
+            },
+            {
+                "role": "note",
+                "relation": "below",
+                "source": "trailing_table_note_row",
+                "text": "Results were measured through day 7; not detec",
+                "physical_page": 7,
+                "source_order_y": 200.0,
+                "source_order_x": 10.0,
+            },
+        ]
+
+        ordered = api_main._order_markdown_float_segments(table, segments)
+
+        self.assertEqual(
+            [segment["text"] for segment in ordered],
+            [
+                "Results were measured through day 7; not detec",
+                "ted; recovery included cage wash.",
+            ],
+        )
+
+
 def _resolve_r2_regression_pdf() -> Path:
     override = os.environ.get("IND_R2_REGRESSION_PDF", "").strip()
     if override:
         return Path(override)
     return Path(r"D:\AutoIND-Pro\r2.pdf")
+
+
+class StructureTemplateNoteMarkdownSafetyTests(unittest.TestCase):
+    def test_escapes_only_leading_markdown_block_markers(self) -> None:
+        self.assertTrue(
+            hasattr(api_main, "_markdown_structure_template_note_text"),
+            msg="structure-template notes need a dedicated Markdown-safe formatter",
+        )
+        formatter = api_main._markdown_structure_template_note_text
+
+        expected_by_source = {
+            "ordinary note": "ordinary note",
+            "- literal legend": "\\- literal legend",
+            "+ literal legend": "\\+ literal legend",
+            "* literal legend": "\\* literal legend",
+            "1. ordered-looking note": "1\\. ordered-looking note",
+            "1) ordered-looking note": "1\\) ordered-looking note",
+            "> quoted-looking note": "\\> quoted-looking note",
+            "# heading-looking note": "\\# heading-looking note",
+        }
+        for source, expected in expected_by_source.items():
+            with self.subTest(source=source):
+                self.assertEqual(formatter(source), expected)
+
+
+class StructureTemplateTitleOnlyContinuationMarkdownTests(unittest.TestCase):
+    def test_renders_only_source_backed_pending_continuation_title_anchor(self) -> None:
+        title = "2.6.7.14 (1)\u751f\u6b96\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7(\u7eed)"
+        ordinary_empty_template = {
+            "block_type": "structure_template",
+            "title": title,
+            "title_source_block_id": "ordinary-title",
+            "entries": [],
+            "fields": [],
+            "sections": [],
+            "note_blocks": [],
+        }
+        pending_continuation_anchor = {
+            **ordinary_empty_template,
+            "title_source_block_id": "continuation-title",
+            "is_structure_template_continuation": True,
+            "semantic_signals": {
+                "same_page_post_note_continuation_state": "pending_body_on_next_page",
+            },
+        }
+
+        ordinary_lines: list[str] = []
+        api_main._append_markdown_structure_template_with_deferred_notes(
+            ordinary_lines,
+            ordinary_empty_template,
+            deferred_note_texts=set(),
+        )
+        continuation_lines: list[str] = []
+        api_main._append_markdown_structure_template_with_deferred_notes(
+            continuation_lines,
+            pending_continuation_anchor,
+            deferred_note_texts=set(),
+        )
+
+        self.assertEqual(ordinary_lines, [])
+        self.assertEqual(continuation_lines, [f"#### {title}", ""])
+
+
+class TableNoteOwnershipContractTests(unittest.TestCase):
+    def test_markdown_normalization_preserves_same_label_for_distinct_note_groups(self) -> None:
+        previous_table = {
+            "table_id": "previous",
+            "page": 84,
+            "note_blocks": [
+                {
+                    "role": "note",
+                    "text": "附加信息：",
+                    "note_group_id": "previous:note_group:1",
+                    "note_component_role": "label",
+                    "owner_table_id": "previous",
+                    "note_scope": "previous_table",
+                }
+            ],
+        }
+        current_table = {
+            "table_id": "current",
+            "page": 85,
+            "note_blocks": [
+                {
+                    "role": "note",
+                    "text": "附加信息：",
+                    "note_group_id": "current:note_group:1",
+                    "note_component_role": "label",
+                }
+            ],
+        }
+
+        normalized = api_main._normalize_markdown_table_note_fields(
+            {"table_asts": [previous_table, current_table], "document_ast": {"pages": []}}
+        )
+
+        self.assertEqual(
+            [
+                [str(note.get("text") or "") for note in table.get("note_blocks", []) or []]
+                for table in normalized["table_asts"]
+            ],
+            [["附加信息："], ["附加信息："]],
+        )
+
+    def test_markdown_normalization_preserves_same_note_text_on_distinct_physical_pages(self) -> None:
+        note_text = "a-总放射性；回收率，14C"
+        document = {
+            "table_asts": [
+                {
+                    "table_id": "page86-table",
+                    "page": 86,
+                    "note_blocks": [
+                        {
+                            "role": "table_note",
+                            "text": note_text,
+                            "physical_page": 87,
+                            "owner_table_id": "page86-table",
+                            "note_scope": "previous_table",
+                        }
+                    ],
+                },
+                {
+                    "table_id": "page87-table",
+                    "page": 87,
+                    "note_blocks": [
+                        {
+                            "role": "table_note",
+                            "text": note_text,
+                            "physical_page": 88,
+                            "owner_table_id": "page87-table",
+                            "note_scope": "previous_table",
+                        }
+                    ],
+                },
+            ],
+            "document_ast": {"pages": []},
+        }
+
+        normalized = api_main._normalize_markdown_table_note_fields(document)
+
+        self.assertEqual(
+            [
+                (table["table_id"], table["note_blocks"][0]["physical_page"])
+                for table in normalized["table_asts"]
+            ],
+            [("page86-table", 87), ("page87-table", 88)],
+        )
+
+    def test_cross_page_reconciliation_does_not_dedupe_same_page_generic_labels_across_tables(self) -> None:
+        local_table = {
+            "table_id": "local",
+            "page": 85,
+            "note_blocks": [{"text": "附加信息："}],
+            "content_segments": [{"role": "note", "text": "附加信息："}],
+        }
+        cross_page_owner = {
+            "table_id": "owner",
+            "page": 84,
+            "note_blocks": [
+                {
+                    "text": "附加信息：",
+                    "physical_page": 85,
+                    "owner_table_id": "owner",
+                    "note_scope": "previous_table",
+                }
+            ],
+        }
+
+        postprocess._reconcile_explicit_cross_page_result_matrix_note_ownership(
+            table_nodes=[local_table, cross_page_owner],
+            structure_templates=[],
+        )
+
+        self.assertEqual(local_table["note_blocks"], [{"text": "附加信息："}])
+        self.assertEqual(local_table["content_segments"], [{"role": "note", "text": "附加信息："}])
+
+    def test_labeled_note_absorbs_intervening_prose_but_keeps_marker_note_separate(self) -> None:
+        label = {
+            "block_id": "label",
+            "page": 80,
+            "bbox": [77.0, 385.0, 130.0, 396.0],
+            "text": "附加信息：",
+        }
+        first_line = {
+            "block_id": "line-1",
+            "page": 80,
+            "bbox": [77.0, 405.0, 300.0, 416.0],
+            "text": "小鼠、大鼠、犬和猴单次给药后吸收良好。",
+        }
+        second_line = {
+            "block_id": "line-2",
+            "page": 80,
+            "bbox": [77.0, 424.0, 740.0, 436.0],
+            "text": "该结果提示化合物被充分吸收。",
+        }
+        marker_note = {
+            "block_id": "marker",
+            "page": 80,
+            "bbox": [77.0, 460.0, 155.0, 472.0],
+            "text": "a-总放射性，14C",
+        }
+
+        notes = postprocess._merge_labeled_table_note_continuations(
+            [label, marker_note],
+            [label, first_line, second_line, marker_note],
+            table_bbox=(77.0, 169.0, 747.0, 372.0),
+            layout_profile=None,
+            already_owned=set(),
+        )
+
+        self.assertEqual(len(notes), 2)
+        self.assertIn("附加信息：", notes[0]["text"])
+        self.assertIn("小鼠、大鼠、犬和猴单次给药后吸收良好", notes[0]["text"])
+        self.assertIn("该结果提示化合物被充分吸收", notes[0]["text"])
+        self.assertEqual(notes[0]["source_block_ids"], ["label", "line-1", "line-2"])
+        self.assertEqual(notes[1]["text"], "a-总放射性，14C")
+
+
+class OverviewInventoryHeaderGroupContractTests(unittest.TestCase):
+    def test_nonclinical_location_parent_uses_dynamic_terminal_leaf_pair(self) -> None:
+        leaf_columns = [
+            "试验类型",
+            "种属和品系",
+            "给药方法",
+            "给药期限",
+            "剂量(mg/kga)",
+            "GLP依从性",
+            "试验机构",
+            "试验编号",
+            "卷",
+            "页码",
+        ]
+        anchors = [90.0, 180.0, 250.0, 320.0, 390.0, 480.0, 560.0, 640.0, 700.0, 745.0]
+        parent_row = [{"text": "位置", "bbox": [711.0, 90.0, 734.0, 100.0]}]
+        header_row = [
+            {"text": text, "bbox": [anchor - 10.0, 102.0, anchor + 10.0, 112.0]}
+            for text, anchor in zip(leaf_columns, anchors)
+        ]
+
+        groups = postprocess._overview_inventory_header_column_groups(
+            [parent_row, header_row],
+            anchors,
+            leaf_columns,
+            header_row=header_row,
+            semantic_profile="nonclinical_overview_inventory_table",
+        )
+
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(
+            (
+                groups[0].get("text"),
+                groups[0].get("start_leaf_col"),
+                groups[0].get("end_leaf_col"),
+                groups[0].get("child_headers"),
+            ),
+            ("位置", 8, 9, ["卷", "页码"]),
+        )
+
+    def test_location_parent_is_not_synthesized_without_source_label(self) -> None:
+        leaf_columns = ["试验类型", "种属和品系", "给药方法", "试验编号", "卷", "页码"]
+        anchors = [90.0, 180.0, 280.0, 600.0, 700.0, 745.0]
+        header_row = [
+            {"text": text, "bbox": [anchor - 10.0, 102.0, anchor + 10.0, 112.0]}
+            for text, anchor in zip(leaf_columns, anchors)
+        ]
+
+        groups = postprocess._overview_inventory_header_column_groups(
+            [header_row],
+            anchors,
+            leaf_columns,
+            header_row=header_row,
+            semantic_profile="nonclinical_overview_inventory_table",
+        )
+
+        self.assertEqual(groups, [])
+
+
+class StudyPanelParentHeaderOwnershipContractTests(unittest.TestCase):
+    def test_terminal_multicolumn_header_is_released_from_study_metadata(self) -> None:
+        title = {
+            "block_id": "title",
+            "text": "2.6.5 Study",
+            "bbox": [0.0, 20.0, 180.0, 30.0],
+        }
+        field = {
+            "block_id": "field",
+            "text": "采样时间：1、2、3 h",
+            "bbox": [0.0, 70.0, 150.0, 80.0],
+        }
+        parent_header = {
+            "block_id": "parent",
+            "text": "Result (unit)",
+            "bbox": [170.0, 88.0, 240.0, 99.0],
+        }
+        table = {
+            "table_id": "tbl",
+            "bbox": [0.0, 100.0, 400.0, 200.0],
+            "display_grid": [
+                ["Analyte", "1", "2", "3"],
+                ["A", "10", "20", "30"],
+            ],
+        }
+        page_words = [
+            {"text": "Analyte", "bbox": [0.0, 100.0, 50.0, 110.0]},
+            {"text": "1", "bbox": [100.0, 100.0, 110.0, 110.0]},
+            {"text": "2", "bbox": [200.0, 100.0, 210.0, 110.0]},
+            {"text": "3", "bbox": [300.0, 100.0, 310.0, 110.0]},
+        ]
+
+        metadata_nodes, parent_nodes = postprocess._partition_study_metadata_panel_parent_header_nodes(
+            [title, field, parent_header],
+            table=table,
+            page_words=page_words,
+        )
+
+        self.assertEqual([node["block_id"] for node in metadata_nodes], ["title", "field"])
+        self.assertEqual([node["block_id"] for node in parent_nodes], ["parent"])
+
+    def test_merged_metadata_continuation_retains_all_source_block_ids(self) -> None:
+        records = postprocess._build_panel_metadata_row_records_from_nodes(
+            [
+                {
+                    "block_id": "field",
+                    "text": "分析方法：HPLC",
+                    "bbox": [0.0, 10.0, 100.0, 20.0],
+                },
+                {
+                    "block_id": "continuation",
+                    "text": "LC-MS",
+                    "bbox": [0.0, 22.0, 80.0, 32.0],
+                },
+            ]
+        )
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["text"], "分析方法：HPLC / LC-MS")
+        self.assertEqual(records[0]["source_block_ids"], ["field", "continuation"])
+        self.assertEqual(records[0]["bbox"], [0.0, 10.0, 100.0, 32.0])
+
+
+class RuledMultilevelLogicalColumnTests(unittest.TestCase):
+    def test_rejects_repeated_standalone_leaf_labels(self) -> None:
+        self.assertFalse(
+            postprocess._ruled_multilevel_logical_columns_are_distinguishable(
+                "stub",
+                ["AUC", "AUC"],
+                [],
+            )
+        )
+
+
+class AdjacentPreTableHeaderProjectionTests(unittest.TestCase):
+    def test_markdown_exports_pre_table_parent_header_semantic_grid(self) -> None:
+        block = {
+            "display_grid": [
+                ["stub", "leaf-a", "leaf-b"],
+                ["row", "1", "2"],
+            ],
+            "semantic_grid": [
+                ["stub", "parent", "parent"],
+                ["", "leaf-a", "leaf-b"],
+                ["row", "1", "2"],
+            ],
+            "semantic_projection_v2": {
+                "source": "table_semantic_projection_v2",
+                "pre_table_parent_header_projection": {
+                    "semantic_profile": "pre_table_multilevel_parent_header",
+                },
+            },
+        }
+
+        self.assertEqual(
+            api_main._normalize_markdown_table_evidence_grid(block),
+            [
+                ["stub", "parent", "parent"],
+                ["", "leaf-a", "leaf-b"],
+                ["row", "1", "2"],
+            ],
+        )
+
+
+    def test_adjacent_text_recovers_context_wrapped_leaf_and_parent_span(self) -> None:
+        page = {
+            "page": 1,
+            "blocks": [
+                {"block_id": "context-a", "block_type": "text", "text": "研究系统：体外", "bbox": [10.0, 70.0, 90.0, 80.0]},
+                {
+                    "block_id": "context-b",
+                    "block_type": "text",
+                    "text": "靶向实体、试验系统和方法：血浆、超滤法",
+                    "bbox": [10.0, 84.0, 180.0, 94.0],
+                },
+                {"block_id": "trial-prefix", "block_type": "text", "text": "试验", "bbox": [310.0, 108.0, 336.0, 118.0]},
+                {"block_id": "location", "block_type": "text", "text": "CTD 中的位置", "bbox": [390.0, 100.0, 470.0, 110.0]},
+                {"block_id": "table-1", "block_type": "table", "table_id": "table-1", "bbox": [10.0, 120.0, 510.0, 220.0]},
+            ],
+        }
+        table = {
+            "table_id": "table-1",
+            "page": 1,
+            "bbox": [10.0, 120.0, 510.0, 220.0],
+            "semantic_role": "business_table",
+            "display_grid": [
+                ["物种", "检测浓度", "%结合率", "编号", "卷", "页码"],
+                ["大鼠", "1-100 μM", "82", "95301", "21", "150"],
+            ],
+            "raw_grid": [
+                ["物种", "检测浓度", "%结合率", "编号", "卷", "页码"],
+                ["大鼠", "1-100 μM", "82", "95301", "21", "150"],
+            ],
+            "semantic_projection_v2": {"source": "table_semantic_projection_v2"},
+        }
+        words = [
+            (20.0, 121.0, 55.0, 131.0, "物种", 0, 0, 0),
+            (110.0, 121.0, 165.0, 131.0, "检测浓度", 0, 0, 1),
+            (210.0, 121.0, 265.0, 131.0, "%结合率", 0, 0, 2),
+            (310.0, 121.0, 340.0, 131.0, "编号", 0, 0, 3),
+            (400.0, 121.0, 420.0, 131.0, "卷", 0, 0, 4),
+            (470.0, 121.0, 500.0, 131.0, "页码", 0, 0, 5),
+        ]
+
+        postprocess._project_adjacent_pre_table_text_semantics(
+            document_ast_pages=[page],
+            table_nodes=[table],
+            page_words_by_page={1: words},
+        )
+
+        self.assertEqual(
+            table.get("semantic_grid", [])[:2],
+            [
+                ["物种", "检测浓度", "%结合率", "试验编号", "CTD 中的位置", "CTD 中的位置"],
+                ["", "", "", "", "卷", "页码"],
+            ],
+        )
+        self.assertTrue(
+            any(
+                group.get("text") == "CTD 中的位置"
+                and group.get("start_col") == 4
+                and group.get("end_col") == 5
+                and group.get("colspan") == 2
+                for group in table.get("header_column_groups", []) or []
+            ),
+            msg=table,
+        )
+        self.assertTrue({"trial-prefix", "location"}.issubset(table.get("owned_text_block_ids", []) or []))
+        self.assertEqual(page["blocks"][0].get("semantic_role"), "body_list_item")
+        self.assertEqual(page["blocks"][1].get("semantic_role"), "body_list_item")
+        self.assertEqual(page["blocks"][0].get("list_style"), "unmarked_indented")
+        self.assertEqual(page["blocks"][2].get("semantic_role"), "business_table_header")
+        self.assertEqual(page["blocks"][3].get("semantic_role"), "business_table_header")
+
+    def test_rejects_repeated_leaf_label_split_between_parent_and_standalone(self) -> None:
+        self.assertFalse(
+            postprocess._ruled_multilevel_logical_columns_are_distinguishable(
+                "stub",
+                ["concentration", "concentration"],
+                [
+                    {
+                        "text": "Ct",
+                        "start_col": 1,
+                        "end_col": 1,
+                    }
+                ],
+            )
+        )
+
+    def test_allows_repeated_leaf_labels_under_distinct_parent_groups(self) -> None:
+        self.assertTrue(
+            postprocess._ruled_multilevel_logical_columns_are_distinguishable(
+                "stub",
+                ["concentration", "ratio", "concentration", "time"],
+                [
+                    {
+                        "text": "Ct",
+                        "start_col": 1,
+                        "end_col": 2,
+                    },
+                    {
+                        "text": "last time point",
+                        "start_col": 3,
+                        "end_col": 4,
+                    },
+                ],
+            )
+        )
+
+    def test_rejects_repeated_leaf_labels_within_one_parent_group(self) -> None:
+        self.assertFalse(
+            postprocess._ruled_multilevel_logical_columns_are_distinguishable(
+                "stub",
+                ["concentration", "concentration"],
+                [
+                    {
+                        "text": "Ct",
+                        "start_col": 1,
+                        "end_col": 2,
+                    }
+                ],
+            )
+        )
+
+    def test_rejects_repeated_leaf_labels_under_same_visible_parent_label(self) -> None:
+        self.assertFalse(
+            postprocess._ruled_multilevel_logical_columns_are_distinguishable(
+                "stub",
+                ["concentration", "ratio", "concentration", "time"],
+                [
+                    {
+                        "text": "parent",
+                        "start_col": 1,
+                        "end_col": 2,
+                    },
+                    {
+                        "text": "parent",
+                        "start_col": 3,
+                        "end_col": 4,
+                    },
+                ],
+            )
+        )
+
+    def test_rejects_stub_label_repeated_as_leaf_label(self) -> None:
+        self.assertFalse(
+            postprocess._ruled_multilevel_logical_columns_are_distinguishable(
+                "AUC",
+                ["AUC"],
+                [],
+            )
+        )
+
+
+class OverviewParentHeaderOwnershipTests(unittest.TestCase):
+    def test_semantic_parent_header_region_closes_only_matching_source_ownership(self) -> None:
+        matching_header = {
+            "block_id": "location-header",
+            "block_type": "text",
+            "text": "\u4f4d\u7f6e",
+            "bbox": [400.0, 86.0, 460.0, 98.0],
+            "semantic_role": "text_block",
+            "unit_role": "body",
+        }
+        unrelated_same_text = {
+            "block_id": "unrelated-location",
+            "block_type": "text",
+            "text": "\u4f4d\u7f6e",
+            "bbox": [100.0, 55.0, 130.0, 67.0],
+            "semantic_role": "text_block",
+            "unit_role": "body",
+        }
+        header_group = {
+            "text": "\u4f4d\u7f6e",
+            "start_leaf_col": 5,
+            "end_leaf_col": 6,
+            "colspan": 2,
+            "child_headers": ["\u5377", "\u9875\u7801"],
+            "bbox": [399.0, 85.0, 462.0, 99.0],
+            "source": "borderless_multilevel_header_span",
+        }
+        table = {
+            "table_id": "overview-table",
+            "page": 1,
+            "bbox": [50.0, 105.0, 500.0, 240.0],
+            "semantic_role": "business_table",
+            "semantic_grid": [
+                ["\u8bd5\u9a8c\u7c7b\u578b", "", "", "", "", "\u4f4d\u7f6e", "\u4f4d\u7f6e"],
+                ["", "", "", "", "", "\u5377", "\u9875\u7801"],
+            ],
+            "semantic_projection_v2": {
+                "overview_inventory_schema_projection": {
+                    "semantic_profile": "pk_overview_inventory_table",
+                    "header_column_groups": [header_group],
+                }
+            },
+            "span_header_cells": [
+                {
+                    "row": 0,
+                    "col": 5,
+                    "colspan": 2,
+                    "text": "\u4f4d\u7f6e",
+                    "bbox": [399.0, 85.0, 462.0, 99.0],
+                    "source": "borderless_multilevel_header_span",
+                }
+            ],
+        }
+
+        postprocess._close_table_cell_text_ownership_from_page_blocks(
+            [table],
+            document_ast_pages=[
+                {
+                    "page": 1,
+                    "blocks": [unrelated_same_text, matching_header],
+                }
+            ],
+        )
+
+        self.assertEqual(table.get("owned_text_block_ids"), ["location-header"])
+        self.assertEqual(table.get("header_source_block_ids"), ["location-header"])
+        self.assertEqual(matching_header.get("semantic_role"), "business_table_header")
+        self.assertEqual(matching_header.get("unit_role"), "metadata")
+        self.assertEqual(matching_header.get("owned_by_table_id"), "overview-table")
+        self.assertEqual(unrelated_same_text.get("semantic_role"), "text_block")
+        self.assertEqual(header_group.get("source_block_id"), "location-header")
+        self.assertEqual(
+            table["span_header_cells"][0].get("source_block_id"),
+            "location-header",
+        )
+
+
+class StudyConditionCompositeMarkdownProjectionTests(unittest.TestCase):
+    def test_source_matrix_headers_follow_descriptor_rows_without_synthetic_label(self) -> None:
+        block = {
+            "semantic_projection_v2": {
+                "study_condition_grouped_result_matrix_projection": {
+                    "presentation_boundary": "render_as_single_composite_table",
+                    "header_group_rows": [
+                        {
+                            "start_leaf_col": 1,
+                            "end_leaf_col": 3,
+                            "descriptors": {"种属": "大鼠"},
+                        },
+                        {
+                            "start_leaf_col": 4,
+                            "end_leaf_col": 6,
+                            "descriptors": {"种属": "犬"},
+                        },
+                    ],
+                    "matrix_header_rows": [
+                        {
+                            "role": "matrix_leaf_header",
+                            "stub": "排泄途径(4)",
+                            "cells": ["尿液", "粪便", "合计", "尿液", "粪便", "合计"],
+                        },
+                        {
+                            "role": "matrix_row_axis",
+                            "stub": "时间",
+                            "cells": ["", "", "", "", "", ""],
+                        },
+                    ],
+                }
+            }
+        }
+        rows = [
+            ["时间", "尿液", "粪便", "合计", "尿液", "粪便", "合计"],
+            ["0-24 h", "26", "57", "83", "20", "29", "49"],
+        ]
+
+        projected = api_main._project_markdown_study_condition_composite_grid(block, rows)
+
+        self.assertEqual(projected[0], ["种属", "大鼠", "大鼠", "大鼠", "犬", "犬", "犬"])
+        self.assertEqual(projected[1], ["排泄途径(4)", "尿液", "粪便", "合计", "尿液", "粪便", "合计"])
+        self.assertEqual(projected[2], ["时间", "", "", "", "", "", ""])
+        self.assertEqual(projected[3], rows[1])
+        self.assertNotIn("条件/时间", "\n".join(" | ".join(row) for row in projected))
+
+
+class RuledBodyLatticeGeometryTests(unittest.TestCase):
+    @staticmethod
+    def _slot(x0: float, x1: float, y: float) -> dict:
+        return {"x0": x0, "x1": x1, "y0": y, "y1": y + 0.5, "rule_count": 1}
+
+    def test_parent_span_does_not_expand_for_subthreshold_edge_brush(self) -> None:
+        slots = [self._slot(index * 70.0, (index + 1) * 70.0, 20.0) for index in range(5)]
+        self.assertEqual(
+            postprocess._ruled_multilevel_parent_span_lattice_indexes(
+                (134.2, 215.8),
+                slots,
+            ),
+            [2],
+        )
+
+    def test_body_lattice_layout_skips_empty_intermediate_band(self) -> None:
+        parent_band = [(55.0, 10.0, 145.0, 10.5)]
+        leaf_band = [
+            (10.0, 20.0, 40.0, 20.5),
+            (60.0, 20.0, 90.0, 20.5),
+            (110.0, 20.0, 140.0, 20.5),
+            (160.0, 20.0, 190.0, 20.5),
+        ]
+        intermediate_band = [
+            (index * 50.0, 60.0, (index + 1) * 50.0, 60.5)
+            for index in range(4)
+        ]
+        body_band = [
+            (index * 50.0, 100.0, (index + 1) * 50.0, 100.5)
+            for index in range(4)
+        ]
+        words = [
+            postprocess._Word(80.0, 1.0, 120.0, 7.0, "parent"),
+            postprocess._Word(12.0, 13.0, 38.0, 19.0, "c1"),
+            postprocess._Word(62.0, 13.0, 88.0, 19.0, "c2"),
+            postprocess._Word(112.0, 13.0, 138.0, 19.0, "c3"),
+            postprocess._Word(162.0, 13.0, 188.0, 19.0, "c4"),
+            postprocess._Word(12.0, 77.0, 38.0, 83.0, "body"),
+        ]
+        layout = postprocess._ruled_multilevel_body_lattice_layout(
+            [parent_band, leaf_band, intermediate_band, body_band],
+            (0.0, 0.0, 200.0, 101.0),
+            words,
+        )
+        self.assertIsNotNone(layout)
+        self.assertAlmostEqual(
+            postprocess._ruled_multilevel_rule_band_y(layout["body_band"]),
+            100.25,
+        )
+        self.assertEqual(layout.get("body_rows"), [["body", "", "", ""]])
+
+    def test_body_rows_exclude_words_outside_template_bbox(self) -> None:
+        slots = [self._slot(index * 50.0, (index + 1) * 50.0, 100.0) for index in range(4)]
+        rows = postprocess._ruled_multilevel_lattice_body_rows_from_words(
+            slots,
+            [(10.0, 20.0, 40.0, 20.5)],
+            [(0.0, 100.0, 50.0, 100.5)],
+            [
+                postprocess._Word(10.0, 40.0, 30.0, 48.0, "inside"),
+                postprocess._Word(202.0, 40.0, 210.0, 48.0, "aside"),
+            ],
+            template_bbox=(0.0, 0.0, 200.0, 101.0),
+        )
+        self.assertEqual(rows, [["inside", "", "", ""]])
+
+    def test_consumed_header_rows_require_fragment_equivalence(self) -> None:
+        rows = [
+            [{"text": "upperlower", "bbox": [10.0, 15.0, 80.0, 25.0]}],
+            [{"text": "side note", "bbox": [100.0, 15.0, 180.0, 25.0]}],
+        ]
+        consumed = postprocess._ruled_multilevel_owned_header_row_texts(
+            rows,
+            [(0.0, 30.0, 200.0, 30.5)],
+            [(0.0, 40.0, 200.0, 40.5)],
+            column_slots=[self._slot(0.0, 50.0, 100.0), self._slot(50.0, 100.0, 100.0)],
+            header_fragments=[
+                {"text": "upper", "col": 0, "bbox": [10.0, 15.0, 44.0, 25.0]},
+                {"text": "lower", "col": 1, "bbox": [46.0, 15.0, 80.0, 25.0]},
+            ],
+        )
+        self.assertEqual(consumed, ["upperlower"])
+
+    def test_consumed_header_rows_do_not_reuse_fragment_evidence(self) -> None:
+        consumed = postprocess._ruled_multilevel_owned_header_row_texts(
+            [[{"text": "ABAB", "bbox": [10.0, 15.0, 80.0, 25.0]}]],
+            [(0.0, 30.0, 100.0, 30.5)],
+            [(0.0, 40.0, 100.0, 40.5)],
+            column_slots=[self._slot(0.0, 50.0, 100.0), self._slot(50.0, 100.0, 100.0)],
+            header_fragments=[
+                {"text": "A", "col": 0, "bbox": [10.0, 15.0, 40.0, 25.0]},
+                {"text": "B", "col": 1, "bbox": [50.0, 15.0, 80.0, 25.0]},
+            ],
+        )
+        self.assertEqual(consumed, [])
+
+    def test_consumed_header_rows_require_physical_fragment_order(self) -> None:
+        consumed = postprocess._ruled_multilevel_owned_header_row_texts(
+            [[{"text": "BA", "bbox": [10.0, 15.0, 80.0, 25.0]}]],
+            [(0.0, 30.0, 100.0, 30.5)],
+            [(0.0, 40.0, 100.0, 40.5)],
+            column_slots=[self._slot(0.0, 50.0, 100.0), self._slot(50.0, 100.0, 100.0)],
+            header_fragments=[
+                {"text": "A", "col": 0, "bbox": [10.0, 15.0, 40.0, 25.0]},
+                {"text": "B", "col": 1, "bbox": [50.0, 15.0, 80.0, 25.0]},
+            ],
+        )
+        self.assertEqual(consumed, [])
+
+    def test_consumed_header_rows_reject_same_band_side_note(self) -> None:
+        consumed = postprocess._ruled_multilevel_owned_header_row_texts(
+            [[{"text": "AB", "bbox": [110.0, 15.0, 180.0, 25.0]}]],
+            [(0.0, 30.0, 200.0, 30.5)],
+            [(0.0, 40.0, 200.0, 40.5)],
+            column_slots=[self._slot(0.0, 50.0, 100.0), self._slot(50.0, 100.0, 100.0)],
+            header_fragments=[
+                {"text": "A", "col": 0, "bbox": [10.0, 15.0, 40.0, 25.0]},
+                {"text": "B", "col": 1, "bbox": [50.0, 15.0, 80.0, 25.0]},
+            ],
+        )
+        self.assertEqual(consumed, [])
+
+    def test_consumed_header_rows_reject_wrong_horizontal_span(self) -> None:
+        consumed = postprocess._ruled_multilevel_owned_header_row_texts(
+            [[{"text": "AB", "bbox": [10.0, 15.0, 130.0, 25.0]}]],
+            [(0.0, 30.0, 150.0, 30.5)],
+            [(0.0, 40.0, 150.0, 40.5)],
+            column_slots=[
+                self._slot(0.0, 50.0, 100.0),
+                self._slot(50.0, 100.0, 100.0),
+                self._slot(100.0, 150.0, 100.0),
+            ],
+            header_fragments=[
+                {"text": "A", "col": 0, "bbox": [10.0, 15.0, 40.0, 25.0]},
+                {"text": "B", "col": 1, "bbox": [50.0, 15.0, 80.0, 25.0]},
+            ],
+        )
+        self.assertEqual(consumed, [])
+
+
+class RuledSparseTemplateGeometryTests(unittest.TestCase):
+    @staticmethod
+    def _slot(x0: float, x1: float, y: float) -> dict:
+        return {"x0": x0, "x1": x1, "y0": y, "y1": y + 0.5, "rule_count": 1}
+
+    def test_dominant_leaf_band_ignores_single_slot_title_rule(self) -> None:
+        title_band = [(90.0, 10.0, 140.0, 10.5)]
+        leaf_band = [
+            (index * 60.0, 50.0, (index + 1) * 60.0 - 10.0, 50.5)
+            for index in range(5)
+        ]
+        selected = postprocess._ruled_sparse_dominant_leaf_band([title_band, leaf_band])
+        self.assertEqual(selected, leaf_band)
+
+    def test_centered_parent_anchor_maps_two_adjacent_leaf_slots(self) -> None:
+        slots = [self._slot(index * 50.0, (index + 1) * 50.0, 40.0) for index in range(4)]
+        group = postprocess._ruled_sparse_centered_parent_group_for_word(
+            postprocess._Word(90.0, 12.0, 110.0, 20.0, "parent"),
+            slots,
+            leaf_band_y=40.25,
+        )
+        self.assertEqual(
+            {
+                "text": group.get("text"),
+                "start_leaf_index": group.get("start_leaf_index"),
+                "end_leaf_index": group.get("end_leaf_index"),
+                "colspan": group.get("colspan"),
+            },
+            {"text": "parent", "start_leaf_index": 1, "end_leaf_index": 2, "colspan": 2},
+        )
+
+    def test_centered_parent_anchor_rejects_word_over_one_leaf_center(self) -> None:
+        slots = [self._slot(index * 50.0, (index + 1) * 50.0, 40.0) for index in range(4)]
+        self.assertIsNone(
+            postprocess._ruled_sparse_centered_parent_group_for_word(
+                postprocess._Word(20.0, 12.0, 30.0, 20.0, "aside"),
+                slots,
+                leaf_band_y=40.25,
+            )
+        )
+
+    def test_centered_parent_groups_keep_independent_same_row_anchors(self) -> None:
+        slots = [self._slot(index * 50.0, (index + 1) * 50.0, 40.0) for index in range(4)]
+        groups = postprocess._ruled_sparse_centered_parent_groups(
+            slots,
+            40.25,
+            [
+                postprocess._Word(40.0, 12.0, 60.0, 20.0, "left-parent"),
+                postprocess._Word(140.0, 12.0, 160.0, 20.0, "right-parent"),
+            ],
+        )
+        self.assertEqual(
+            [
+                (group.get("text"), group.get("start_leaf_index"), group.get("end_leaf_index"))
+                for group in groups
+            ],
+            [("left-parent", 0, 1), ("right-parent", 2, 3)],
+        )
+
+    def test_centered_parent_groups_keep_spaced_words_in_one_parent_anchor(self) -> None:
+        slots = [self._slot(index * 50.0, (index + 1) * 50.0, 40.0) for index in range(4)]
+        groups = postprocess._ruled_sparse_centered_parent_groups(
+            slots,
+            40.25,
+            [
+                postprocess._Word(80.0, 12.0, 90.0, 20.0, "multi"),
+                postprocess._Word(101.0, 12.0, 111.0, 20.0, "word"),
+            ],
+        )
+        self.assertEqual(
+            [
+                (group.get("text"), group.get("start_leaf_index"), group.get("end_leaf_index"))
+                for group in groups
+            ],
+            [("multi word", 1, 2)],
+        )
+
+    def test_same_band_stub_header_wins_over_lower_left_row(self) -> None:
+        slots = [self._slot(50.0 + index * 40.0, 80.0 + index * 40.0, 30.0) for index in range(3)]
+        text, fragments, bottom_y = postprocess._ruled_sparse_same_band_stub_header(
+            (0.0, 0.0, 200.0, 100.0),
+            slots,
+            [
+                {"text": "leaf-a", "bbox": [52.0, 18.0, 78.0, 29.5]},
+                {"text": "leaf-b", "bbox": [92.0, 18.0, 118.0, 29.5]},
+                {"text": "leaf-c", "bbox": [132.0, 18.0, 158.0, 29.5]},
+            ],
+            [
+                postprocess._Word(8.0, 18.2, 42.0, 29.7, "same-band stub"),
+                postprocess._Word(8.0, 35.0, 38.0, 46.0, "body label"),
+            ],
+        )
+        self.assertEqual(text, "same-band stub")
+        self.assertEqual([fragment.get("text") for fragment in fragments], ["same-band stub"])
+        self.assertAlmostEqual(bottom_y, 29.7)
+
+    def test_lower_left_row_is_not_promoted_without_same_band_evidence(self) -> None:
+        slots = [self._slot(50.0 + index * 40.0, 80.0 + index * 40.0, 30.0) for index in range(3)]
+        text, fragments, bottom_y = postprocess._ruled_sparse_same_band_stub_header(
+            (0.0, 0.0, 200.0, 100.0),
+            slots,
+            [
+                {"text": "leaf-a", "bbox": [52.0, 18.0, 78.0, 29.5]},
+                {"text": "leaf-b", "bbox": [92.0, 18.0, 118.0, 29.5]},
+                {"text": "leaf-c", "bbox": [132.0, 18.0, 158.0, 29.5]},
+            ],
+            [postprocess._Word(8.0, 35.0, 38.0, 46.0, "body label")],
+        )
+        self.assertEqual(text, "")
+        self.assertEqual(fragments, [])
+        self.assertAlmostEqual(bottom_y, 29.5)
+
+    def test_repeated_leaf_pattern_requires_exact_group_period(self) -> None:
+        self.assertEqual(
+            postprocess._ruled_sparse_repeated_leaf_pattern(
+                ["A", "B", "C"] * 4,
+                group_count=4,
+            ),
+            ["A", "B", "C"],
+        )
+        self.assertEqual(
+            postprocess._ruled_sparse_repeated_leaf_pattern(
+                ["A", "B", "C"] * 3 + ["A", "B", "D"],
+                group_count=4,
+            ),
+            [],
+        )
+
+    def test_group_slots_must_align_with_repeated_leaf_ranges(self) -> None:
+        leaf_slots = [
+            self._slot(group * 120.0 + leaf * 40.0, group * 120.0 + leaf * 40.0 + 30.0, 80.0)
+            for group in range(4)
+            for leaf in range(3)
+        ]
+        aligned = [self._slot(group * 120.0 + 25.0, group * 120.0 + 85.0, 20.0) for group in range(4)]
+        misaligned = [*aligned[:3], self._slot(520.0, 580.0, 20.0)]
+        self.assertTrue(
+            postprocess._ruled_sparse_group_slots_align_with_leaf_groups(
+                aligned,
+                leaf_slots,
+                leaf_count_per_group=3,
+            )
+        )
+        self.assertFalse(
+            postprocess._ruled_sparse_group_slots_align_with_leaf_groups(
+                misaligned,
+                leaf_slots,
+                leaf_count_per_group=3,
+            )
+        )
+        narrow = [
+            self._slot(group * 120.0 + 51.0, group * 120.0 + 59.0, 20.0)
+            for group in range(4)
+        ]
+        self.assertFalse(
+            postprocess._ruled_sparse_group_slots_align_with_leaf_groups(
+                narrow,
+                leaf_slots,
+                leaf_count_per_group=3,
+            )
+        )
+
+    def test_source_row_fragments_cannot_be_reused_beyond_evidence_count(self) -> None:
+        fragments = [{"text": "A"}, {"text": "B"}]
+        self.assertEqual(
+            postprocess._ruled_sparse_source_row_texts_composed_of_fragments(["AB"], fragments),
+            ["AB"],
+        )
+        self.assertEqual(
+            postprocess._ruled_sparse_source_row_texts_composed_of_fragments(["ABAB"], fragments),
+            [],
+        )
+
+    def test_sparse_candidate_rejects_absorbed_template_fragment_role(self) -> None:
+        self.assertFalse(
+            postprocess._ruled_sparse_template_candidate(
+                {
+                    "semantic_role": "absorbed_structure_template_fragment",
+                    "template_kind": "tabular_form",
+                    "template_profile": "tabular_form_template",
+                    "ownership_domain": "template_form",
+                    "data_population": "blank",
+                    "row_texts": ["header row", "body row"],
+                }
+            )
+        )
+
+    def test_sparse_candidate_rejects_long_chinese_prose_with_normal_punctuation(self) -> None:
+        self.assertFalse(
+            postprocess._ruled_sparse_template_candidate(
+                {
+                    "semantic_role": "structure_template",
+                    "template_kind": "tabular_form",
+                    "template_profile": "tabular_form_template",
+                    "ownership_domain": "template_form",
+                    "data_population": "blank",
+                    "row_texts": [
+                        "这是一段用于说明模板填写规则的连续中文正文，它包含正常的中文句号。",
+                        "第二行",
+                    ],
+                }
+            )
+        )
+
+
+class SamePageBlankTemplateInstanceTests(unittest.TestCase):
+    @staticmethod
+    def _template(
+        template_id: str,
+        title: str,
+        bbox: list[float],
+        rows: list[str],
+        local_title: str,
+    ) -> dict:
+        return {
+            "structure_template_id": template_id,
+            "page": 1,
+            "title": title,
+            "bbox": bbox,
+            "template_kind": "tabular_form",
+            "template_profile": "blank_study_summary_template",
+            "ownership_domain": "template_form",
+            "data_population": "blank",
+            "row_texts": rows,
+            "fields": [{"text": row} for row in rows if row.endswith("\uff1a")],
+            "sections": [{"text": local_title}],
+        }
+
+    def test_partition_rejects_restart_candidate_above_owner_boundary(self) -> None:
+        earlier = self._template(
+            "earlier",
+            "",
+            [0.0, 0.0, 200.0, 80.0],
+            [
+                "\u9644\u52a0\u4fe1\u606f\uff1a",
+                "CTD \u4e2d\u7684\u4f4d\u7f6e\uff1a\u5377\u3001\u9875\u7801",
+                "\u8bd5\u9a8c\u7f16\u53f7\uff1a",
+                "earlier local form",
+                "\u79cd\u5c5e\uff1a",
+            ],
+            "earlier local form",
+        )
+        owner = self._template(
+            "owner",
+            "2.6.5.7 blank study summary",
+            [0.0, 100.0, 200.0, 200.0],
+            [
+                "2.6.5.7 blank study summary",
+                "owner local form",
+                "\u9644\u52a0\u4fe1\u606f\uff1a",
+            ],
+            "owner local form",
+        )
+        partitioned = postprocess._partition_same_page_blank_form_instances(
+            [earlier, owner],
+            [{"items": [("re", [0.0, 212.0, 200.0, 212.5], 1)]}],
+        )
+        self.assertTrue(all(not item.get("form_instance_group_id") for item in partitioned))
+
+    def test_partition_trims_owner_evidence_when_title_is_not_a_row(self) -> None:
+        owner = self._template(
+            "owner",
+            "2.6.5.7 blank study summary",
+            [0.0, 100.0, 200.0, 200.0],
+            ["owner local form", "\u9644\u52a0\u4fe1\u606f\uff1a"],
+            "owner local form",
+        )
+        owner["owned_text_block_ids"] = ["own", "foreign"]
+        owner["note_blocks"] = [{"text": "stale", "source_block_id": "foreign"}]
+        owner["semantic_projection_v2"] = {"stale": {"source_block_ids": ["foreign"]}}
+        fragment = self._template(
+            "fragment",
+            "",
+            [0.0, 196.0, 200.0, 260.0],
+            [
+                "\u9644\u52a0\u4fe1\u606f\uff1a",
+                "CTD \u4e2d\u7684\u4f4d\u7f6e\uff1a\u5377\u3001\u9875\u7801",
+                "\u8bd5\u9a8c\u7f16\u53f7\uff1a",
+                "second local form",
+                "\u79cd\u5c5e\uff1a",
+            ],
+            "second local form",
+        )
+        partitioned = postprocess._partition_same_page_blank_form_instances(
+            [owner, fragment],
+            [{"items": [("re", [0.0, 212.0, 200.0, 212.5], 1)]}],
+            {
+                "own": {"bbox": [10.0, 140.0, 20.0, 150.0]},
+                "foreign": {"bbox": [10.0, 225.0, 20.0, 235.0]},
+            },
+        )
+        partitioned_owner = next(item for item in partitioned if item.get("structure_template_id") == "owner")
+        self.assertEqual(partitioned_owner.get("owned_text_block_ids"), ["own"])
+        self.assertEqual(partitioned_owner.get("note_blocks"), [])
+        self.assertEqual(partitioned_owner.get("semantic_projection_v2"), {})
+
+    def test_boundary_rule_requires_nearby_full_width_geometry(self) -> None:
+        owner_bbox = (0.0, 0.0, 200.0, 100.0)
+        self.assertEqual(
+            postprocess._same_page_blank_form_boundary_rule(
+                owner_bbox,
+                [{"items": [("re", [0.0, 112.0, 200.0, 112.5], 1)]}],
+            ),
+            (0.0, 112.0, 200.0, 112.5),
+        )
+        self.assertIsNone(
+            postprocess._same_page_blank_form_boundary_rule(
+                owner_bbox,
+                [
+                    {
+                        "items": [
+                            ("re", [70.0, 112.0, 130.0, 112.5], 1),
+                            ("re", [0.0, 150.0, 200.0, 150.5], 1),
+                        ]
+                    }
+                ],
+            )
+        )
+
+    def test_restart_requires_terminal_field_before_repeated_preamble(self) -> None:
+        self.assertEqual(
+            postprocess._same_page_blank_form_restart_index(
+                [
+                    "matrix label",
+                    "result row",
+                    "\u9644\u52a0\u4fe1\u606f\uff1a",
+                    "CTD \u4e2d\u7684\u4f4d\u7f6e\uff1a\u5377\u3001\u9875\u7801",
+                    "\u8bd5\u9a8c\u7f16\u53f7\uff1a",
+                    "local form title",
+                    "\u79cd\u5c5e\uff1a",
+                ]
+            ),
+            3,
+        )
+
+    def test_restart_rejects_repeated_preamble_without_terminal_field(self) -> None:
+        self.assertIsNone(
+            postprocess._same_page_blank_form_restart_index(
+                [
+                    "matrix label",
+                    "CTD \u4e2d\u7684\u4f4d\u7f6e\uff1a\u5377\u3001\u9875\u7801",
+                    "\u8bd5\u9a8c\u7f16\u53f7\uff1a",
+                    "\u79cd\u5c5e\uff1a",
+                ]
+            )
+        )
+
+    def test_restart_rejects_terminal_field_without_repeated_preamble(self) -> None:
+        self.assertIsNone(
+            postprocess._same_page_blank_form_restart_index(
+                [
+                    "matrix label",
+                    "\u9644\u52a0\u4fe1\u606f\uff1a",
+                    "another matrix label",
+                    "\u79cd\u5c5e\uff1a",
+                ]
+            )
+        )
+
+    def test_post_note_split_partitions_duplicate_text_by_source_instance(self) -> None:
+        parent_dose_id = "parent-dose"
+        parent_control_id = "parent-control"
+        note_id = "tail-note"
+        child_title_id = "child-title"
+        child_dose_id = "child-dose"
+        child_control_id = "child-control"
+        nodes = [
+            {"block_id": parent_dose_id, "block_type": "text", "text": "日剂量(mg/kg)", "bbox": [20.0, 60.0, 90.0, 72.0]},
+            {"block_id": parent_control_id, "block_type": "text", "text": "0(对照)", "bbox": [120.0, 60.0, 160.0, 72.0]},
+            {"block_id": note_id, "block_type": "text", "text": "-无显著异常", "bbox": [20.0, 100.0, 100.0, 112.0]},
+            {
+                "block_id": child_title_id,
+                "block_type": "text",
+                "text": "2.6.7.14 (1)生殖毒性 试验编号(续)",
+                "bbox": [20.0, 140.0, 220.0, 152.0],
+            },
+            {"block_id": child_dose_id, "block_type": "text", "text": "日剂量(mg/kg)", "bbox": [20.0, 170.0, 90.0, 182.0]},
+            {"block_id": child_control_id, "block_type": "text", "text": "0(对照)", "bbox": [120.0, 170.0, 160.0, 182.0]},
+        ]
+        template = {
+            "structure_template_id": "parent",
+            "block_id": "parent",
+            "page": 69,
+            "title": "2.6.7.14 (1)生殖毒性-报告标题",
+            "bbox": [10.0, 20.0, 240.0, 190.0],
+            "template_kind": "tabular_form",
+            "template_profile": "blank_study_summary_template",
+            "ownership_domain": "template_form",
+            "data_population": "blank",
+            "owned_text_block_ids": [
+                parent_dose_id,
+                parent_control_id,
+                note_id,
+                child_dose_id,
+                child_control_id,
+            ],
+            "row_texts": ["日剂量(mg/kg)", "0(对照)"],
+            "fields": [],
+            "sections": [],
+            "entries": [],
+            "note_blocks": [
+                {
+                    "text": "-无显著异常",
+                    "source_block_id": note_id,
+                    "bbox": [20.0, 100.0, 100.0, 112.0],
+                }
+            ],
+        }
+
+        split = postprocess._split_same_page_continuation_templates_after_tail_notes(
+            [template],
+            nodes,
+        )
+
+        self.assertEqual(len(split), 2, msg=split)
+        parent, child = split
+        self.assertEqual(parent.get("owned_text_block_ids"), [parent_dose_id, parent_control_id, note_id])
+        self.assertEqual(parent.get("row_texts"), ["日剂量(mg/kg)", "0(对照)"])
+        self.assertEqual(child.get("title_source_block_id"), child_title_id)
+        self.assertEqual(
+            child.get("owned_text_block_ids"),
+            [child_title_id, child_dose_id, child_control_id],
+        )
+        self.assertEqual(child.get("row_texts"), ["日剂量(mg/kg)", "0(对照)"])
+
+
+class AbsorbedTemplateTerminalRowTests(unittest.TestCase):
+    @staticmethod
+    def _owner() -> dict:
+        return {
+            "template_kind": "tabular_form",
+            "ownership_domain": "template_form",
+            "row_texts": ["metadata"],
+            "fields": [],
+            "sections": [],
+            "note_blocks": [
+                {
+                    "note_index": 1,
+                    "text": "remark",
+                    "bbox": [10.0, 140.0, 80.0, 150.0],
+                    "relation": "below_blank_template",
+                }
+            ],
+            "semantic_projection_v2": {
+                "ruled_multilevel_template_header_projection": {
+                    "semantic_profile": "ruled_multilevel_ctd_template_header",
+                    "column_slots": [{"x0": 0.0, "x1": 200.0, "y0": 99.5, "y1": 100.0}],
+                }
+            },
+        }
+
+    @staticmethod
+    def _table(y0: float, y1: float) -> dict:
+        return {
+            "table_id": "tbl_terminal",
+            "raw_row_texts": ["\u9644\u52a0\u4fe1\u606f\uff1a"],
+            "cells": [
+                {
+                    "row": 0,
+                    "logical_row": 0,
+                    "text": "\u9644\u52a0\u4fe1\u606f\uff1a",
+                    "bbox": [10.0, y0, 80.0, y1],
+                }
+            ],
+        }
+
+    def test_absorbed_terminal_row_after_projected_grid_becomes_note(self) -> None:
+        owner = self._owner()
+        postprocess._merge_absorbed_label_table_rows_into_template(owner, self._table(101.0, 111.0))
+        terminal_notes = [
+            note
+            for note in owner.get("note_blocks", []) or []
+            if note.get("relation") == "terminal_template_additional_info"
+        ]
+        self.assertEqual(len(terminal_notes), 1, msg=owner)
+        self.assertEqual(terminal_notes[0].get("source_table_id"), "tbl_terminal")
+        self.assertEqual(terminal_notes[0].get("bbox"), [10.0, 101.0, 80.0, 111.0])
+        self.assertNotIn(
+            "\u9644\u52a0\u4fe1\u606f\uff1a",
+            [str(section.get("text") or "") for section in owner.get("sections", []) or []],
+        )
+        self.assertEqual(
+            [note.get("text") for note in owner.get("note_blocks", []) or []],
+            ["\u9644\u52a0\u4fe1\u606f\uff1a", "remark"],
+        )
+
+    def test_absorbed_terminal_row_before_projected_grid_stays_form_row(self) -> None:
+        owner = self._owner()
+        postprocess._merge_absorbed_label_table_rows_into_template(owner, self._table(88.0, 98.0))
+        self.assertFalse(
+            any(
+                note.get("relation") == "terminal_template_additional_info"
+                for note in owner.get("note_blocks", []) or []
+            ),
+            msg=owner,
+        )
+        self.assertIn(
+            "\u9644\u52a0\u4fe1\u606f\uff1a",
+            [str(section.get("text") or "") for section in owner.get("sections", []) or []],
+        )
+
+
+class InlineMultifieldFormRowTests(unittest.TestCase):
+    @staticmethod
+    def _node(block_id: str, text: str, bbox: list[float]) -> dict:
+        return {
+            "block_id": block_id,
+            "block_type": "text",
+            "semantic_role": "structure_template_entry",
+            "text": text,
+            "bbox": bbox,
+        }
+
+    def test_projection_groups_owned_fields_by_visual_row_and_excludes_matrix_sections(self) -> None:
+        field_texts = ["field-a:", "field-b:", "field-c:", "field-d:", "field-e:"]
+        template = {
+            "template_kind": "tabular_form",
+            "template_profile": "tabular_form_template",
+            "title": "2.6.7 form title",
+            "page": 1,
+            "fields": [
+                {"row_index": index, "text": text, "label": text[:-1], "value": None}
+                for index, text in enumerate(field_texts, start=1)
+            ],
+            "sections": [{"text": "M:"}, {"text": "F:"}],
+            "owned_text_block_ids": ["a", "b", "c", "d", "e", "m", "f"],
+        }
+        nodes = [
+            self._node("a", "field-a:", [10.0, 10.0, 50.0, 20.0]),
+            self._node("b", "field-b:", [110.0, 10.2, 150.0, 20.2]),
+            self._node("c", "field-c:", [210.0, 9.8, 250.0, 19.8]),
+            self._node("d", "field-d:", [10.0, 30.0, 50.0, 40.0]),
+            self._node("e", "field-e:", [110.0, 30.1, 150.0, 40.1]),
+            self._node("m", "M:", [210.0, 50.0, 225.0, 60.0]),
+            self._node("f", "F:", [240.0, 50.0, 255.0, 60.0]),
+        ]
+
+        postprocess._apply_inline_multifield_form_row_projection(template, nodes)
+
+        projection = (template.get("semantic_projection_v2") or {}).get("inline_form_row_projection", {})
+        self.assertEqual(projection.get("semantic_profile"), "inline_multifield_form_rows")
+        self.assertEqual(projection.get("column_count"), 3)
+        self.assertEqual(
+            [row.get("display_text") for row in projection.get("rows", []) or []],
+            ["field-a: field-b: field-c:", "field-d: field-e:"],
+        )
+        self.assertEqual(
+            [[cell.get("column_index") for cell in row.get("cells", []) or []] for row in projection.get("rows", []) or []],
+            [[0, 1, 2], [0, 1]],
+        )
+        self.assertEqual(projection.get("consumed_source_block_ids"), ["a", "b", "c", "d", "e"])
+        self.assertNotIn("m", projection.get("consumed_source_block_ids", []))
+        self.assertTrue(
+            all(
+                cell.get("source_block_id") and len(cell.get("bbox", []) or []) == 4
+                for row in projection.get("rows", []) or []
+                for cell in row.get("cells", []) or []
+            )
+        )
+
+    def test_projection_groups_owned_same_line_dose_matrix_header(self) -> None:
+        template = {
+            "template_kind": "tabular_form",
+            "template_profile": "blank_study_summary_template",
+            "ownership_domain": "template_form",
+            "data_population": "blank",
+            "title": "2.6.7 form title",
+            "page": 1,
+            "row_texts": ["F1 雌性：", "日剂量(mg/kg)", "0(对照)", "毒代动力学：AUC"],
+            "fields": [
+                {"row_index": 1, "text": "F1 雌性：", "label": "F1 雌性", "value": None},
+                {"row_index": 4, "text": "毒代动力学：AUC", "label": "毒代动力学", "value": "AUC"},
+            ],
+            "sections": [],
+            "entries": [],
+            "owned_text_block_ids": ["sex", "dose", "control", "result"],
+        }
+        nodes = [
+            self._node("sex", "F1 雌性：", [10.0, 10.0, 70.0, 20.0]),
+            self._node("dose", "日剂量(mg/kg)", [10.0, 30.0, 85.0, 40.0]),
+            self._node("control", "0(对照)", [150.0, 30.1, 190.0, 40.1]),
+            self._node("result", "毒代动力学：AUC", [10.0, 50.0, 110.0, 60.0]),
+        ]
+
+        postprocess._apply_inline_matrix_header_row_projection(template, nodes)
+
+        projection = (template.get("semantic_projection_v2") or {}).get("inline_form_row_projection", {})
+        self.assertEqual(len(projection.get("rows", []) or []), 1, msg=projection)
+        row = projection["rows"][0]
+        self.assertEqual(row.get("row_kind"), "inline_matrix_header_row")
+        self.assertEqual(row.get("display_text"), "日剂量(mg/kg) 0(对照)")
+        self.assertEqual(row.get("source_block_ids"), ["dose", "control"])
+        self.assertEqual(projection.get("consumed_source_block_ids"), ["dose", "control"])
+        self.assertEqual(
+            _structure_template_markdown_visual_row_texts(template, []),
+            ["F1 雌性：", "日剂量(mg/kg) 0(对照)", "毒代动力学：AUC"],
+        )
+
+    def test_projection_absorbs_owned_entry_in_distinct_column_without_absorbing_spanning_entry(self) -> None:
+        template = {
+            "template_kind": "tabular_form",
+            "template_profile": "tabular_form_template",
+            "title": "2.6.7 form title",
+            "page": 1,
+            "row_texts": [
+                "design question",
+                "field-a:",
+                "field-b:",
+                "field-c:",
+                "field-d:",
+                "spanning section",
+            ],
+            "fields": [
+                {"row_index": 1, "text": "field-a:", "label": "field-a", "value": None},
+                {"row_index": 2, "text": "field-b:", "label": "field-b", "value": None},
+                {"row_index": 3, "text": "field-c:", "label": "field-c", "value": None},
+                {"row_index": 4, "text": "field-d:", "label": "field-d", "value": None},
+            ],
+            "sections": [
+                {"row_index": 1, "text": "design question", "role": "section"},
+                {"row_index": 2, "text": "spanning section", "role": "section"},
+            ],
+            "owned_text_block_ids": ["question", "a", "b", "c", "d", "section"],
+        }
+        nodes = [
+            self._node("question", "design question", [10.0, 10.0, 90.0, 20.0]),
+            self._node("a", "field-a:", [110.0, 10.0, 150.0, 20.0]),
+            self._node("b", "field-b:", [210.0, 10.1, 250.0, 20.1]),
+            self._node("c", "field-c:", [10.0, 30.0, 50.0, 40.0]),
+            self._node("d", "field-d:", [110.0, 30.1, 150.0, 40.1]),
+            self._node("section", "spanning section", [5.0, 9.8, 255.0, 20.2]),
+        ]
+
+        postprocess._apply_inline_multifield_form_row_projection(template, nodes)
+
+        projection = (template.get("semantic_projection_v2") or {}).get("inline_form_row_projection", {})
+        first_row = (projection.get("rows") or [])[0]
+        self.assertEqual(first_row.get("display_text"), "design question field-a: field-b:")
+        self.assertEqual(first_row.get("row_kind"), "inline_mixed_form_row")
+        self.assertEqual(
+            [cell.get("semantic_cell_role") for cell in first_row.get("cells", []) or []],
+            ["row_companion", "field", "field"],
+        )
+        self.assertEqual(first_row.get("source_block_ids"), ["question", "a", "b"])
+        self.assertIn("question", projection.get("consumed_source_block_ids", []))
+        self.assertNotIn("section", projection.get("consumed_source_block_ids", []))
+
+    def test_projection_rejects_same_row_non_form_headers(self) -> None:
+        template = {
+            "template_kind": "tabular_form",
+            "template_profile": "tabular_form_template",
+            "title": "",
+            "page": 1,
+            "fields": [
+                {"row_index": 1, "text": "header-a", "label": "header-a", "value": None},
+                {"row_index": 2, "text": "header-b", "label": "header-b", "value": None},
+            ],
+            "owned_text_block_ids": ["a", "b"],
+        }
+        postprocess._apply_inline_multifield_form_row_projection(
+            template,
+            [
+                self._node("a", "header-a", [10.0, 10.0, 50.0, 20.0]),
+                self._node("b", "header-b", [110.0, 10.0, 150.0, 20.0]),
+            ],
+        )
+        self.assertNotIn(
+            "inline_form_row_projection",
+            template.get("semantic_projection_v2", {}) or {},
+        )
+
+    def test_projection_rejects_repeated_short_matrix_tokens_even_when_classified_as_fields(self) -> None:
+        template = {
+            "template_kind": "tabular_form",
+            "template_profile": "blank_study_summary_template_continuation",
+            "title": "",
+            "page": 1,
+            "fields": [
+                {"row_index": 1, "text": "M:", "label": "M:", "value": None},
+                {"row_index": 2, "text": "F:", "label": "F:", "value": None},
+            ],
+            "owned_text_block_ids": ["m", "f"],
+        }
+        postprocess._apply_inline_multifield_form_row_projection(
+            template,
+            [
+                self._node("m", "M:", [10.0, 10.0, 25.0, 20.0]),
+                self._node("f", "F:", [110.0, 10.0, 125.0, 20.0]),
+            ],
+        )
+        self.assertNotIn(
+            "inline_form_row_projection",
+            template.get("semantic_projection_v2", {}) or {},
+        )
+
+    def test_markdown_visual_rows_replace_consumed_fields_with_projected_rows_once(self) -> None:
+        block = {
+            "row_texts": ["heading", "field-b:", "field-a:", "field-c:", "matrix row"],
+            "semantic_projection_v2": {
+                "inline_form_row_projection": {
+                    "rows": [{"display_text": "field-a: field-b: field-c:"}],
+                    "consumed_row_signatures": ["field-a:", "field-b:", "field-c:"],
+                }
+            },
+        }
+        self.assertEqual(
+            _structure_template_markdown_visual_row_texts(block, []),
+            ["heading", "field-a: field-b: field-c:", "matrix row"],
+        )
+
+    def test_markdown_visual_rows_insert_each_projection_at_its_own_source_position(self) -> None:
+        block = {
+            "row_texts": ["field-a:", "field-b:", "ordinary row", "dose header", "control"],
+            "semantic_projection_v2": {
+                "inline_form_row_projection": {
+                    "rows": [
+                        {
+                            "display_text": "field-a: field-b:",
+                            "cells": [{"text": "field-a:"}, {"text": "field-b:"}],
+                        },
+                        {
+                            "display_text": "dose header control",
+                            "cells": [{"text": "dose header"}, {"text": "control"}],
+                        },
+                    ],
+                    "consumed_row_signatures": ["field-a:", "field-b:", "dose header", "control"],
+                }
+            },
+        }
+
+        self.assertEqual(
+            _structure_template_markdown_visual_row_texts(block, []),
+            ["field-a: field-b:", "ordinary row", "dose header control"],
+        )
+
+    def test_markdown_visual_rows_use_source_ids_for_duplicate_text_instances(self) -> None:
+        block = {
+            "row_texts": ["ordinary row", "repeated label", "repeated label", "control"],
+            "semantic_projection_v2": {
+                "inline_form_row_projection": {
+                    "rows": [
+                        {
+                            "display_text": "repeated label control",
+                            "source_block_ids": ["target-label", "control"],
+                            "cells": [
+                                {"text": "repeated label", "source_block_id": "target-label"},
+                                {"text": "control", "source_block_id": "control"},
+                            ],
+                        }
+                    ],
+                    "consumed_source_block_ids": ["target-label", "control"],
+                    "consumed_row_signatures": ["repeated label", "control"],
+                    "source_visual_rows_complete": True,
+                    "source_visual_rows": [
+                        {"text": "repeated label", "source_block_id": "first-label", "bbox": [10, 10, 80, 20]},
+                        {"text": "ordinary row", "source_block_id": "ordinary", "bbox": [10, 30, 80, 40]},
+                        {"text": "repeated label", "source_block_id": "target-label", "bbox": [10, 50, 80, 60]},
+                        {"text": "control", "source_block_id": "control", "bbox": [120, 50, 170, 60]},
+                    ],
+                }
+            },
+        }
+
+        self.assertEqual(
+            _structure_template_markdown_visual_row_texts(block, []),
+            ["repeated label", "ordinary row", "repeated label control"],
+        )
+
+
+class DisplayRowProvenanceTests(unittest.TestCase):
+    def test_merged_row_records_its_display_grid_source_reference(self) -> None:
+        table = {
+            "table_id": "tbl_lineage",
+            "display_grid": [
+                ["Dose", "0", "25"],
+                ["Sex", "M", "F"],
+                ["Section:", "", ""],
+                ["AUC", "10", "12"],
+            ],
+            "merged_rows": [
+                {
+                    "row": 3,
+                    "kind": "table_note_title",
+                    "text": "Section:",
+                    "colspan": 3,
+                }
+            ],
+        }
+
+        attach = getattr(table_postprocess, "_attach_display_row_provenance", None)
+        self.assertIsNotNone(attach)
+        attach(table)
+
+        self.assertEqual(
+            [item["row_ref"] for item in table["display_row_provenance"]],
+            [
+                "tbl_lineage:display_row:1",
+                "tbl_lineage:display_row:2",
+                "tbl_lineage:display_row:3",
+                "tbl_lineage:display_row:4",
+            ],
+        )
+        self.assertEqual(table["merged_rows"][0]["source_grid"], "display_grid")
+        self.assertEqual(
+            table["merged_rows"][0]["source_row_ref"],
+            "tbl_lineage:display_row:3",
+        )
+
+    def test_dose_response_body_rows_keep_distinct_display_sources(self) -> None:
+        table = {
+            "table_id": "tbl_lineage",
+            "display_grid": [
+                ["Dose", "0", "", "25", ""],
+                ["Sex", "M", "F", "M", "F"],
+                ["Section:", "", "", "", ""],
+                ["Day 28", "AUC", "10", "12", "14"],
+            ],
+            "merged_rows": [
+                {
+                    "row": 3,
+                    "kind": "table_note_title",
+                    "text": "Section:",
+                    "colspan": 5,
+                }
+            ],
+        }
+        table_postprocess._attach_display_row_provenance(table)
+        semantic_grid = [
+            ["Dose", "0 M", "0 F", "25 M", "25 F"],
+            ["Section:", "", "", "", ""],
+            ["Day 28 AUC", "10", "12", "14", ""],
+        ]
+
+        postprocess._apply_dose_response_result_panel_projection(
+            table,
+            semantic_grid=semantic_grid,
+            continuation_schema_inherited=False,
+            panel_metadata={"source_has_explicit_sex_header_row": True},
+        )
+
+        lineage = table.get("semantic_row_provenance")
+        self.assertIsNotNone(lineage)
+        self.assertEqual(len(lineage), len(semantic_grid))
+        self.assertEqual(
+            lineage[0]["source_row_refs"],
+            ["tbl_lineage:display_row:1", "tbl_lineage:display_row:2"],
+        )
+        self.assertEqual(
+            lineage[1]["source_row_refs"],
+            ["tbl_lineage:display_row:3"],
+        )
+        self.assertEqual(
+            lineage[2]["source_row_refs"],
+            ["tbl_lineage:display_row:4"],
+        )
+
+    def test_duplicate_semantic_signatures_consume_display_rows_in_order(self) -> None:
+        table = {
+            "table_id": "tbl_duplicates",
+            "display_grid": [["Header"], ["Same"], ["Same"]],
+        }
+        table_postprocess._attach_display_row_provenance(table)
+
+        project = getattr(postprocess, "_semantic_row_provenance_from_display_grid", None)
+        self.assertIsNotNone(project)
+        lineage = project(
+            table,
+            [["Header"], ["Same"], ["Same"]],
+            source="fixture_projection",
+        )
+
+        self.assertEqual(
+            lineage[1]["source_row_refs"],
+            ["tbl_duplicates:display_row:2"],
+        )
+        self.assertEqual(
+            lineage[2]["source_row_refs"],
+            ["tbl_duplicates:display_row:3"],
+        )
+
+
+class StudyContextFactCoverageTests(unittest.TestCase):
+    def _transfer(
+        self,
+        table: dict,
+        row: str,
+        *,
+        fields: list[dict] | None = None,
+    ) -> None:
+        postprocess._transfer_absorbed_template_study_context_to_business_table(
+            template={
+                "structure_template_id": "template_context",
+                "page": 1,
+                "bbox": [0, 0, 100, 100],
+                "fields": fields or [],
+            },
+            table=table,
+            original_rows=["Study title", row],
+            source_template_id="template_context",
+            require_title_anchor=True,
+        )
+
+    def test_positioned_context_row_emits_three_source_owned_facts(self) -> None:
+        items = [
+            {"text": "首次给药日期：1995", "bbox": [77.3, 198.6, 172.4, 209.0]},
+            {"text": "年10", "bbox": [174.8, 198.6, 198.5, 209.0]},
+            {"text": "月8", "bbox": [201.2, 198.6, 219.7, 209.0]},
+            {"text": "日", "bbox": [222.1, 198.6, 232.6, 209.0]},
+            {"text": "剔除/未剔除的仔鼠：淘汰到4", "bbox": [310.2, 198.6, 447.5, 209.0]},
+            {"text": "只/性别/窝", "bbox": [450.1, 198.6, 498.1, 209.0]},
+            {"text": "GLP", "bbox": [542.8, 198.6, 564.4, 209.0]},
+            {"text": "依从性：是", "bbox": [566.8, 198.6, 619.9, 209.0]},
+        ]
+
+        facts = postprocess._study_context_fact_records_from_positioned_items(
+            items,
+            source_ref="tbl_059:study_context:6",
+            source_owner="tbl_059",
+            page=114,
+        )
+
+        self.assertEqual(
+            [(fact["label"], fact["value"]) for fact in facts],
+            [
+                ("首次给药日期", "1995 年10 月8 日"),
+                ("剔除/未剔除的仔鼠", "淘汰到4 只/性别/窝"),
+                ("GLP 依从性", "是"),
+            ],
+        )
+        self.assertTrue(all(fact["source_owner"] == "tbl_059" for fact in facts))
+        self.assertTrue(all(fact["source_kind"] == "positioned_word_cluster" for fact in facts))
+        self.assertTrue(all(len(fact["bbox"]) == 4 for fact in facts))
+
+    def test_fact_enrichment_preserves_valid_producer_facts(self) -> None:
+        producer_facts = [
+            {
+                "label": "首次给药日期",
+                "value": "1995 年10 月8 日",
+                "fact_key": postprocess._study_context_fact_key(
+                    "首次给药日期",
+                    "1995 年10 月8 日",
+                ),
+                "display_text": "首次给药日期：1995 年10 月8 日",
+                "source_ref": "tbl_059:study_context:6:fact:1",
+                "source_owner": "tbl_059",
+                "source_kind": "positioned_word_cluster",
+                "page": 114,
+                "bbox": [77.3, 198.6, 232.6, 209.0],
+            }
+        ]
+        table = {
+            "table_id": "tbl_059",
+            "page": 114,
+            "study_context_blocks": [
+                {
+                    "text": (
+                        "首次给药日期：1995 年10 月8 日 "
+                        "剔除/未剔除的仔鼠：淘汰到4 只/性别/窝 GLP 依从性：是"
+                    ),
+                    "study_context_facts": producer_facts,
+                }
+            ],
+        }
+
+        postprocess._ensure_study_context_fact_records(table)
+
+        self.assertEqual(
+            table["study_context_blocks"][0]["study_context_facts"],
+            producer_facts,
+        )
+
+    def test_absorbed_template_uses_structured_field_for_unknown_label(self) -> None:
+        row = "剔除/未剔除的仔鼠：淘汰到4 只/性别/窝"
+        table = {
+            "table_id": "tbl_context",
+            "page": 1,
+            "title": "Study title",
+            "study_context_blocks": [],
+        }
+
+        self._transfer(
+            table,
+            row,
+            fields=[
+                {
+                    "row_index": 2,
+                    "text": row,
+                    "role": "field",
+                    "label": "剔除/未剔除的仔鼠",
+                    "value": "淘汰到4 只/性别/窝",
+                    "data_population": "populated",
+                    "bbox": [10, 20, 90, 30],
+                }
+            ],
+        )
+
+        facts = table["study_context_blocks"][0]["study_context_facts"]
+        self.assertEqual(
+            [(fact["label"], fact["value"]) for fact in facts],
+            [("剔除/未剔除的仔鼠", "淘汰到4 只/性别/窝")],
+        )
+        self.assertEqual(facts[0]["source_kind"], "structure_template_field")
+
+    def test_combined_structured_field_is_decomposed_before_coverage(self) -> None:
+        row = "Start: 2020-01-01 Vehicle: feed Control: plain-feed GLP: yes"
+        table = {
+            "table_id": "tbl_context",
+            "page": 1,
+            "title": "Study title",
+            "study_context_blocks": [
+                {"text": "Start: 2020-01-01 Vehicle: feed", "source": "panel"},
+                {"text": "Control: plain-feed GLP: yes", "source": "panel"},
+            ],
+        }
+
+        self._transfer(
+            table,
+            row,
+            fields=[
+                {
+                    "row_index": 2,
+                    "text": row,
+                    "role": "field",
+                    "label": "Start",
+                    "value": "2020-01-01 Vehicle: feed Control: plain-feed GLP: yes",
+                    "data_population": "populated",
+                }
+            ],
+        )
+
+        self.assertEqual(len(table["study_context_blocks"]), 2)
+        audit = table["study_context_transfer_audits"][-1]
+        self.assertEqual(audit["candidate_fact_count"], 4)
+        self.assertEqual(audit["already_covered_fact_count"], 4)
+        self.assertEqual(audit["transferred_fact_count"], 0)
+        self.assertEqual(
+            audit["candidate_fact_counts_by_source_kind"],
+            {"structure_template_field_text_fallback": 4},
+        )
+
+    def test_fully_covered_combined_row_is_not_transferred(self) -> None:
+        table = {
+            "table_id": "tbl_context",
+            "page": 1,
+            "title": "Study title",
+            "study_context_blocks": [
+                {"text": "Start: 2020-01-01 Vehicle: feed", "source": "panel"},
+                {"text": "Control: plain-feed GLP: yes", "source": "panel"},
+            ],
+        }
+        self._transfer(
+            table,
+            "Start: 2020-01-01 Vehicle: feed Control: plain-feed GLP: yes",
+        )
+
+        self.assertEqual(len(table["study_context_blocks"]), 2)
+        audit = table.get("study_context_transfer_audits")
+        self.assertIsNotNone(audit)
+        self.assertEqual(audit[-1]["transferred_fact_count"], 0)
+        self.assertEqual(audit[-1]["already_covered_fact_count"], 4)
+
+    def test_partially_covered_row_transfers_only_missing_fact(self) -> None:
+        table = {
+            "table_id": "tbl_context",
+            "page": 1,
+            "title": "Study title",
+            "study_context_blocks": [
+                {"text": "Start: 2020-01-01", "source": "panel"},
+            ],
+        }
+        self._transfer(table, "Start: 2020-01-01 Vehicle: feed")
+
+        visible = "\n".join(item["text"] for item in table["study_context_blocks"])
+        self.assertEqual(visible.count("Start:"), 1)
+        self.assertEqual(visible.count("Vehicle: feed"), 1)
+        audit = table.get("study_context_transfer_audits")
+        self.assertIsNotNone(audit)
+        self.assertEqual(audit[-1]["transferred_fact_count"], 1)
+        self.assertEqual(audit[-1]["already_covered_fact_count"], 1)
+
+    def test_same_label_with_different_value_remains_distinct(self) -> None:
+        table = {
+            "table_id": "tbl_context",
+            "page": 1,
+            "title": "Study title",
+            "study_context_blocks": [
+                {"text": "Dose: 10", "source": "panel"},
+            ],
+        }
+        self._transfer(table, "Dose: 20")
+
+        visible = "\n".join(item["text"] for item in table["study_context_blocks"])
+        self.assertEqual(visible.count("Dose:"), 2)
+        self.assertIn("Dose: 10", visible)
+        self.assertIn("Dose: 20", visible)
+        audit = table.get("study_context_transfer_audits")
+        self.assertIsNotNone(audit)
+        self.assertEqual(audit[-1]["transferred_fact_count"], 1)
+        self.assertEqual(audit[-1]["already_covered_fact_count"], 0)
+
+    def test_genotoxicity_context_labels_are_preserved_as_facts(self) -> None:
+        facts = postprocess._study_context_fact_records(
+            "检测的诱导作用：程序外DNA 合成 毒性/细胞毒性作用：无 "
+            "遗传毒性作用：无 暴露的证据：毒代动力学-见试验编号94007",
+            source_ref="template_context:row:1",
+            source_owner="template_context",
+            page=105,
+        )
+
+        self.assertEqual(
+            [(fact["label"], fact["value"]) for fact in facts],
+            [
+                ("检测的诱导作用", "程序外DNA 合成"),
+                ("毒性/细胞毒性作用", "无"),
+                ("遗传毒性作用", "无"),
+                ("暴露的证据", "毒代动力学-见试验编号94007"),
+            ],
+        )
+
+    def test_multifield_context_keeps_complete_ctd_location_label(self) -> None:
+        facts = postprocess._study_context_fact_records(
+            "种属/品系：Wistar 大鼠 采样时间：2 和16 小时 "
+            "CTD 中的位置：第11 卷第502 页",
+            source_ref="template_context:row:2",
+            source_owner="template_context",
+            page=105,
+        )
+
+        self.assertEqual(
+            [(fact["label"], fact["value"]) for fact in facts],
+            [
+                ("种属/品系", "Wistar 大鼠"),
+                ("采样时间", "2 和16 小时"),
+                ("CTD 中的位置", "第11 卷第502 页"),
+            ],
+        )
+
+    def test_fully_missing_context_row_preserves_leading_title_text(self) -> None:
+        row = (
+            "2.6.7.9A 遗传毒性：体内 "
+            "报告标题：MM-180801：大鼠经口给药微核试验 供试品：曲醇钠"
+        )
+        table = {
+            "table_id": "tbl_context",
+            "page": 104,
+            "study_context_blocks": [],
+        }
+
+        postprocess._transfer_absorbed_template_study_context_to_business_table(
+            template={
+                "structure_template_id": "template_context",
+                "page": 104,
+                "bbox": [0, 0, 100, 100],
+            },
+            table=table,
+            original_rows=[row],
+            source_template_id="template_context",
+            require_title_anchor=False,
+        )
+
+        self.assertEqual(table["study_context_blocks"][0]["text"], row)
 
 
 class R2RegressionTests(unittest.TestCase):
@@ -61,6 +2766,115 @@ class R2RegressionTests(unittest.TestCase):
             for table in cls.result.get("table_asts", [])
             if int(table.get("page", 0) or 0) == 2
         ]
+
+    def test_all_canonical_table_spans_are_structurally_valid(self) -> None:
+        audited_table_count = 0
+        audited_span_count = 0
+        spans_by_table_id: dict[str, list[dict]] = {}
+        for table in self.result.get("table_asts", []) or []:
+            if table.get("semantic_role") != "business_table":
+                continue
+            spans = [
+                span
+                for span in table.get("cell_spans", []) or []
+                if isinstance(span, dict)
+            ]
+            if not spans:
+                continue
+            spans_by_table_id[str(table.get("table_id") or "")] = spans
+            audited_table_count += 1
+            grid = table.get("semantic_grid") or []
+            row_count = len(grid)
+            column_count = max(
+                (len(row) for row in grid if isinstance(row, list)),
+                default=0,
+            )
+            occupied_by_role: dict[str, set[tuple[int, int]]] = {}
+            for span in spans:
+                audited_span_count += 1
+                role = str(span.get("role") or "")
+                row = int(span.get("row", -1))
+                col = int(span.get("col", -1))
+                rowspan = int(span.get("rowspan", 0) or 0)
+                colspan = int(span.get("colspan", 0) or 0)
+                identity = (table.get("page"), table.get("table_id"), span)
+                self.assertIn(role, {"header", "body"}, msg=identity)
+                self.assertGreaterEqual(row, 0, msg=identity)
+                self.assertGreaterEqual(col, 0, msg=identity)
+                self.assertGreaterEqual(rowspan, 1, msg=identity)
+                self.assertGreaterEqual(colspan, 1, msg=identity)
+                self.assertTrue(rowspan > 1 or colspan > 1, msg=identity)
+                self.assertLessEqual(row + rowspan, row_count, msg=identity)
+                self.assertLessEqual(col + colspan, column_count, msg=identity)
+                self.assertTrue(span.get("source_pages"), msg=identity)
+                self.assertTrue(span.get("source_table_ids"), msg=identity)
+                self.assertTrue(str(span.get("evidence") or "").strip(), msg=identity)
+                occupied = occupied_by_role.setdefault(role, set())
+                covered = {
+                    (covered_row, covered_col)
+                    for covered_row in range(row, row + rowspan)
+                    for covered_col in range(col, col + colspan)
+                }
+                self.assertFalse(occupied.intersection(covered), msg=identity)
+                occupied.update(covered)
+        business_table_count = sum(
+            1
+            for table in self.result.get("table_asts", []) or []
+            if table.get("semantic_role") == "business_table"
+        )
+        self.assertEqual(business_table_count, 56)
+        self.assertEqual(audited_table_count, 31)
+        self.assertEqual(audited_span_count, 112)
+        self.assertNotIn("tbl_031", spans_by_table_id)
+        self.assertNotIn("tbl_056", spans_by_table_id)
+
+    def test_all_canonical_table_spans_survive_evidence_rendering(self) -> None:
+        audited_table_count = 0
+        for table in self.result.get("table_asts", []) or []:
+            if table.get("semantic_role") != "business_table" or table.get("is_continuation"):
+                continue
+            spans = [
+                span
+                for span in table.get("cell_spans", []) or []
+                if isinstance(span, dict)
+            ]
+            if not spans:
+                continue
+            audited_table_count += 1
+            lines: list[str] = []
+            api_main._append_markdown_table(
+                lines,
+                table,
+                table_export_mode="evidence_markdown",
+            )
+            rendered = "\n".join(lines)
+            identity = (table.get("page"), table.get("table_id"))
+            self.assertIn("<table>", rendered, msg=identity)
+
+            grid = api_main._normalize_markdown_table_evidence_grid(table)
+            projected = api_main._markdown_table_with_projected_presentation_surface(table, grid)
+            html_table = api_main._build_semantic_html_table(projected)
+            self.assertTrue(html_table, msg=identity)
+            for span in projected.get("cell_spans", []) or []:
+                if not isinstance(span, dict):
+                    continue
+                rowspan = int(span.get("rowspan", 1) or 1)
+                colspan = int(span.get("colspan", 1) or 1)
+                if rowspan <= 1 and colspan <= 1:
+                    continue
+                tag = "th" if span.get("role") == "header" else "td"
+                attributes = ""
+                if rowspan > 1:
+                    attributes += f' rowspan="{rowspan}"'
+                if colspan > 1:
+                    attributes += f' colspan="{colspan}"'
+                text = escape(api_main._html_table_cell_text(span.get("text")))
+                self.assertIn(
+                    f"<{tag}{attributes}>{text}</{tag}>",
+                    html_table,
+                    msg=(identity, span, html_table),
+                )
+        self.assertGreaterEqual(audited_table_count, 20)
 
     def test_page2_keeps_ruled_one_row_history_tables(self) -> None:
         self.assertGreaterEqual(len(self.page2_tables), 4)
@@ -132,6 +2946,211 @@ class R2RegressionTests(unittest.TestCase):
         )
         self.assertNotIn("\u4e3a\u4e86\u4fc3\u8fdbM4S", phase_notes)
 
+    def test_page10_unnumbered_visual_subheadings_remain_markdown_boundaries(self) -> None:
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+
+        length_heading = "非临床文字总结的篇幅"
+        order_heading = "文字总结和列表总结的顺序"
+        content_heading = "非临床试验文字和列表总结的内容"
+
+        for heading in (length_heading, order_heading, content_heading):
+            self.assertIn(f"###### {heading}", review_markdown)
+
+        self.assertNotIn(
+            "非临床文字总结的篇幅虽然对非临床文字总结的篇幅没有明确限制",
+            review_markdown,
+        )
+        self.assertNotIn("文字总结和列表总结的顺序建议采用以下的顺序", review_markdown)
+        self.assertNotIn("毒理学列表总结非临床试验文字和列表总结的内容", review_markdown)
+
+        length_index = review_markdown.index(f"###### {length_heading}")
+        length_body_index = review_markdown.index("虽然对非临床文字总结的篇幅没有明确限制", length_index)
+        order_index = review_markdown.index(f"###### {order_heading}")
+        order_body_index = review_markdown.index("建议采用以下的顺序：", order_index)
+        content_index = review_markdown.index(f"###### {content_heading}")
+        numbered_heading_index = review_markdown.index("##### 2.6.1 前言", content_index)
+
+        self.assertLess(length_index, length_body_index)
+        self.assertLess(length_body_index, order_index)
+        self.assertLess(order_index, order_body_index)
+        self.assertLess(order_body_index, content_index)
+        self.assertLess(content_index, numbered_heading_index)
+
+    def test_page6_colon_introduced_indented_short_lines_render_as_plain_bullets(self) -> None:
+        page6 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 6)
+        items = [
+            "\u975e\u4e34\u5e8a\u8bd5\u9a8c\u7b56\u7565\u6982\u8ff0",
+            "\u836f\u7406\u5b66",
+            "\u836f\u4ee3\u52a8\u529b\u5b66",
+            "\u6bd2\u7406\u5b66",
+            "\u7efc\u5408\u8bc4\u4f30\u548c\u7ed3\u8bba",
+            "\u53c2\u8003\u6587\u732e\u6e05\u5355",
+        ]
+        item_blocks = {
+            str(block.get("text") or ""): block
+            for block in page6.get("blocks", []) or []
+            if str(block.get("text") or "") in items
+        }
+        self.assertEqual(set(item_blocks), set(items), msg=item_blocks)
+        for item in items:
+            block = item_blocks[item]
+            self.assertEqual(block.get("semantic_role"), "body_list_item", msg=block)
+            self.assertEqual(block.get("list_style"), "unmarked_indented", msg=block)
+            self.assertEqual(
+                block.get("list_introducer_text"),
+                "\u975e\u4e34\u5e8a\u7efc\u8ff0\u5e94\u6309\u7167\u4ee5\u4e0b\u987a\u5e8f\u64b0\u5199\uff1a",
+                msg=block,
+            )
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        introducer = "\u975e\u4e34\u5e8a\u7efc\u8ff0\u5e94\u6309\u7167\u4ee5\u4e0b\u987a\u5e8f\u64b0\u5199\uff1a"
+        following_body = "\u5e94\u5bf9\u4e3a\u786e\u5b9a\u836f\u6548\u5b66\u4f5c\u7528"
+        start = review_markdown.index(introducer)
+        end = review_markdown.index(following_body, start)
+        region = review_markdown[start:end]
+        previous = -1
+        for item in items:
+            bullet = f"- {item}"
+            current = region.find(bullet)
+            self.assertGreater(current, previous, msg=region)
+            previous = current
+            self.assertNotIn(f"###### {item}", region, msg=region)
+        self.assertNotIn("\u6bd2\u7406\u5b66\u7efc\u5408\u8bc4\u4f30\u548c\u7ed3\u8bba", region, msg=region)
+
+    def test_page7_explicit_bullets_do_not_absorb_following_body_paragraphs(self) -> None:
+        page7 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 7)
+        text_blocks = [
+            str(block.get("text") or "")
+            for block in page7.get("blocks", []) or []
+            if str(block.get("role") or block.get("block_type") or "text").lower() in {"text", "text_block"}
+            or str(block.get("text") or "")
+        ]
+        previous_bullet = "\uf06c \u5176\u5b83\u6bd2\u6027\u8bd5\u9a8c\u548c/\u6216\u7528\u4e8e\u9610\u660e\u7279\u6b8a\u95ee\u9898\u8fdb\u884c\u7684\u8bd5\u9a8c"
+        paragraph = (
+            "\u6bd2\u7406\u5b66\u8bd5\u9a8c\u7684\u8bc4\u4ef7\u5e94\u8be5\u6309\u7167\u903b\u8f91\u987a\u5e8f"
+            "\u8fdb\u884c\u64b0\u5199\uff0c\u4ee5\u4fbf\u5c06\u9610\u660e\u7279\u5b9a\u4f5c\u7528/\u73b0\u8c61"
+            "\u7684\u6240\u6709\u76f8\u5173\u6570\u636e\u653e\u5728\u4e00\u8d77\u7efc\u5408\u8bc4\u4ef7\u3002"
+            "\u5c06\u6570\u636e\u4ece\u52a8\u7269\u5916\u63a8\u5230\u4eba\u65f6\u5e94\u8be5\u8003\u8651\u4ee5\u4e0b\u56e0\u7d20\uff1a"
+        )
+        next_bullet = "\uf06c \u52a8\u7269\u79cd\u5c5e"
+        later_bullet = (
+            "\uf06c \u5728\u975e\u4e34\u5e8a\u8bd5\u9a8c\u4e2d\u89c2\u5bdf\u5230\u7684\u836f\u7269\u4f5c\u7528"
+            "\u4e0e\u4eba\u4f53\u4e2d\u9884\u671f\u6216\u89c2\u5bdf\u5230\u7684\u4f5c\u7528\u4e4b\u95f4\u7684\u5173\u7cfb\u3002"
+        )
+        later_paragraph = (
+            "\u5982\u679c\u91c7\u7528\u66ff\u4ee3\u65b9\u6cd5\u6765\u4ee3\u66ff\u6574\u4f53\u52a8\u7269\u8bd5\u9a8c\uff0c"
+            "\u5e94\u8be5\u5bf9\u66ff\u4ee3\u65b9\u6cd5\u7684\u79d1\u5b66\u53ef\u4fe1\u6027\u8fdb\u884c\u8ba8\u8bba\u3002"
+        )
+
+        for expected in [previous_bullet, next_bullet]:
+            self.assertIn(expected, text_blocks)
+        self.assertIn(paragraph[:40], "".join(text_blocks), msg=text_blocks)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        previous_bullet_markdown = previous_bullet.replace("\uf06c ", "- ", 1)
+        next_bullet_markdown = next_bullet.replace("\uf06c ", "- ", 1)
+        later_bullet_markdown = later_bullet.replace("\uf06c ", "- ", 1)
+        start = review_markdown.index(previous_bullet_markdown)
+        end = review_markdown.index("#### 2.6 \u975e\u4e34\u5e8a\u6587\u5b57\u603b\u7ed3\u548c\u5217\u8868\u603b\u7ed3", start)
+        region = review_markdown[start:end]
+
+        self.assertIn(paragraph, region)
+        self.assertIn(later_paragraph, region)
+        self.assertNotIn(previous_bullet_markdown + paragraph, region, msg=region)
+        self.assertNotIn(later_bullet_markdown + later_paragraph, region, msg=region)
+        self.assertIn(previous_bullet_markdown + "\n\n" + paragraph + "\n\n" + next_bullet_markdown, region)
+        self.assertIn(later_bullet_markdown + "\n\n" + later_paragraph, region)
+
+    def test_pages7_to_8_body_paragraph_continues_across_page_boundary(self) -> None:
+        page7 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 7)
+        page8 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 8)
+        page7_tail = str(page7["blocks"][-1].get("text") or "")
+        page8_first = str(page8["blocks"][0].get("text") or "")
+        page8_second = str(page8["blocks"][1].get("text") or "")
+        self.assertTrue(page7_tail.endswith("\u7533\u8bf7\u4eba\u53ef"), msg=page7_tail)
+        self.assertTrue(page8_first.startswith("\u4ee5\u5bf9\u683c\u5f0f"), msg=page8_first)
+        self.assertTrue(page8_second.startswith("\u5728\u9002\u5f53\u65f6"), msg=page8_second)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        section_start = review_markdown.index("#### \u524d\u8a00")
+        section_end = review_markdown.index("###### \u4e00\u822c\u64b0\u5199\u987a\u5e8f\u95ee\u9898", section_start)
+        region = review_markdown[section_start:section_end]
+
+        continued_sentence = (
+            "\u56e0\u6b64\uff0c\u4e3a\u4e86\u4fbf\u4e8e\u5bf9\u7ed3\u679c\u7684\u7406\u89e3\u548c\u8bc4\u4f30\uff0c"
+            "\u5fc5\u8981\u65f6\u7533\u8bf7\u4eba\u53ef\u4ee5\u5bf9\u683c\u5f0f\u8fdb\u884c\u4fee\u6539\uff0c"
+            "\u4ee5\u6700\u4f73\u5f62\u5f0f\u5c55\u793a\u4fe1\u606f\u3002"
+        )
+        next_paragraph = (
+            "\u5728\u9002\u5f53\u65f6\uff0c\u5e94\u5bf9\u5e74\u9f84\u548c\u6027\u522b\u76f8\u5173\u7684\u5f71\u54cd"
+            "\u8fdb\u884c\u8ba8\u8bba\u3002"
+        )
+        self.assertIn(continued_sentence, region, msg=region)
+        self.assertIn(next_paragraph, region, msg=region)
+        self.assertNotIn("\u7533\u8bf7\u4eba\u53ef\n\n\u4ee5\u5bf9\u683c\u5f0f", region, msg=region)
+        self.assertIn("\u4ee5\u6700\u4f73\u5f62\u5f0f\u5c55\u793a\u4fe1\u606f\u3002\n\n\u5728\u9002\u5f53\u65f6", region, msg=region)
+
+    def test_pages15_to_16_parenthetical_body_paragraph_continues_across_page_boundary(self) -> None:
+        page15 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 15)
+        page16 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 16)
+        page15_tail = str(page15["blocks"][-1].get("text") or "")
+        page16_first = str(page16["blocks"][0].get("text") or "")
+        self.assertTrue(page15_tail.endswith("\u6307\u5bfc\u8bf4\u660e"), msg=page15_tail)
+        self.assertTrue(page16_first.startswith("\uff08\u5728\u7f16\u5236\u8868\u683c\u65f6"), msg=page16_first)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        section_start = review_markdown.index("##### 2.6.7 \u6bd2\u7406\u5b66\u7814\u7a76\u5217\u8868\u603b\u7ed3")
+        section_end = review_markdown.index("### \u6a21\u57574\uff1a\u975e\u4e34\u5e8a\u8bd5\u9a8c\u62a5\u544a", section_start)
+        region = review_markdown[section_start:section_end]
+
+        continued_fragment = (
+            "\u63d0\u4f9b\u5173\u4e8e\u5176\u7f16\u5236\u7684\u6307\u5bfc\u8bf4\u660e"
+            "\uff08\u5728\u7f16\u5236\u8868\u683c\u65f6\u5e94\u8be5\u5220\u9664\u659c\u4f53\u4fe1\u606f\uff09\u3002"
+        )
+        next_paragraph = "\u5982\u679c\u8fdb\u884c\u4e86\u5e7c\u9f84\u52a8\u7269\u8bd5\u9a8c"
+        self.assertIn(continued_fragment, region, msg=region)
+        self.assertNotIn(
+            "\u6307\u5bfc\u8bf4\u660e\n\n\uff08\u5728\u7f16\u5236\u8868\u683c\u65f6",
+            region,
+            msg=region,
+        )
+        self.assertIn("\u7b80\u8981\u6982\u8ff0\u3002\n\n" + next_paragraph, region, msg=region)
+
+    def test_page15_nonclinical_tabulated_summary_standalone_label_and_bullets_render_cleanly(self) -> None:
+        page15 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 15)
+        label_block = next(
+            block
+            for block in page15.get("blocks", []) or []
+            if str(block.get("text") or "") == "\u975e\u4e34\u5e8a\u5217\u8868\u603b\u7ed3"
+        )
+        self.assertEqual(label_block.get("semantic_role"), "text_block", msg=label_block)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        section_start = review_markdown.index("##### 2.6.7 \u6bd2\u7406\u5b66\u7814\u7a76\u5217\u8868\u603b\u7ed3")
+        section_end = review_markdown.index("### \u6a21\u57574\uff1a\u975e\u4e34\u5e8a\u8bd5\u9a8c\u62a5\u544a", section_start)
+        region = review_markdown[section_start:section_end]
+
+        label = "\u975e\u4e34\u5e8a\u5217\u8868\u603b\u7ed3"
+        first_body = "\u5efa\u8bae\u901a\u7528\u6280\u672f\u6587\u6863\u4e2d\u7684\u975e\u4e34\u5e8a\u8bd5\u9a8c\u4fe1\u606f\u603b\u7ed3\u8868"
+        self.assertIn(f"###### {label}", region, msg=region)
+        self.assertNotIn(label + first_body, region, msg=region)
+        self.assertIn(f"###### {label}\n\n{first_body}", region, msg=region)
+
+        tox_section_start = review_markdown.index("###### 2.6.6.8 \u5176\u4ed6\u6bd2\u7406\u8bd5\u9a8c\uff08\u5982\u6709\uff09")
+        tox_section_end = review_markdown.index("###### 2.6.6.9 \u8ba8\u8bba\u548c\u7ed3\u8bba", tox_section_start)
+        tox_region = review_markdown[tox_section_start:tox_section_end]
+        for item in [
+            "\u6297\u539f\u6027",
+            "\u514d\u75ab\u6bd2\u6027",
+            "\u4f5c\u7528\u673a\u7406\u7814\u7a76\uff08\u5982\u5176\u4ed6\u7ae0\u8282\u672a\u62a5\u544a\uff09",
+            "\u4f9d\u8d56\u6027",
+            "\u4ee3\u8c22\u4ea7\u7269\u7814\u7a76",
+            "\u6742\u8d28\u7814\u7a76",
+            "\u5176\u4ed6\u8bd5\u9a8c",
+        ]:
+            self.assertIn(f"- {item}", tox_region, msg=tox_region)
+            self.assertNotIn(f"\uf06c {item}", tox_region, msg=tox_region)
+
     def test_page2_table_history_structured_flow_keeps_explanatory_url_continuation(self) -> None:
         page2 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 2)
         blocks = list(page2.get("blocks", []) or [])
@@ -178,6 +3197,49 @@ class R2RegressionTests(unittest.TestCase):
         self.assertGreaterEqual(qa_history_index, 0)
         self.assertLess(intro_index, url_index)
         self.assertLess(url_index, qa_history_index)
+
+    def test_ind_review_markdown_does_not_promote_parenthetical_date_continuation_to_heading(self) -> None:
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        continuation = "\u670820 \u65e5\u6838\u51c6)"
+
+        self.assertIn(continuation, markdown)
+        self.assertNotIn(f"###### {continuation}", markdown)
+        self.assertIn(
+            "\u6307\u5bfc\u59d4\u5458\u4f1a\u4e8e2002 \u5e7412\u670820 \u65e5\u6838\u51c6)",
+            markdown,
+        )
+
+    def test_ind_review_markdown_keeps_cross_page_parenthetical_bullet_continuation_plain(self) -> None:
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+
+        continued_bullet_ast = (
+            "\uf06c \u5bf9\u5b50\u4ee3\uff08\u5e7c\u9f84\u52a8\u7269\uff09\u7ed9\u836f\u548c/"
+            "\u6216\u8fdb\u884c\u8fdb\u4e00\u6b65\u8bc4\u4ef7\u7684\u8bd5\u9a8c\uff08"
+            "\u5982\u679c\u5df2\u7ecf\u8fdb\u884c\u4e86\u6b64\u7c7b\u8bd5\u9a8c\uff09"
+        )
+        continued_bullet = continued_bullet_ast.replace("\uf06c ", "- ", 1)
+        follow_on_paragraph = (
+            "\u5982\u679c\u91c7\u7528\u4e86\u6539\u826f\u7684\u8bd5\u9a8c\u8bbe\u8ba1\uff0c"
+            "\u5219\u526f\u6807\u9898\u5e94\u4f5c\u76f8\u5e94\u4fee\u6539\u3002"
+        )
+        real_heading = "###### 2.6.6.7 \u5c40\u90e8\u8010\u53d7\u6027"
+
+        self.assertIn(continued_bullet, markdown)
+        self.assertNotIn("###### \u6b64\u7c7b\u8bd5\u9a8c\uff09", markdown)
+        self.assertIn(f"{continued_bullet}\n\n{follow_on_paragraph}\n\n{real_heading}", markdown)
+        self.assertNotIn(f"{continued_bullet}{follow_on_paragraph}", markdown)
 
     def test_page4_is_promoted_as_continuation_toc_page(self) -> None:
         page4_tocs = [
@@ -297,6 +3359,41 @@ class R2RegressionTests(unittest.TestCase):
             "2.6.6.7",
         )
 
+    def test_page3_centered_front_matter_title_cluster_renders_as_bold_lines(self) -> None:
+        page3 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 3)
+        title_lines = [
+            "\u4eba\u7528\u836f\u54c1\u6ce8\u518c\u901a\u7528\u6280\u672f\u6587\u6863\uff1a",
+            "\u5b89\u5168\u6027",
+            "\u6a21\u57572 \u7684\u975e\u4e34\u5e8a\u7efc\u8ff0\u548c\u975e\u4e34\u5e8a\u603b\u7ed3",
+            "\u6a21\u57574 \u7684\u7ec4\u7ec7",
+        ]
+        page3_texts = [str(block.get("text") or "") for block in page3.get("blocks", []) or []]
+        for title_line in title_lines:
+            self.assertIn(title_line, page3_texts)
+
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        end = markdown.index("### \u6a21\u57572\uff1a\u901a\u7528\u6280\u672f\u6587\u6863\u603b\u7ed3")
+        title_start = markdown.rindex("\u4eba\u7528\u836f\u54c1\u6ce8\u518c\u901a\u7528\u6280\u672f\u6587\u6863\uff1a", 0, end)
+        start = markdown.rfind("\n", 0, title_start) + 1
+        region = markdown[start:end]
+
+        for title_line in title_lines:
+            self.assertIn(f"**{title_line}**", region, msg=region)
+            self.assertNotIn(f"\n\n{title_line}\n\n", region, msg=region)
+        self.assertIn("###### ICH\u4e09\u65b9\u534f\u8c03\u6307\u5bfc\u539f\u5219", region, msg=region)
+        body_line = (
+            "\u57282000 \u5e7411 \u67089 \u65e5\u53ec\u5f00\u7684ICH "
+            "\u6307\u5bfc\u59d4\u5458\u4f1a\u4f1a\u8bae\u4e0a ICH \u8fdb\u7a0b\u8fdb\u5165\u7b2c\u56db\u9636\u6bb5\uff0c"
+        )
+        self.assertIn(body_line, region, msg=region)
+        self.assertNotIn(f"**{body_line}**", region, msg=region)
+
     def test_ind_review_markdown_renders_toc_aligned_body_headings(self) -> None:
         document = {
             **self.result,
@@ -326,19 +3423,19 @@ class R2RegressionTests(unittest.TestCase):
         markdown = _build_full_markdown([document], markdown_profile="ind-review")
 
         self.assertIn(
-            "\uf06c \u9057\u4f20\u6bd2\u6027 - "
+            "- \u9057\u4f20\u6bd2\u6027 - "
             "\u5316\u5408\u7269\u7684\u5316\u5b66\u7ed3\u6784\u3001\u4f5c\u7528\u65b9\u5f0f\u3001"
             "\u4e0e\u5df2\u77e5\u9057\u4f20\u6bd2\u6027\u5316\u5408\u7269\u4e4b\u95f4\u7684\u5173\u7cfb",
             markdown,
         )
         self.assertIn(
-            "\uf06c \u81f4\u764c\u6027 - "
+            "- \u81f4\u764c\u6027 - "
             "\u5316\u5408\u7269\u7684\u5316\u5b66\u7ed3\u6784\u3001\u4e0e\u5df2\u77e5\u81f4\u764c\u7269\u7684\u5173\u7cfb"
             "\uff0c\u4ee5\u53ca\u9057\u4f20\u6bd2\u6027\u548c\u66b4\u9732\u6570\u636e",
             markdown,
         )
-        self.assertNotIn("\n\n\u7684\u5173\u7cfb \uf06c \u81f4\u764c\u6027", markdown)
-        self.assertNotIn("\n\n\u9732\u6570\u636e \uf06c \u5bf9\u4eba\u7684\u81f4\u764c\u98ce\u9669", markdown)
+        self.assertNotIn("\n\n\u7684\u5173\u7cfb - \u81f4\u764c\u6027", markdown)
+        self.assertNotIn("\n\n\u9732\u6570\u636e - \u5bf9\u4eba\u7684\u81f4\u764c\u98ce\u9669", markdown)
 
     def test_page21_figure_caption_axis_labels_and_legend_are_owned_without_markdown_duplication(self) -> None:
         page21 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 21)
@@ -425,11 +3522,16 @@ class R2RegressionTests(unittest.TestCase):
             "source_type": "pdf",
         }
         markdown = _build_full_markdown([document], markdown_profile="ind-review")
-        caption_index = markdown.find("\u56feX SHRaX \u957f\u671f\u7ed9\u836f\u7684\u8840\u538b")
+        figure_title = "\u56feX SHRaX \u957f\u671f\u7ed9\u836f\u7684\u8840\u538b"
+        bold_figure_title = f"**{figure_title}**"
+        caption_index = markdown.find(figure_title)
         image_index = markdown.find("![Figure 1](data:image/png;base64")
         self.assertGreaterEqual(caption_index, 0)
         self.assertGreaterEqual(image_index, 0)
         self.assertLess(caption_index, image_index)
+        self.assertIn(f"{bold_figure_title}\n\n![Figure 1](data:image/png;base64", markdown)
+        self.assertNotIn(f"\n\n{figure_title}\n\n![Figure 1](data:image/png;base64", markdown)
+        self.assertEqual(markdown.count(figure_title), 1)
         self.assertEqual(markdown.count("\u751f\u7406\u76d0\u6c34\u9884\u5904\u7406\u7ec4\u8fbe\u5230\u4e86\u7edf\u8ba1\u5b66\u663e\u8457\u6027"), 1)
         self.assertNotIn("\n\n\u5e73\u5747\u8840\u538b\uff08mmHg\uff09\n\n\u65f6\u95f4\uff08\u5206\u949f\uff09\n\n", markdown)
         self.assertNotIn("\u65f6\u95f4\uff08\u5206\u949f\uff09\n\n\u6b21\u53e3\u670d\u751f\u7406\u76d0\u6c341 ml/kg", markdown)
@@ -582,8 +3684,9 @@ class R2RegressionTests(unittest.TestCase):
             if int(template.get("page", 0) or 0) == 38
             and str(template.get("template_profile") or "") in blank_tabular_profiles
         ]
-        self.assertEqual(len(page38_templates), 1)
+        self.assertEqual(len(page38_templates), 2)
         self.assertTrue(all(template.get("data_population") == "blank" for template in page38_templates))
+        page38_templates = sorted(page38_templates, key=lambda item: item.get("bbox", [0, 0, 0, 0])[1])
         page38_rows_by_template = [
             "\n".join(str(row or "") for row in template.get("row_texts", []) or [])
             for template in page38_templates
@@ -593,8 +3696,30 @@ class R2RegressionTests(unittest.TestCase):
             msg=page38_rows_by_template,
         )
         self.assertIn("\u80ce\u76d8\u8f6c\u8fd0", page38_rows_by_template[0])
-        self.assertIn("\u4e73\u6c41\u6392\u6cc4", page38_rows_by_template[0])
-        self.assertIn("\u65b0\u751f\u80ce\u4ed4\uff1a", page38_rows_by_template[0])
+        self.assertNotIn("\u4e73\u6c41\u6392\u6cc4", page38_rows_by_template[0])
+        self.assertIn("\u4e73\u6c41\u6392\u6cc4", page38_rows_by_template[1])
+        self.assertNotIn("\u80ce\u76d8\u8f6c\u8fd0", page38_rows_by_template[1])
+        self.assertIn("\u65b0\u751f\u80ce\u4ed4\uff1a", page38_rows_by_template[1])
+        self.assertEqual(
+            [template.get("local_form_title") for template in page38_templates],
+            ["\u80ce\u76d8\u8f6c\u8fd0", "\u4e73\u6c41\u6392\u6cc4"],
+        )
+        self.assertEqual(
+            [template.get("form_instance_index") for template in page38_templates],
+            [1, 2],
+        )
+        self.assertEqual([template.get("form_instance_count") for template in page38_templates], [2, 2])
+        self.assertEqual(
+            page38_templates[0].get("parent_section_title"),
+            page38_templates[1].get("parent_section_title"),
+        )
+        self.assertTrue(page38_templates[0].get("form_instance_group_id"))
+        self.assertEqual(
+            page38_templates[0].get("form_instance_group_id"),
+            page38_templates[1].get("form_instance_group_id"),
+        )
+        self.assertLessEqual(page38_templates[0]["bbox"][3], page38_templates[1]["bbox"][1])
+        self.assertTrue(all(not template.get("is_structure_template_continuation") for template in page38_templates))
 
         page38 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 38)
         page38_template_nodes = [
@@ -602,7 +3727,7 @@ class R2RegressionTests(unittest.TestCase):
             if block.get("block_type") == "structure_template"
             and block.get("template_profile") in blank_tabular_profiles
         ]
-        self.assertEqual(len(page38_template_nodes), 1)
+        self.assertEqual(len(page38_template_nodes), 2)
 
         page33_template = next(
             template
@@ -633,7 +3758,60 @@ class R2RegressionTests(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(after_page80_tables), 4)
 
-    def test_page41_blank_tabular_template_absorbs_internal_label_only_table_surface(self) -> None:
+    def test_page30_pharmacology_overview_template_renders_as_empty_table_template(self) -> None:
+        page30_templates = [
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 30
+        ]
+        self.assertEqual(len(page30_templates), 1)
+        template = page30_templates[0]
+        self.assertEqual(template.get("semantic_role"), "structure_template")
+        self.assertEqual(template.get("template_kind"), "tabular_form")
+        self.assertEqual(template.get("template_profile"), "tabular_form_template")
+
+        page30_tables = [
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 30
+        ]
+        self.assertEqual(page30_tables, [])
+
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        heading = "#### 2.6.3.1 \u836f\u7406\u5b66\u6982\u8ff0 \u4f9b\u8bd5\u54c1\uff1a\uff081\uff09"
+        next_heading = "#### 2.6.3.4 \u5b89\u5168\u836f\u7406\u5b66"
+        start = markdown.index(heading)
+        end = markdown.index(next_heading, start)
+        region = markdown[start:end]
+
+        top_header = (
+            "| \u8bd5\u9a8c\u7c7b\u578b | \u8bd5\u9a8c\u7cfb\u7edf | \u7ed9\u836f\u65b9\u6cd5 | "
+            "\u8bd5\u9a8c\u673a\u6784 | \u8bd5\u9a8c\u7f16\u53f7(4) | \u4f4d\u7f6e | \u4f4d\u7f6e |"
+        )
+        leaf_header = (
+            "| \u8bd5\u9a8c\u7c7b\u578b | \u8bd5\u9a8c\u7cfb\u7edf | \u7ed9\u836f\u65b9\u6cd5 | "
+            "\u8bd5\u9a8c\u673a\u6784 | \u8bd5\u9a8c\u7f16\u53f7(4) | \u5377 | \u9875\u7801 |"
+        )
+        self.assertIn(top_header, region, msg=region)
+        self.assertIn(leaf_header, region, msg=region)
+        self.assertIn("| \u4e3b\u8981\u836f\u6548\u5b66 |  |  |  |  |  |  |", region, msg=region)
+        self.assertIn("| (2) |  |  |  |  |  |  |", region, msg=region)
+        self.assertIn("| \u6b21\u8981\u836f\u6548\u5b66 |  |  |  |  |  |  |", region, msg=region)
+        self.assertIn("| \u5b89\u5168\u836f\u7406\u5b66 |  |  |  |  |  |  |", region, msg=region)
+        self.assertIn("| \u836f\u6548\u5b66\u836f\u7269\u76f8\u4e92\u4f5c\u7528 |  |  |  |  |  |  |", region, msg=region)
+        self.assertNotIn("\u8bd5\u9a8c\u7c7b\u578b\u4e3b\u8981\u836f\u6548\u5b66", region, msg=region)
+        self.assertNotIn("\u5377 | \u4f4d\u7f6e\u9875\u7801", region, msg=region)
+        self.assertIn("\u5907\u6ce8\uff1a(1)", region, msg=region)
+        self.assertIn("\uff083\uff09\u5e94\u6307\u660e\u6280\u672f\u62a5\u544a\u5728CTD \u4e2d\u7684\u4f4d\u7f6e\u3002", region, msg=region)
+        self.assertIn("(4)\u6216\u62a5\u544a\u7f16\u53f7(\u6240\u6709\u8868\u683c\u4e2d)", region, msg=region)
+
+    def test_page41_blank_tabular_template_projects_body_lattice_multilevel_grid(self) -> None:
         page41_template = next(
             template
             for template in self.result.get("structure_templates", []) or []
@@ -647,6 +3825,103 @@ class R2RegressionTests(unittest.TestCase):
         self.assertIn("\u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269%", page41_rows)
         self.assertIn("\u0054\u0044 \u4e2d\u7684\u4f4d\u7f6e", page41_rows.replace("C", ""))
         self.assertIn("\u8bd5\u9a8c\u7f16\u53f7", page41_rows)
+
+        projection = (page41_template.get("semantic_projection_v2") or {}).get(
+            "ruled_multilevel_template_header_projection",
+            {},
+        )
+        self.assertEqual(
+            projection.get("semantic_profile"),
+            "ruled_multilevel_ctd_template_header",
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("column_layout_mode"),
+            "body_lattice_with_header_anchors",
+            msg=projection,
+        )
+        logical_columns = [
+            "\u7269\u79cd",
+            "\u6837\u54c1",
+            "\u91c7\u6837\u65f6\u95f4\u6216\u5468\u671f",
+            "\u5360\u7ed9\u836f\u5242\u91cf\u7684%",
+            "\u539f\u5f62\u836f\u7269",
+            "M1",
+            "M2",
+            "\u8bd5\u9a8c\u7f16\u53f7",
+            "\u5377",
+            "\u9875\u7801",
+        ]
+        self.assertEqual(projection.get("logical_columns"), logical_columns, msg=projection)
+        expected_parent_row = [
+            "\u7269\u79cd",
+            "\u6837\u54c1",
+            "\u91c7\u6837\u65f6\u95f4\u6216\u5468\u671f",
+            "\u5360\u7ed9\u836f\u5242\u91cf\u7684%",
+            "\u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269%",
+            "\u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269%",
+            "\u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269%",
+            "\u8bd5\u9a8c\u7f16\u53f7",
+            "CTD \u4e2d\u7684\u4f4d\u7f6e",
+            "CTD \u4e2d\u7684\u4f4d\u7f6e",
+        ]
+        expected_leaf_row = ["", "", "", "", "\u539f\u5f62\u836f\u7269", "M1", "M2", "", "\u5377", "\u9875\u7801"]
+        expected_body_rows = [
+            ["", sample, "", "", "", "", "", "", "", ""]
+            for _ in range(3)
+            for sample in ("\u8840\u6d46", "\u5c3f\u6db2", "\u80c6\u6c41", "\u7caa\u4fbf")
+        ]
+        self.assertEqual(projection.get("template_body_rows"), expected_body_rows, msg=projection)
+        body_fragments = projection.get("template_body_fragments", []) or []
+        self.assertEqual(
+            [fragment.get("text") for fragment in body_fragments],
+            [row[1] for row in expected_body_rows],
+            msg=projection,
+        )
+        self.assertTrue(
+            all(fragment.get("source") == "page_word" and len(fragment.get("bbox", []) or []) == 4 for fragment in body_fragments),
+            msg=body_fragments,
+        )
+        self.assertEqual(
+            projection.get("semantic_grid"),
+            [expected_parent_row, expected_leaf_row, *expected_body_rows],
+            msg=projection,
+        )
+        terminal_notes = [
+            note
+            for note in page41_template.get("note_blocks", []) or []
+            if str(note.get("relation") or "") == "terminal_template_additional_info"
+        ]
+        self.assertEqual(len(terminal_notes), 1, msg=page41_template.get("note_blocks", []))
+        self.assertEqual(terminal_notes[0].get("text"), "\u9644\u52a0\u4fe1\u606f\uff1a")
+        self.assertEqual(terminal_notes[0].get("source_table_id"), "tbl_015")
+        self.assertEqual(len(terminal_notes[0].get("bbox", []) or []), 4, msg=terminal_notes[0])
+        self.assertEqual(
+            [
+                {
+                    "text": group.get("text"),
+                    "start_col": group.get("start_col"),
+                    "end_col": group.get("end_col"),
+                    "colspan": group.get("colspan"),
+                }
+                for group in projection.get("header_column_groups", []) or []
+            ],
+            [
+                {
+                    "text": "\u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269%",
+                    "start_col": 4,
+                    "end_col": 6,
+                    "colspan": 3,
+                },
+                {
+                    "text": "CTD \u4e2d\u7684\u4f4d\u7f6e",
+                    "start_col": 8,
+                    "end_col": 9,
+                    "colspan": 2,
+                },
+            ],
+            msg=projection,
+        )
 
         page41_business_tables = [
             table
@@ -670,11 +3945,288 @@ class R2RegressionTests(unittest.TestCase):
         self.assertGreater(end, start)
         page41_markdown = markdown[start:end]
 
-        self.assertIn("- \u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269%", page41_markdown)
-        self.assertIn("- \u8bd5\u9a8c\u7f16\u53f7", page41_markdown)
-        self.assertNotIn("| \u8840\u6d46 |", page41_markdown)
-        self.assertNotIn("| --- |", page41_markdown)
+        parent_header = (
+            "| \u7269\u79cd | \u6837\u54c1 | \u91c7\u6837\u65f6\u95f4\u6216\u5468\u671f | \u5360\u7ed9\u836f\u5242\u91cf\u7684% | "
+            "\u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269% | \u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269% | "
+            "\u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269% | \u8bd5\u9a8c\u7f16\u53f7 | CTD\u4e2d\u7684\u4f4d\u7f6e | CTD\u4e2d\u7684\u4f4d\u7f6e |"
+        )
+        leaf_header = "|  |  |  |  | \u539f\u5f62\u836f\u7269 | M1 | M2 |  | \u5377 | \u9875\u7801 |"
+        sample_row = "|  | \u8840\u6d46 |  |  |  |  |  |  |  |  |"
+        self.assertIn(parent_header, page41_markdown, msg=page41_markdown)
+        self.assertIn(leaf_header, page41_markdown, msg=page41_markdown)
+        self.assertEqual(page41_markdown.count(sample_row), 3, msg=page41_markdown)
+        additional_info = "\u9644\u52a0\u4fe1\u606f\uff1a"
+        remark = "\u5907\u6ce8\uff1a\u5982\u6709\u4eba\u4f53\u6570\u636e\uff0c\u5e94\u5217\u5165\u4ee5\u4fbf\u6bd4\u8f83\u3002"
+        table_index = page41_markdown.index(parent_header)
+        additional_info_index = page41_markdown.index(additional_info)
+        remark_index = page41_markdown.index(remark)
+        self.assertLess(table_index, additional_info_index, msg=page41_markdown)
+        self.assertLess(additional_info_index, remark_index, msg=page41_markdown)
+        self.assertNotIn(f"- {additional_info}\n", page41_markdown, msg=page41_markdown)
+        for projected_fragment in (
+            "\u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269%",
+            "\u91c7\u6837\u65f6\u95f4\u6216\u5360\u7ed9\u836f\u5242\u91cf",
+            "\u7684% \u539f\u5f62\u836f\u7269",
+            "\u8bd5\u9a8c\u7f16\u53f7",
+        ):
+            self.assertNotIn(f"- {projected_fragment}\n", page41_markdown, msg=page41_markdown)
         self.assertIn("\u5907\u6ce8\uff1a\u5982\u6709\u4eba\u4f53\u6570\u636e", page41_markdown)
+
+    def test_page45_excretion_template_projects_blank_groups_with_repeated_leaf_anchors(self) -> None:
+        template = next(
+            item
+            for item in self.result.get("structure_templates", []) or []
+            if int(item.get("page", 0) or 0) == 45
+            and "2.6.5.13" in str(item.get("title") or "")
+        )
+        projection = (template.get("semantic_projection_v2") or {}).get(
+            "ruled_multilevel_template_header_projection",
+            {},
+        )
+        self.assertEqual(
+            projection.get("column_layout_mode"),
+            "same_band_stub_plus_blank_group_slots_plus_repeated_leaf_anchors",
+            msg=projection,
+        )
+        leaf_pattern = ["\u5c3f\u6db2", "\u7caa\u4fbf", "\u5408\u8ba1"]
+        logical_columns = ["\u6392\u6cc4\u9014\u5f84(4)", *(leaf_pattern * 4)]
+        self.assertEqual(projection.get("logical_columns"), logical_columns, msg=projection)
+        self.assertEqual(projection.get("group_count"), 4, msg=projection)
+        self.assertEqual(projection.get("leaf_count_per_group"), 3, msg=projection)
+        self.assertEqual(
+            [
+                (group.get("text"), group.get("start_col"), group.get("end_col"), group.get("colspan"))
+                for group in projection.get("header_column_groups", []) or []
+            ],
+            [("", 1, 3, 3), ("", 4, 6, 3), ("", 7, 9, 3), ("", 10, 12, 3)],
+            msg=projection,
+        )
+        expected_body = [
+            ["\u65f6\u95f4", *("" for _ in range(12))],
+            ["0-T h", *("" for _ in range(12))],
+        ]
+        self.assertEqual(projection.get("template_body_rows"), expected_body, msg=projection)
+        self.assertEqual(projection.get("semantic_grid"), [logical_columns, *expected_body], msg=projection)
+        header_fragments = projection.get("header_fragments", []) or []
+        self.assertEqual(
+            [
+                (fragment.get("text"), fragment.get("col"))
+                for fragment in header_fragments
+                if fragment.get("text") == "\u6392\u6cc4\u9014\u5f84(4)"
+            ],
+            [("\u6392\u6cc4\u9014\u5f84(4)", 0)],
+            msg=header_fragments,
+        )
+        self.assertEqual(
+            [fragment.get("col") for fragment in header_fragments if fragment.get("text") in leaf_pattern],
+            list(range(1, 13)),
+            msg=header_fragments,
+        )
+        self.assertNotIn("\u65f6\u95f4", [fragment.get("text") for fragment in header_fragments])
+        self.assertEqual(
+            [
+                (fragment.get("text"), fragment.get("col"))
+                for fragment in projection.get("template_body_fragments", []) or []
+            ],
+            [("\u65f6\u95f4", 0), ("0-T", 0), ("h", 0)],
+        )
+        self.assertTrue(
+            all(
+                fragment.get("source") == "page_word"
+                and len(fragment.get("bbox", []) or []) == 4
+                for fragment in projection.get("template_body_fragments", []) or []
+            ),
+            msg=projection,
+        )
+        self.assertEqual(template.get("semantic_role"), "structure_template")
+        self.assertEqual(
+            [
+                table
+                for table in self.result.get("table_asts", []) or []
+                if int(table.get("page", 0) or 0) == 45
+                and str(table.get("semantic_role") or "business_table") == "business_table"
+            ],
+            [],
+        )
+
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        start = markdown.index("2.6.5.13 \u836f\u4ee3\u52a8\u529b\u5b66\uff1a\u6392\u6cc4 \u4f9b\u8bd5\u54c1\uff1a(1)")
+        end = markdown.index("2.6.5.14 \u836f\u4ee3\u52a8\u529b\u5b66\uff1a\u80c6\u6c41\u6392\u6cc4", start)
+        region = markdown[start:end]
+        header = "| \u6392\u6cc4\u9014\u5f84(4) | " + " | ".join(leaf_pattern * 4) + " |"
+        time_row = "| \u65f6\u95f4 | " + " | ".join([""] * 12) + " |"
+        body = "| 0-T h | " + " | ".join([""] * 12) + " |"
+        self.assertIn(header, region, msg=region)
+        self.assertIn(time_row, region, msg=region)
+        self.assertIn(body, region, msg=region)
+        self.assertNotIn("- \u6392\u6cc4\u9014\u5f84(4)", region, msg=region)
+        self.assertNotIn("- \u65f6\u95f4\n", region, msg=region)
+        self.assertNotIn("- \u5c3f\u6db2 \u7caa\u4fbf \u5408\u8ba1", region, msg=region)
+
+    def test_page49_toxicology_overview_projects_centered_parent_anchor_grid(self) -> None:
+        template = next(
+            item
+            for item in self.result.get("structure_templates", []) or []
+            if int(item.get("page", 0) or 0) == 49
+            and "2.6.7.1" in str(item.get("title") or "")
+        )
+        projection = (template.get("semantic_projection_v2") or {}).get(
+            "ruled_multilevel_template_header_projection",
+            {},
+        )
+        self.assertEqual(
+            projection.get("column_layout_mode"),
+            "centered_parent_anchor_over_leaf_slots",
+            msg=projection,
+        )
+        logical_columns = [
+            "\u8bd5\u9a8c\u7c7b\u578b",
+            "\u79cd\u5c5e\u548c\u54c1\u7cfb",
+            "\u7ed9\u836f\u65b9\u6cd5",
+            "\u7ed9\u836f\u671f\u9650",
+            "\u5242\u91cf(mg/kga)",
+            "GLP\u4f9d\u4ece\u6027",
+            "\u8bd5\u9a8c\u673a\u6784",
+            "\u8bd5\u9a8c\u7f16\u53f7",
+            "\u5377",
+            "\u9875\u7801",
+        ]
+        self.assertEqual(projection.get("logical_columns"), logical_columns, msg=projection)
+        self.assertIn(
+            {
+                "text": "\u4f4d\u7f6e",
+                "start_col": 8,
+                "end_col": 9,
+                "colspan": 2,
+                "source": "centered_parent_header_anchor",
+            },
+            [
+                {
+                    "text": group.get("text"),
+                    "start_col": group.get("start_col"),
+                    "end_col": group.get("end_col"),
+                    "colspan": group.get("colspan"),
+                    "source": group.get("source"),
+                }
+                for group in projection.get("header_column_groups", []) or []
+            ],
+            msg=projection,
+        )
+        parent_row = [*logical_columns[:8], "\u4f4d\u7f6e", "\u4f4d\u7f6e"]
+        leaf_row = [*("" for _ in range(8)), "\u5377", "\u9875\u7801"]
+        self.assertEqual((projection.get("semantic_grid") or [])[:2], [parent_row, leaf_row], msg=projection)
+        body_rows = projection.get("template_body_rows", []) or []
+        self.assertEqual(
+            [row[0] for row in body_rows],
+            [
+                "\u5355\u6b21\u7ed9\u836f\u6bd2\u6027",
+                "\u91cd\u590d\u7ed9\u836f\u6bd2\u6027",
+                "\u9057\u4f20\u6bd2\u6027",
+                "\u81f4\u764c\u6027",
+                "\u751f\u6b96\u6bd2\u6027",
+                "\u5c40\u90e8\u8010\u53d7\u6027",
+                "\u5176\u4ed6\u6bd2\u6027",
+            ],
+            msg=projection,
+        )
+        self.assertEqual(body_rows[0][1], "(2)", msg=projection)
+        self.assertEqual(body_rows[0][8], "(3)", msg=projection)
+        self.assertEqual(template.get("semantic_role"), "structure_template")
+
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        start = markdown.index("2.6.7.1 \u6bd2\u7406\u5b66\u6982\u8ff0 \u4f9b\u8bd5\u54c1\uff1a\uff081\uff09")
+        end = markdown.index("2.6.7.2 \u6bd2\u4ee3\u52a8\u529b\u5b66", start)
+        region = markdown[start:end]
+        self.assertIn(
+            "| \u8bd5\u9a8c\u7c7b\u578b | \u79cd\u5c5e\u548c\u54c1\u7cfb | \u7ed9\u836f\u65b9\u6cd5 | \u7ed9\u836f\u671f\u9650 | "
+            "\u5242\u91cf(mg/kga) | GLP\u4f9d\u4ece\u6027 | \u8bd5\u9a8c\u673a\u6784 | \u8bd5\u9a8c\u7f16\u53f7 | \u4f4d\u7f6e | \u4f4d\u7f6e |",
+            region,
+            msg=region,
+        )
+        self.assertIn("|  |  |  |  |  |  |  |  | \u5377 | \u9875\u7801 |", region, msg=region)
+        self.assertIn("| \u5355\u6b21\u7ed9\u836f\u6bd2\u6027 | (2) |", region, msg=region)
+        self.assertNotIn("- \u8bd5\u9a8c\u7c7b\u578b", region, msg=region)
+
+    def test_page52_drug_substance_template_projects_flat_leaf_grid(self) -> None:
+        template = next(
+            item
+            for item in self.result.get("structure_templates", []) or []
+            if int(item.get("page", 0) or 0) == 52
+            and "2.6.7.4" in str(item.get("title") or "")
+        )
+        projection = (template.get("semantic_projection_v2") or {}).get(
+            "ruled_multilevel_template_header_projection",
+            {},
+        )
+        self.assertEqual(projection.get("column_layout_mode"), "flat_leaf_slots", msg=projection)
+        logical_columns = [
+            "\u6279\u53f7",
+            "\u7eaf\u5ea6(%)",
+            "\u7279\u5b9a\u6742\u8d28()",
+            "\u8bd5\u9a8c\u7f16\u53f7",
+            "\u8bd5\u9a8c\u7c7b\u578b",
+        ]
+        self.assertEqual(projection.get("logical_columns"), logical_columns, msg=projection)
+        expected_body = [
+            ["\u62df\u5b9a\u7684\u8d28\u91cf\u6807\u51c6", "", "", "", ""],
+            ["(2)", "", "", "", "(3)"],
+        ]
+        self.assertEqual(projection.get("template_body_rows"), expected_body, msg=projection)
+        self.assertEqual(projection.get("semantic_grid"), [logical_columns, *expected_body], msg=projection)
+        self.assertEqual(template.get("semantic_role"), "structure_template")
+        self.assertEqual(
+            [
+                table
+                for table in self.result.get("table_asts", []) or []
+                if int(table.get("page", 0) or 0) == 52
+                and str(table.get("semantic_role") or "business_table") == "business_table"
+            ],
+            [],
+        )
+
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        start = markdown.index("2.6.7.4 \u6bd2\u7406\u5b66 \u539f\u6599\u836f \u4f9b\u8bd5\u54c1\uff1a\uff081\uff09")
+        end = markdown.index("2.6.7.5 \u5355\u6b21\u7ed9\u836f\u6bd2\u6027", start)
+        region = markdown[start:end]
+        self.assertIn(
+            "| \u6279\u53f7 | \u7eaf\u5ea6(%) | \u7279\u5b9a\u6742\u8d28() | \u8bd5\u9a8c\u7f16\u53f7 | \u8bd5\u9a8c\u7c7b\u578b |",
+            region,
+            msg=region,
+        )
+        self.assertIn("| \u62df\u5b9a\u7684\u8d28\u91cf\u6807\u51c6 |  |  |  |  |", region, msg=region)
+        self.assertIn("| (2) |  |  |  | (3) |", region, msg=region)
+        self.assertNotIn("- \u6279\u53f7 \u7eaf\u5ea6(%)", region, msg=region)
+
+    def test_absorbed_template_fragments_do_not_retain_sparse_grid_projection(self) -> None:
+        absorbed = [
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if str(template.get("semantic_role") or "") == "absorbed_structure_template_fragment"
+        ]
+        self.assertTrue(absorbed)
+        for template in absorbed:
+            projection = (template.get("semantic_projection_v2") or {}).get(
+                "ruled_multilevel_template_header_projection"
+            )
+            self.assertFalse(projection, msg=template)
 
     def test_page31_sparse_blank_tabular_form_skeleton_links_letter_marker_note_without_business_table_pollution(self) -> None:
         page31_templates = [
@@ -714,6 +4266,50 @@ class R2RegressionTests(unittest.TestCase):
         ]
         self.assertEqual(page31_business_tables, [])
 
+        projection = (template.get("semantic_projection_v2") or {}).get(
+            "ruled_slot_template_header_projection",
+            {},
+        )
+        self.assertEqual(
+            projection.get("semantic_profile"),
+            "ruled_sparse_ctd_template_header",
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("logical_columns"),
+            [
+                "\u8bc4\u4ef7\u7684\u5668\u5b98\u7cfb\u7edf",
+                "\u79cd\u5c5e/\u54c1\u7cfb",
+                "\u7ed9\u836f\u65b9\u6cd5",
+                "\u5242\u91cfa(mg/kg)",
+                "\u6027\u522b\u548c\u6570\u91cf/\u7ec4",
+                "\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c",
+                "GLP\u4f9d\u4ece\u6027",
+                "\u8bd5\u9a8c\u7f16\u53f7(3)",
+            ],
+            msg=projection,
+        )
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        heading = "#### 2.6.3.4 \u5b89\u5168\u836f\u7406\u5b66 (1) \u4f9b\u8bd5\u54c1\uff1a(2)"
+        start = markdown.index(heading)
+        end = markdown.index("#### 2.6.5.1 \u836f\u4ee3\u52a8\u529b\u5b66\u6982\u8ff0", start)
+        region = markdown[start:end]
+        header = (
+            "| \u8bc4\u4ef7\u7684\u5668\u5b98\u7cfb\u7edf | \u79cd\u5c5e/\u54c1\u7cfb | "
+            "\u7ed9\u836f\u65b9\u6cd5 | \u5242\u91cfa(mg/kg) | "
+            "\u6027\u522b\u548c\u6570\u91cf/\u7ec4 | \u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c | "
+            "GLP\u4f9d\u4ece\u6027 | \u8bd5\u9a8c\u7f16\u53f7(3) |"
+        )
+        self.assertIn(header, region, msg=region)
+        self.assertNotIn("- \u79cd\u5c5e/\u54c1\u7cfb \u7ed9\u836f\u65b9\u6cd5 \u5242\u91cfa", region, msg=region)
+        self.assertLess(region.index(header), region.index("\u5907\u6ce8\uff1a(1)"), msg=region)
+
         page31 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 31)
         page31_template_nodes = [
             block
@@ -736,6 +4332,455 @@ class R2RegressionTests(unittest.TestCase):
                 ],
                 msg=f"page {page_number} should remain body text/heading, not a tabular form template",
             )
+
+    def test_page31_structure_template_remark_run_keeps_numbered_notes_before_letter_note(self) -> None:
+        template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 31
+            and str(template.get("template_profile") or "") == "sparse_tabular_form_skeleton"
+        )
+        note_texts = [
+            str(note.get("text") or "")
+            for note in template.get("note_blocks", []) or []
+            if isinstance(note, dict)
+        ]
+        expected_notes = [
+            "\u5907\u6ce8\uff1a(1)\u5e94\u8be5\u603b\u7ed3\u6240\u6709\u7684\u5b89\u5168\u836f\u7406\u5b66\u8bd5\u9a8c",
+            "(2) \u56fd\u9645\u975e\u4e13\u5229\u836f\u54c1\u540d\u79f0(INN)",
+            "(3) \u6216\u62a5\u544a\u7f16\u53f7(\u6240\u6709\u8868\u683c\u4e2d)",
+            "a- \u5355\u6b21\u7ed9\u836f\uff0c\u9664\u975e\u53e6\u6709\u8bf4\u660e\u3002",
+        ]
+        self.assertEqual(note_texts, expected_notes)
+
+        markers = [str(note.get("marker") or "") for note in template.get("note_blocks", []) or []]
+        self.assertEqual(markers, ["1", "2", "3", "a"])
+
+        note_refs = template.get("local_note_refs", []) or []
+        for marker, anchor_token in (
+            ("1", "\u5b89\u5168\u836f\u7406\u5b66"),
+            ("2", "\u4f9b\u8bd5\u54c1"),
+            ("3", "\u8bd5\u9a8c\u7f16\u53f7"),
+            ("a", "\u5242\u91cf"),
+        ):
+            self.assertTrue(
+                any(
+                    ref.get("marker") == marker
+                    and anchor_token in str(ref.get("anchor_text") or "")
+                    for ref in note_refs
+                ),
+                msg=(marker, note_refs),
+            )
+
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        heading = "#### 2.6.3.4 \u5b89\u5168\u836f\u7406\u5b66 (1) \u4f9b\u8bd5\u54c1\uff1a(2)"
+        start = markdown.index(heading)
+        end = markdown.index("#### 2.6.5.1 \u836f\u4ee3\u52a8\u529b\u5b66\u6982\u8ff0", start)
+        region = markdown[start:end]
+        previous_index = -1
+        for note in expected_notes:
+            current_index = region.find(note)
+            self.assertGreater(current_index, previous_index, msg=region)
+            previous_index = current_index
+        self.assertEqual(region.count("(2) \u56fd\u9645\u975e\u4e13\u5229\u836f\u54c1\u540d\u79f0(INN)"), 1, msg=region)
+        self.assertEqual(region.count("(3) \u6216\u62a5\u544a\u7f16\u53f7(\u6240\u6709\u8868\u683c\u4e2d)"), 1, msg=region)
+
+    def test_page35_organ_distribution_blank_template_projects_ruled_multilevel_header(self) -> None:
+        template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 35
+            and str(template.get("template_profile") or "") == "tabular_form_template"
+            and "2.6.5.5" in str(template.get("title") or "")
+        )
+        self.assertEqual(template.get("semantic_role"), "structure_template")
+        self.assertEqual(template.get("template_kind"), "tabular_form")
+        page35_business_tables = [
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 35
+            and str(table.get("semantic_role") or "business_table") == "business_table"
+        ]
+        self.assertEqual(page35_business_tables, [])
+
+        projection = (template.get("semantic_projection_v2") or {}).get(
+            "ruled_multilevel_template_header_projection",
+            {},
+        )
+        self.assertEqual(
+            projection.get("semantic_profile"),
+            "ruled_multilevel_ctd_template_header",
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("column_layout_mode"),
+            "external_stub_plus_leaf_slots",
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("logical_columns"),
+            [
+                "\u7ec4\u7ec7/\u5668\u5b98",
+                "T(1)",
+                "T(2)",
+                "T(3)",
+                "T(4)",
+                "T(5)",
+                "t1/2?",
+            ],
+            msg=projection,
+        )
+        self.assertIn(
+            {
+                "row": 0,
+                "col": 1,
+                "colspan": 6,
+                "text": "\u6d53\u5ea6(\u5355\u4f4d)",
+                "source": "ruled_parent_header_band",
+            },
+            projection.get("span_header_cells", []) or [],
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("semantic_grid"),
+            [
+                [
+                    "\u7ec4\u7ec7/\u5668\u5b98",
+                    "\u6d53\u5ea6(\u5355\u4f4d)",
+                    "\u6d53\u5ea6(\u5355\u4f4d)",
+                    "\u6d53\u5ea6(\u5355\u4f4d)",
+                    "\u6d53\u5ea6(\u5355\u4f4d)",
+                    "\u6d53\u5ea6(\u5355\u4f4d)",
+                    "\u6d53\u5ea6(\u5355\u4f4d)",
+                ],
+                [
+                    "\u7ec4\u7ec7/\u5668\u5b98",
+                    "T(1)",
+                    "T(2)",
+                    "T(3)",
+                    "T(4)",
+                    "T(5)",
+                    "t1/2?",
+                ],
+            ],
+            msg=projection,
+        )
+
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        heading = "#### 2.6.5.5 \u836f\u4ee3\u52a8\u529b\u5b66\uff1a\u5668\u5b98\u5206\u5e03 \u4f9b\u8bd5\u54c1"
+        start = markdown.index(f"{heading}\n\n")
+        end = markdown.index("#### 2.6.5.6", start)
+        region = markdown[start:end]
+        parent_header = (
+            "| \u7ec4\u7ec7/\u5668\u5b98 | \u6d53\u5ea6(\u5355\u4f4d) | "
+            "\u6d53\u5ea6(\u5355\u4f4d) | \u6d53\u5ea6(\u5355\u4f4d) | "
+            "\u6d53\u5ea6(\u5355\u4f4d) | \u6d53\u5ea6(\u5355\u4f4d) | \u6d53\u5ea6(\u5355\u4f4d) |"
+        )
+        leaf_header = "| \u7ec4\u7ec7/\u5668\u5b98 | T(1) | T(2) | T(3) | T(4) | T(5) | t1/2? |"
+        expected_form_rows = [
+            "- CTD\u4e2d\u7684\u4f4d\u7f6e\uff1a\u5377\u3001\u9875\u7801",
+            "- \u8bd5\u9a8c\u7f16\u53f7\uff1a",
+            "- \u79cd\u5c5e\uff1a",
+            "- \u6027\u522b(M/F)/\u52a8\u7269\u6570\u91cf\uff1a",
+            "- \u8fdb\u98df\u60c5\u51b5\uff1a",
+            "- \u6eb6\u5a92/\u5242\u578b\uff1a",
+            "- \u7ed9\u836f\u65b9\u6cd5\uff1a",
+            "- \u5242\u91cf(mg/kg)\uff1a",
+            "- \u653e\u5c04\u6027\u6838\u7d20\uff1a",
+            "- \u653e\u5c04\u6027\u6bd4\u5ea6\uff1a",
+            "- \u91c7\u6837\u65f6\u95f4\uff1a",
+        ]
+        previous_form_row = -1
+        for form_row in expected_form_rows:
+            current_form_row = region.find(form_row)
+            self.assertGreater(current_form_row, previous_form_row, msg=region)
+            self.assertLess(current_form_row, region.index(parent_header), msg=region)
+            previous_form_row = current_form_row
+        self.assertIn(parent_header, region, msg=region)
+        self.assertIn(leaf_header, region, msg=region)
+        self.assertLess(region.index(parent_header), region.index(leaf_header), msg=region)
+        self.assertNotIn("- \u6d53\u5ea6(\u5355\u4f4d)", region, msg=region)
+        self.assertNotIn("- T(1)", region, msg=region)
+
+    def test_page36_organ_distribution_blank_template_projects_multiple_parent_groups(self) -> None:
+        template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 36
+            and str(template.get("template_profile") or "") == "tabular_form_template"
+            and "2.6.5.5" in str(template.get("title") or "")
+        )
+        self.assertEqual(template.get("semantic_role"), "structure_template")
+        self.assertEqual(template.get("template_kind"), "tabular_form")
+        page36_business_tables = [
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 36
+            and str(table.get("semantic_role") or "business_table") == "business_table"
+        ]
+        self.assertEqual(page36_business_tables, [])
+
+        projection = (template.get("semantic_projection_v2") or {}).get(
+            "ruled_multilevel_template_header_projection",
+            {},
+        )
+        self.assertEqual(
+            projection.get("semantic_profile"),
+            "ruled_multilevel_ctd_template_header",
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("column_layout_mode"),
+            "external_stub_plus_leaf_slots",
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("logical_columns"),
+            [
+                "\u7ec4\u7ec7/\u5668\u5b98",
+                "\u6d53\u5ea6",
+                "T/P1)",
+                "\u6d53\u5ea6",
+                "T/P1)",
+                "\u65f6\u95f4",
+                "AUC",
+                "t1/2?",
+            ],
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("semantic_grid"),
+            [
+                [
+                    "\u7ec4\u7ec7/\u5668\u5b98",
+                    "Ct",
+                    "Ct",
+                    "\u6700\u540e\u4e00\u4e2a\u65f6\u95f4\u70b9",
+                    "\u6700\u540e\u4e00\u4e2a\u65f6\u95f4\u70b9",
+                    "\u6700\u540e\u4e00\u4e2a\u65f6\u95f4\u70b9",
+                    "AUC",
+                    "t1/2?",
+                ],
+                [
+                    "",
+                    "\u6d53\u5ea6",
+                    "T/P1)",
+                    "\u6d53\u5ea6",
+                    "T/P1)",
+                    "\u65f6\u95f4",
+                    "",
+                    "",
+                ],
+            ],
+            msg=projection,
+        )
+        self.assertEqual(
+            [
+                {
+                    "text": group.get("text"),
+                    "start_col": group.get("start_col"),
+                    "end_col": group.get("end_col"),
+                    "colspan": group.get("colspan"),
+                }
+                for group in projection.get("header_column_groups", []) or []
+            ],
+            [
+                {"text": "Ct", "start_col": 1, "end_col": 2, "colspan": 2},
+                {
+                    "text": "\u6700\u540e\u4e00\u4e2a\u65f6\u95f4\u70b9",
+                    "start_col": 3,
+                    "end_col": 5,
+                    "colspan": 3,
+                },
+            ],
+            msg=projection,
+        )
+        self.assertEqual(
+            [
+                {
+                    "row": span.get("row"),
+                    "col": span.get("col"),
+                    "colspan": span.get("colspan"),
+                    "text": span.get("text"),
+                }
+                for span in projection.get("span_header_cells", []) or []
+            ],
+            [
+                {"row": 0, "col": 1, "colspan": 2, "text": "Ct"},
+                {
+                    "row": 0,
+                    "col": 3,
+                    "colspan": 3,
+                    "text": "\u6700\u540e\u4e00\u4e2a\u65f6\u95f4\u70b9",
+                },
+            ],
+            msg=projection,
+        )
+        self.assertIn(
+            "\u6d53\u5ea6 T/P1)",
+            projection.get("consumed_header_row_texts", []) or [],
+            msg=projection,
+        )
+
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        start = markdown.index("###### \u66ff\u4ee3\u683c\u5f0fB")
+        end = markdown.index("#### 2.6.5.6", start)
+        region = markdown[start:end]
+        parent_header = (
+            "| \u7ec4\u7ec7/\u5668\u5b98 | Ct | Ct | \u6700\u540e\u4e00\u4e2a\u65f6\u95f4\u70b9 | "
+            "\u6700\u540e\u4e00\u4e2a\u65f6\u95f4\u70b9 | \u6700\u540e\u4e00\u4e2a\u65f6\u95f4\u70b9 | AUC | t1/2? |"
+        )
+        leaf_header = "|  | \u6d53\u5ea6 | T/P1) | \u6d53\u5ea6 | T/P1) | \u65f6\u95f4 |  |  |"
+        self.assertIn(parent_header, region, msg=region)
+        self.assertIn(leaf_header, region, msg=region)
+        self.assertLess(region.index(parent_header), region.index(leaf_header), msg=region)
+        self.assertNotIn("- \u6d53\u5ea6 T/P1)\n", region, msg=region)
+        for projected_header in (
+            "Ct",
+            "\u6700\u540e\u4e00\u4e2a\u65f6\u95f4\u70b9",
+            "\u7ec4\u7ec7/\u5668\u5b98",
+            "AUC",
+            "t1/2?",
+        ):
+            self.assertNotIn(f"- {projected_header}\n", region, msg=region)
+
+    def test_page37_plasma_binding_template_projects_full_width_multilevel_header(self) -> None:
+        template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 37
+            and str(template.get("template_profile") or "") == "tabular_form_template"
+            and "2.6.5.6" in str(template.get("title") or "")
+        )
+        self.assertEqual(template.get("semantic_role"), "structure_template")
+        self.assertEqual(template.get("template_kind"), "tabular_form")
+        self.assertEqual(
+            [
+                table
+                for table in self.result.get("table_asts", []) or []
+                if int(table.get("page", 0) or 0) == 37
+                and str(table.get("semantic_role") or "business_table") == "business_table"
+            ],
+            [],
+        )
+        self.assertIn("\u8bd5\u9a8c", template.get("row_texts", []) or [])
+        self.assertIn("\u7f16\u53f7", template.get("row_texts", []) or [])
+
+        projection = (template.get("semantic_projection_v2") or {}).get(
+            "ruled_multilevel_template_header_projection",
+            {},
+        )
+        self.assertEqual(
+            projection.get("semantic_profile"),
+            "ruled_multilevel_ctd_template_header",
+            msg=projection,
+        )
+        self.assertEqual(projection.get("column_layout_mode"), "full_width_leaf_slots", msg=projection)
+        self.assertEqual(
+            projection.get("logical_columns"),
+            [
+                "\u79cd\u5c5e",
+                "\u68c0\u6d4b\u6d53\u5ea6",
+                "%\u7ed3\u5408\u7387",
+                "\u8bd5\u9a8c\u7f16\u53f7",
+                "\u5377",
+                "\u9875\u7801",
+            ],
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("semantic_grid"),
+            [
+                [
+                    "\u79cd\u5c5e",
+                    "\u68c0\u6d4b\u6d53\u5ea6",
+                    "%\u7ed3\u5408\u7387",
+                    "\u8bd5\u9a8c\u7f16\u53f7",
+                    "CTD \u4e2d\u7684\u4f4d\u7f6e",
+                    "CTD \u4e2d\u7684\u4f4d\u7f6e",
+                ],
+                ["", "", "", "", "\u5377", "\u9875\u7801"],
+            ],
+            msg=projection,
+        )
+        self.assertEqual(
+            [
+                {
+                    "text": group.get("text"),
+                    "start_col": group.get("start_col"),
+                    "end_col": group.get("end_col"),
+                    "colspan": group.get("colspan"),
+                }
+                for group in projection.get("header_column_groups", []) or []
+            ],
+            [
+                {
+                    "text": "CTD \u4e2d\u7684\u4f4d\u7f6e",
+                    "start_col": 4,
+                    "end_col": 5,
+                    "colspan": 2,
+                }
+            ],
+            msg=projection,
+        )
+        self.assertIn(
+            {
+                "row": 0,
+                "col": 4,
+                "colspan": 2,
+                "text": "CTD \u4e2d\u7684\u4f4d\u7f6e",
+                "source": "ruled_parent_header_band",
+            },
+            projection.get("span_header_cells", []) or [],
+            msg=projection,
+        )
+        self.assertEqual(
+            [
+                fragment.get("text")
+                for fragment in projection.get("header_fragments", []) or []
+                if int(fragment.get("col", -1) or -1) == 3
+            ],
+            ["\u8bd5\u9a8c", "\u7f16\u53f7"],
+            msg=projection,
+        )
+
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        start = markdown.index("#### 2.6.5.6")
+        end = markdown.index("#### 2.6.5.7", start)
+        region = markdown[start:end]
+        parent_header = (
+            "| \u79cd\u5c5e | \u68c0\u6d4b\u6d53\u5ea6 | %\u7ed3\u5408\u7387 | \u8bd5\u9a8c\u7f16\u53f7 | "
+            "CTD\u4e2d\u7684\u4f4d\u7f6e | CTD\u4e2d\u7684\u4f4d\u7f6e |"
+        )
+        leaf_header = "|  |  |  |  | \u5377 | \u9875\u7801 |"
+        self.assertIn(parent_header, region, msg=region)
+        self.assertIn(leaf_header, region, msg=region)
+        for raw_fragment in ("\u8bd5\u9a8c", "\u7f16\u53f7", "CTD \u4e2d\u7684\u4f4d\u7f6e"):
+            self.assertNotIn(f"- {raw_fragment}\n", region, msg=region)
 
     def test_page42_low_text_ruled_blank_template_is_structure_template_not_body_or_business_table(self) -> None:
         page42_templates = [
@@ -1135,7 +5180,7 @@ class R2RegressionTests(unittest.TestCase):
         self.assertEqual(len(title_blocks), 1, msg=title_blocks)
         self.assertEqual(title_blocks[0].get("semantic_role"), "structure_template_title")
 
-    def test_page38_pregnant_lactating_template_owns_lower_ruled_template_region(self) -> None:
+    def test_page38_pregnant_lactating_section_owns_two_sibling_form_instances(self) -> None:
         page38_templates = [
             template
             for template in self.result.get("structure_templates", []) or []
@@ -1152,28 +5197,93 @@ class R2RegressionTests(unittest.TestCase):
             msg="page 38 lower ruled template region belongs to local 2.6.5.7, not previous 2.6.5.6",
         )
 
-        local_template = next(
-            template
-            for template in page38_templates
-            if "2.6.5.7" in str(template.get("title") or "")
-            or any("2.6.5.7" in str(row or "") for row in template.get("row_texts", []) or [])
-        )
-        rows = [str(row or "") for row in local_template.get("row_texts", []) or []]
-        self.assertIn("\u4e73\u6c41\u6392\u6cc4", rows)
-        self.assertIn("\u6d53\u5ea6\uff1a", rows)
-        self.assertIn("\u65b0\u751f\u80ce\u4ed4\uff1a", rows)
-        self.assertEqual(rows.count("\u6d53\u5ea6/\u91cf(%\u5242\u91cf)"), 1)
-        self.assertEqual(rows.count("\u80ce\u4ed4(3)\uff1a"), 1)
-        note_text = "\n".join(str(note.get("text") or "") for note in local_template.get("note_blocks", []) or [])
-        self.assertIn("\u9644\u52a0\u4fe1\u606f\uff1a", note_text)
+        local_templates = sorted(page38_templates, key=lambda item: item.get("bbox", [0, 0, 0, 0])[1])
+        self.assertEqual(len(local_templates), 2)
+        first_rows = [str(row or "") for row in local_templates[0].get("row_texts", []) or []]
+        second_rows = [str(row or "") for row in local_templates[1].get("row_texts", []) or []]
+        self.assertIn("\u6d53\u5ea6/\u91cf(%\u5242\u91cf)", first_rows)
+        self.assertIn("\u80ce\u4ed4(3)\uff1a", first_rows)
+        self.assertNotIn("\u6d53\u5ea6\uff1a", first_rows)
+        self.assertIn("\u6d53\u5ea6\uff1a", second_rows)
+        self.assertIn("\u65b0\u751f\u80ce\u4ed4\uff1a", second_rows)
+        self.assertNotIn("\u6d53\u5ea6/\u91cf(%\u5242\u91cf)", second_rows)
+        owned_id_sets = [
+            {
+                str(block_id or "").strip()
+                for block_id in template.get("owned_text_block_ids", []) or []
+                if str(block_id or "").strip()
+            }
+            for template in local_templates
+        ]
+        self.assertTrue(owned_id_sets[0].isdisjoint(owned_id_sets[1]), msg=owned_id_sets)
+        page38_ast = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 38)
+        text_nodes_by_id = {
+            str(block.get("block_id") or "").strip(): block
+            for block in page38_ast.get("blocks", []) or []
+            if str(block.get("block_id") or "").strip()
+        }
+        for template, owned_ids in zip(local_templates, owned_id_sets, strict=True):
+            template_bbox = template.get("bbox", []) or []
+            self.assertEqual(len(template_bbox), 4, msg=template)
+            for block_id in owned_ids:
+                source_bbox = (text_nodes_by_id.get(block_id) or {}).get("bbox", []) or []
+                self.assertEqual(len(source_bbox), 4, msg=(block_id, template))
+                center_x = (source_bbox[0] + source_bbox[2]) / 2.0
+                center_y = (source_bbox[1] + source_bbox[3]) / 2.0
+                self.assertTrue(
+                    template_bbox[0] - 3.0 <= center_x <= template_bbox[2] + 3.0
+                    and template_bbox[1] - 3.0 <= center_y <= template_bbox[3] + 3.0,
+                    msg=(block_id, source_bbox, template_bbox),
+                )
+            projection_source_ids = {
+                str(source_id or "").strip()
+                for projection in (template.get("semantic_projection_v2") or {}).values()
+                if isinstance(projection, dict)
+                for source_id in projection.get("source_block_ids", []) or []
+                if str(source_id or "").strip()
+            }
+            self.assertTrue(projection_source_ids.issubset(owned_ids), msg=template)
+        for template in local_templates:
+            notes = [
+                note
+                for note in template.get("note_blocks", []) or []
+                if str(note.get("relation") or "") == "terminal_template_additional_info"
+            ]
+            self.assertEqual(len(notes), 1, msg=template)
+            self.assertIn("\u9644\u52a0\u4fe1\u606f\uff1a", str(notes[0].get("text") or ""))
+        terminal_note_source_sets = [
+            {
+                str(note.get("source_block_id") or "").strip()
+                for note in template.get("note_blocks", []) or []
+                if str(note.get("relation") or "") == "terminal_template_additional_info"
+                and str(note.get("source_block_id") or "").strip()
+            }
+            for template in local_templates
+        ]
         self.assertTrue(
-            any(
-                str(note.get("relation") or "") == "terminal_template_additional_info"
-                and "\u9644\u52a0\u4fe1\u606f\uff1a" in str(note.get("text") or "")
-                for note in local_template.get("note_blocks", []) or []
-            ),
-            msg=local_template.get("note_blocks", []),
+            terminal_note_source_sets[0].isdisjoint(terminal_note_source_sets[1]),
+            msg=terminal_note_source_sets,
         )
+
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        start = markdown.index("#### 2.6.5.7 \u836f\u4ee3\u52a8\u529b\u5b66\uff1a\u598a\u5a20\u6216\u54fa\u4e73\u52a8\u7269\u8bd5\u9a8c")
+        end = markdown.index("2.6.5.8", start)
+        region = markdown[start:end]
+        self.assertIn("##### \u80ce\u76d8\u8f6c\u8fd0", region, msg=region)
+        self.assertIn("##### \u4e73\u6c41\u6392\u6cc4", region, msg=region)
+        self.assertEqual(region.count("- CTD\u4e2d\u7684\u4f4d\u7f6e\uff1a\u5377\u3001\u9875\u7801"), 2, msg=region)
+        self.assertEqual(region.count("- \u8bd5\u9a8c\u7f16\u53f7\uff1a"), 2, msg=region)
+        self.assertEqual(region.count("- \u7ed9\u836f\u65b9\u6cd5\uff1a"), 2, msg=region)
+        self.assertEqual(region.count("\u9644\u52a0\u4fe1\u606f\uff1a"), 2, msg=region)
+        self.assertNotIn("- \u80ce\u76d8\u8f6c\u8fd0\n", region, msg=region)
+        self.assertNotIn("- \u4e73\u6c41\u6392\u6cc4\n", region, msg=region)
+        self.assertNotIn("- \u901a\u7528\u6280\u672f\u6587\u6863-\u5b89\u5168\u6027", region, msg=region)
 
         page38 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 38)
         plain_text = [
@@ -1290,8 +5400,12 @@ class R2RegressionTests(unittest.TestCase):
                     for template in self.result.get("structure_templates", []) or []
                     if int(template.get("page", 0) or 0) == page_number
                 ]
-                self.assertEqual(len(page_templates), 1, msg=page_templates)
-                continuation = page_templates[0]
+                self.assertGreaterEqual(len(page_templates), 1, msg=page_templates)
+                continuation = next(
+                    template
+                    for template in page_templates
+                    if template.get("template_profile") == "blank_study_summary_template_continuation"
+                )
                 self.assertEqual(
                     continuation.get("template_profile"),
                     "blank_study_summary_template_continuation",
@@ -1406,6 +5520,23 @@ class R2RegressionTests(unittest.TestCase):
         page65_rows = [str(row or "") for row in page65_template.get("row_texts", []) or []]
         self.assertIn("\u65e5\u5242\u91cf(mg/kg)", page65_rows)
         self.assertIn("0(\u5bf9\u7167)", page65_rows)
+        page65_visual_rows = _structure_template_markdown_visual_row_texts(
+            page65_template,
+            page65_template.get("note_blocks", []) or [],
+        )
+        dose_row = "\u65e5\u5242\u91cf(mg/kg) 0(\u5bf9\u7167)"
+        female_tk_row = "\u96cc\u6027\u6bd2\u4ee3\u52a8\u529b\u5b66\uff1aAUC( )(4)"
+        self.assertEqual(page65_visual_rows[0], dose_row, msg=page65_visual_rows)
+        self.assertLess(page65_visual_rows.index(dose_row), page65_visual_rows.index(female_tk_row))
+
+        markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        heading = "2.6.7.12 (1)\u751f\u6b96\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7\uff1a(\u7eed)"
+        start = markdown.index(heading)
+        end = markdown.index("2.6.7.13", start)
+        page65_region = markdown[start:end]
+        self.assertIn(f"- {dose_row}", page65_region)
+        self.assertLess(page65_region.index(f"- {dose_row}"), page65_region.index(f"- {female_tk_row}"))
+        self.assertEqual(page65_region.count(dose_row), 1)
 
         page65 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 65)
         page65_plain = [
@@ -1421,6 +5552,8 @@ class R2RegressionTests(unittest.TestCase):
             template
             for template in self.result.get("structure_templates", []) or []
             if int(template.get("page", 0) or 0) == 69
+            and "F1\u4ee3\u5e7c\u4ed4\uff1a\u8bc4\u4ef7\u7684\u7a9d\u6570"
+            in [str(row or "") for row in template.get("row_texts", []) or []]
         )
         page69_rows = [str(row or "") for row in page69_template.get("row_texts", []) or []]
         self.assertIn("F1\u4ee3\u5e7c\u4ed4\uff1a\u8bc4\u4ef7\u7684\u7a9d\u6570", page69_rows)
@@ -1510,6 +5643,28 @@ class R2RegressionTests(unittest.TestCase):
         self.assertIn("  - 4.2.1.1 \u4e3b\u8981\u836f\u6548\u5b66", markdown)
         self.assertIn("  - 4.2.3.7.7 \u5176\u4ed6\u8bd5\u9a8c", markdown)
         self.assertIn("- 4.3 \u53c2\u8003\u6587\u732e", markdown)
+
+    def test_ind_review_markdown_suppresses_redundant_structure_template_heading_under_parent_section(self) -> None:
+        document = {
+            **self.result,
+            "filename": self.sample_path.name,
+            "source_path": str(self.sample_path),
+            "source_type": "pdf",
+        }
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        parent_heading = "#### 4.2 \u8bd5\u9a8c\u62a5\u544a"
+        instruction_title = "\u5e94\u6309\u7167\u4ee5\u4e0b\u987a\u5e8f\u63d0\u4ea4\u8bd5\u9a8c\u62a5\u544a\uff1a"
+
+        self.assertIn(parent_heading, markdown)
+        self.assertIn(instruction_title, markdown)
+        self.assertIn("- 4.2.1 \u836f\u7406\u5b66", markdown)
+        self.assertIn("- 4.2.2 \u836f\u4ee3\u52a8\u529b\u5b66", markdown)
+        self.assertIn("- 4.2.3 \u6bd2\u7406\u5b66", markdown)
+        self.assertNotIn(
+            f"{parent_heading}\n\n#### \u8bd5\u9a8c\u62a5\u544a\n\n{instruction_title}",
+            markdown,
+        )
+        self.assertIn("#### \u8bd5\u9a8c\u62a5\u544a\uff08\u7eed\uff09", markdown)
 
     def test_page13_sparse_ruled_table_rebuilds_visual_rows_from_word_geometry(self) -> None:
         page13_tables = [
@@ -1703,6 +5858,77 @@ class R2RegressionTests(unittest.TestCase):
             msg=f"missing female span in {header_groups!r}",
         )
 
+        def group_text(start_col: int, end_col: int) -> str:
+            return next(
+                str(group.get("text") or "")
+                for group in header_groups
+                if group.get("start_col") == start_col and group.get("end_col") == end_col
+            )
+
+        parameter_value_text = group_text(1, 6)
+        male_text = group_text(1, 3)
+        female_text = group_text(4, 6)
+        expected_semantic_groups = [
+            (parameter_value_text, 0, 1, 6, 6),
+            (male_text, 1, 1, 3, 3),
+            (female_text, 1, 4, 6, 3),
+        ]
+        semantic_header_groups = first.get("semantic_header_column_groups") or []
+        for text, row, start_col, end_col, colspan in expected_semantic_groups:
+            self.assertTrue(
+                any(
+                    group.get("text") == text
+                    and group.get("row") == row
+                    and group.get("start_col") == start_col
+                    and group.get("end_col") == end_col
+                    and group.get("colspan") == colspan
+                    for group in semantic_header_groups
+                ),
+                msg=f"missing semantic group {(text, row, start_col, end_col, colspan)!r} in {semantic_header_groups!r}",
+            )
+        span_header_cells = first.get("span_header_cells") or []
+        for text, row, start_col, _end_col, colspan in expected_semantic_groups:
+            self.assertTrue(
+                any(
+                    cell.get("text") == text
+                    and cell.get("row") == row
+                    and cell.get("col") == start_col
+                    and cell.get("colspan") == colspan
+                    for cell in span_header_cells
+                ),
+                msg=f"missing span header cell {(text, row, start_col, colspan)!r} in {span_header_cells!r}",
+            )
+        projection = (first.get("semantic_projection_v2") or {}).get("grouped_multilevel_header_projection") or {}
+        self.assertEqual(projection.get("semantic_profile"), "grouped_multilevel_header_table", msg=projection)
+        self.assertEqual(projection.get("header_group_count"), 3, msg=projection)
+        first_semantic_grid = first.get("semantic_grid") or []
+        self.assertGreaterEqual(len(first_semantic_grid), 7, msg=first_semantic_grid)
+        self.assertEqual(
+            first_semantic_grid[:3],
+            [
+                [first_grid[0][0], *([parameter_value_text] * 6)],
+                [first_grid[1][0], *([male_text] * 3), *([female_text] * 3)],
+                first_grid[2],
+            ],
+            msg=first_semantic_grid[:3],
+        )
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        first_header_index = review_markdown.index("<th colspan=\"6\">参数值</th>")
+        first_table_markdown = review_markdown[first_header_index - 120 : first_header_index + 900]
+        self.assertIn(
+            '<th colspan="6">参数值</th>',
+            first_table_markdown,
+            msg=first_table_markdown,
+        )
+        self.assertIn(
+            '<th colspan="3">雄性</th>',
+            first_table_markdown,
+            msg=first_table_markdown,
+        )
+        self.assertIn('<th colspan="3">雌性</th>', first_table_markdown, msg=first_table_markdown)
+        self.assertNotIn("Column 3", first_table_markdown, msg=first_table_markdown)
+
         second_grid = second.get("display_grid", []) or second.get("raw_grid", [])
         self.assertGreaterEqual(len(second_grid), 4)
         self.assertEqual(int(second.get("col_count", 0) or 0), 5)
@@ -1723,6 +5949,67 @@ class R2RegressionTests(unittest.TestCase):
             ),
             msg=f"missing dose-percentage span in {second_header_groups!r}",
         )
+        second_dose_percentage_group = next(
+            group
+            for group in second_header_groups
+            if group.get("start_col") == 2
+            and group.get("end_col") == 4
+            and group.get("colspan") == 3
+        )
+        second_dose_percentage_text = str(second_dose_percentage_group.get("text") or "")
+        second_semantic_header_groups = second.get("semantic_header_column_groups") or []
+        self.assertTrue(
+            any(
+                group.get("text") == second_dose_percentage_text
+                and group.get("row") == 0
+                and group.get("start_col") == 2
+                and group.get("end_col") == 4
+                and group.get("colspan") == 3
+                for group in second_semantic_header_groups
+            ),
+            msg=f"missing semantic dose-percentage group in {second_semantic_header_groups!r}",
+        )
+        second_span_header_cells = second.get("span_header_cells") or []
+        self.assertTrue(
+            any(
+                cell.get("text") == second_dose_percentage_text
+                and cell.get("row") == 0
+                and cell.get("col") == 2
+                and cell.get("colspan") == 3
+                for cell in second_span_header_cells
+            ),
+            msg=f"missing dose-percentage span header cell in {second_span_header_cells!r}",
+        )
+        second_projection = (second.get("semantic_projection_v2") or {}).get("grouped_multilevel_header_projection") or {}
+        self.assertEqual(second_projection.get("semantic_profile"), "grouped_multilevel_header_table", msg=second_projection)
+        self.assertEqual(second_projection.get("header_group_count"), 1, msg=second_projection)
+        second_semantic_grid = second.get("semantic_grid") or []
+        self.assertGreaterEqual(len(second_semantic_grid), 4, msg=second_semantic_grid)
+        self.assertEqual(
+            second_semantic_grid[:2],
+            [
+                [
+                    second_grid[0][0],
+                    second_grid[0][1],
+                    second_dose_percentage_text,
+                    second_dose_percentage_text,
+                    second_dose_percentage_text,
+                ],
+                [
+                    second_grid[0][0],
+                    second_grid[0][1],
+                    second_grid[1][2],
+                    second_grid[1][3],
+                    second_grid[1][4],
+                ],
+            ],
+            msg=second_semantic_grid[:2],
+        )
+        second_header_index = review_markdown.index('<th colspan="3">给药剂量的百分比</th>')
+        second_table_markdown = review_markdown[second_header_index - 160 : second_header_index + 700]
+        self.assertIn('<th colspan="3">给药剂量的百分比</th>', second_table_markdown, msg=second_table_markdown)
+        for leaf in ("尿液*", "粪便", "合计+"):
+            self.assertIn(f"<th>{leaf}</th>", second_table_markdown, msg=second_table_markdown)
         second_grid_text = "\n".join(" | ".join(str(cell or "") for cell in row) for row in second_grid)
         self.assertIn("mg/kg", second_grid_text)
         self.assertIn("i.v.", second_grid_text)
@@ -1850,6 +6137,22 @@ class R2RegressionTests(unittest.TestCase):
             ),
             msg=f"missing percentage span in {header_groups!r}",
         )
+
+    def test_page24_excretion_table_renders_complete_mixed_source_notes(self) -> None:
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        table_title = "表X ：雄性大鼠单次给予 \\[14C\\]X后的放射性物质排泄 \\[ 参考 \\]"
+        next_table_title = "表X ：小鼠、大鼠、犬和患者经口给予X后的药代动力学数据和系统暴露量比较"
+
+        table_index = review_markdown.index(f"**{table_title}**")
+        next_table_index = review_markdown.index(f"**{next_table_title}", table_index)
+        table_region = review_markdown[table_index:next_table_index]
+
+        self.assertIn("测定Wistar 大鼠给药后168 h 内的排泄量", table_region)
+        self.assertIn("数值为平均值±S.D.(n=5)", table_region)
+        self.assertIn("-未检测", table_region)
+        self.assertIn("合计包括尸体和笼舍冲洗液中的放射性", table_region)
+        self.assertNotIn("-未检\n\n测；", table_region)
+        self.assertNotIn("-未检 测；", table_region)
 
     def test_page25_exposure_table_projects_header_and_note_semantics(self) -> None:
         page25_tables = [
@@ -2033,6 +6336,54 @@ class R2RegressionTests(unittest.TestCase):
         self.assertEqual(table.get("semantic_role"), "business_table")
         self.assertEqual(table.get("detection_method"), "word_clustering")
         self.assertGreaterEqual(int(table.get("col_count", 0) or 0), 7)
+        overview_projection = (table.get("semantic_projection_v2") or {}).get(
+            "overview_inventory_schema_projection",
+            {},
+        )
+        self.assertEqual(
+            overview_projection.get("semantic_profile"),
+            "pk_overview_inventory_table",
+            msg=table.get("semantic_projection_v2"),
+        )
+        header_groups = overview_projection.get("header_column_groups") or []
+        location_group = next(
+            (
+                group
+                for group in header_groups
+                if str(group.get("text", "")).replace(" ", "") == "位置"
+            ),
+            None,
+        )
+        self.assertIsNotNone(location_group, msg=header_groups)
+        self.assertEqual(location_group.get("colspan"), 2, msg=location_group)
+        self.assertEqual(
+            [str(child).replace(" ", "") for child in location_group.get("child_headers", [])],
+            ["卷", "页码"],
+            msg=location_group,
+        )
+        span_header_cells = table.get("span_header_cells") or []
+        self.assertTrue(
+            any(
+                span.get("text") == "位置"
+                and span.get("col") == 5
+                and span.get("colspan") == 2
+                for span in span_header_cells
+                if isinstance(span, dict)
+            ),
+            msg=span_header_cells,
+        )
+        semantic_grid = table.get("semantic_grid") or []
+        self.assertGreaterEqual(len(semantic_grid), 3, msg=semantic_grid)
+        self.assertEqual(
+            [str(cell or "").replace(" ", "") for cell in semantic_grid[0]],
+            ["试验类型", "试验系统", "给药方法", "试验机构", "试验编号", "位置", "位置"],
+            msg=semantic_grid[:3],
+        )
+        self.assertEqual(
+            [str(cell or "").replace(" ", "") for cell in semantic_grid[1]],
+            ["", "", "", "", "", "卷", "页码"],
+            msg=semantic_grid[:3],
+        )
 
         grid = table.get("display_grid", []) or table.get("raw_grid", [])
         grid_text = "\n".join(
@@ -2063,6 +6414,60 @@ class R2RegressionTests(unittest.TestCase):
             ),
             msg=f"missing CNS marker ref in {cell_note_refs!r}",
         )
+
+    def test_page77_overview_parent_header_is_owned_once_by_table(self) -> None:
+        table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 77
+        )
+        page = next(
+            page
+            for page in self.result["document_ast"].get("pages", []) or []
+            if int(page.get("page", 0) or 0) == 77
+        )
+        standalone_location_blocks = [
+            block
+            for block in page.get("blocks", []) or []
+            if str(block.get("block_id") or "") == "txt_p77_061"
+        ]
+
+        self.assertIn("txt_p77_061", table.get("owned_text_block_ids", []) or [])
+        self.assertIn("txt_p77_061", table.get("header_source_block_ids", []) or [])
+        self.assertEqual(standalone_location_blocks, [])
+        projection = (table.get("semantic_projection_v2") or {}).get(
+            "overview_inventory_schema_projection",
+            {},
+        )
+        location_group = next(
+            group
+            for group in projection.get("header_column_groups", []) or []
+            if str(group.get("text") or "").replace(" ", "") == "\u4f4d\u7f6e"
+        )
+        self.assertEqual(location_group.get("source_block_id"), "txt_p77_061")
+        location_span = next(
+            span
+            for span in table.get("span_header_cells", []) or []
+            if str(span.get("text") or "").replace(" ", "") == "\u4f4d\u7f6e"
+        )
+        self.assertEqual(location_span.get("source_block_id"), "txt_p77_061")
+
+        markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        heading = (
+            "###### 2.6.3.1 \u836f\u7406\u5b66\u6982\u8ff0 "
+            "\u4f9b\u8bd5\u54c1\uff1a\u66f2\u9187\u94a0"
+        )
+        next_heading = "###### 2.6.3.4 \u5b89\u5168\u836f\u7406\u5b66"
+        start = markdown.index(heading)
+        end = markdown.index(next_heading, start)
+        region = markdown[start:end]
+        self.assertNotIn("\n\u4f4d\u7f6e\n", region)
+        self.assertIn(
+            '<th colspan="2">\u4f4d\u7f6e</th>',
+            region,
+        )
+        self.assertIn("<th>\u5377</th>", region)
+        self.assertIn("<th>\u9875\u7801</th>", region)
 
     def test_pages78_to_80_text_aligned_borderless_tables_are_recovered(self) -> None:
         tables_by_page = {
@@ -2123,10 +6528,32 @@ class R2RegressionTests(unittest.TestCase):
         self.assertIn("93302", grid79_text)
         self.assertIn("94051", grid79_text)
         semantic_grid79 = page79.get("semantic_grid") or []
-        self.assertGreaterEqual(len(semantic_grid79), 2)
+        self.assertGreaterEqual(len(semantic_grid79), 3)
         self.assertEqual(
             semantic_grid79[0],
-            ["试验类型", "试验系统", "给药方法", "试验机构", "试验编号", "卷", "部分"],
+            ["试验类型", "试验系统", "给药方法", "试验机构", "试验编号", "位置", "位置"],
+        )
+        self.assertEqual(
+            semantic_grid79[1],
+            ["", "", "", "", "", "卷", "部分"],
+        )
+        location_group79 = next(
+            (
+                group
+                for group in (
+                    (page79.get("semantic_projection_v2", {}) or {})
+                    .get("overview_inventory_schema_projection", {})
+                    .get("header_column_groups", [])
+                    or []
+                )
+                if str(group.get("text", "")).replace(" ", "") == "位置"
+            ),
+            None,
+        )
+        self.assertIsNotNone(location_group79)
+        self.assertEqual(
+            [str(child).replace(" ", "") for child in location_group79.get("child_headers", [])],
+            ["卷", "部分"],
         )
         self.assertNotIn("Column 5", semantic_grid79[0])
         first_study_row = next(
@@ -2149,8 +6576,8 @@ class R2RegressionTests(unittest.TestCase):
         self.assertEqual(projection79.get("semantic_profile"), "pk_overview_inventory_table")
         self.assertEqual(projection79.get("logical_column_count"), 7)
         review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
-        self.assertIn("Sponsor Inc. | 93302", review_markdown)
-        self.assertNotIn("Sponsor | Inc. | 93302", review_markdown)
+        self.assertIn("<td>Sponsor Inc.</td>\n    <td>93302</td>", review_markdown)
+        self.assertNotIn("<td>Sponsor</td>\n    <td>Inc.</td>\n    <td>93302</td>", review_markdown)
         note79 = " ".join(str(note.get("text", "")) for note in page79.get("note_blocks", []))
         self.assertIn("a-报告中含GLP依从性性声明", note79.replace(" ", ""))
         self.assertNotIn("排泄灌胃", note79)
@@ -2197,7 +6624,23 @@ class R2RegressionTests(unittest.TestCase):
         )
         note80 = " ".join(str(note.get("text", "")) for note in page80.get("note_blocks", []))
         self.assertIn("附加信息：", note80)
+        additional_info_note80 = next(
+            note
+            for note in page80.get("note_blocks", [])
+            if str(note.get("text", "")).startswith("附加信息：")
+        )
+        self.assertEqual(int(additional_info_note80.get("page", 0) or 0), 80)
+        self.assertIn("小鼠、大鼠、犬和猴单次经口给药后吸收良好", additional_info_note80.get("text", ""))
+        self.assertIn("门静脉循环中的化合物浓度约为全身循环的15 倍", additional_info_note80.get("text", ""))
+        self.assertIn("中充分代谢和/或胆汁分泌", additional_info_note80.get("text", ""))
+        self.assertTrue(
+            {"txt_p80_038", "txt_p80_039", "txt_p80_081", "txt_p80_082"}.issubset(
+                set(additional_info_note80.get("source_block_ids", []) or [])
+            ),
+            msg=additional_info_note80,
+        )
         self.assertIn("a-总放射性，14C", note80)
+        self.assertEqual(note80.count("a-总放射性，14C"), 1, msg=page80.get("note_blocks", []))
         self.assertTrue(
             any(
                 ref.get("marker") == "a"
@@ -2207,6 +6650,48 @@ class R2RegressionTests(unittest.TestCase):
             ),
             msg=f"missing page80 TRA marker ref in {page80.get('cell_note_refs', [])!r}",
         )
+        page80_total_radioactivity_refs = [
+            ref
+            for ref in page80.get("cell_note_refs", [])
+            if ref.get("marker") == "a"
+            and ref.get("cell_text") == "TRAa"
+            and "总放射性" in str(ref.get("note_text", ""))
+        ]
+        self.assertEqual(len(page80_total_radioactivity_refs), 1, msg=page80.get("cell_note_refs", []))
+
+        page80_evidence = next(
+            evidence
+            for evidence in self.result.get("content_evidence", []) or []
+            if evidence.get("source_type") == "table" and evidence.get("source_id") == page80.get("table_id")
+        )
+        self.assertEqual(
+            [str(note.get("text", "")) for note in page80_evidence.get("note_blocks", []) or []],
+            [str(note.get("text", "")) for note in page80.get("note_blocks", []) or []],
+        )
+        page80_ast = next(
+            page
+            for page in (self.result.get("document_ast", {}) or {}).get("pages", []) or []
+            if int(page.get("page", 0) or 0) == 80
+        )
+        page80_body_text = "\n".join(
+            str(block.get("text", ""))
+            for block in page80_ast.get("blocks", []) or []
+            if block.get("block_type") == "text"
+        )
+        self.assertNotIn("小鼠、大鼠、犬和猴单次经口给药后吸收良好", page80_body_text)
+        self.assertNotIn("门静脉循环中的化合物浓度约为全身循环的15 倍", page80_body_text)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        page80_anchor = review_markdown.index("2.6.5.3 药代动力学：单次给药后的吸收 供试品：曲醇钠")
+        page80_end_anchor = review_markdown.index("2.6.5.5 药代动力学：器官分布", page80_anchor)
+        page80_region = review_markdown[page80_anchor:page80_end_anchor]
+        self.assertEqual(page80_region.count("a-总放射性，14C"), 1, msg=page80_region)
+        self.assertIn("附加信息：", page80_region)
+        self.assertIn("小鼠、大鼠、犬和猴单次经口给药后吸收良好", page80_region)
+        self.assertLess(page80_region.index("附加信息："), page80_region.index("小鼠、大鼠、犬和猴单次经口给药后吸收良好"))
+        self.assertLess(page80_region.index("小鼠、大鼠、犬和猴单次经口给药后吸收良好"), page80_region.index("a-总放射性，14C"))
+        self.assertNotIn("附加信息： a-总放射性，14C", page80_region)
+        self.assertNotIn("a-总放射性，14C 附加信息：", page80_region)
 
     def test_page81_populated_study_metadata_stays_distinct_from_business_table(self) -> None:
         page81_tables = [
@@ -2268,6 +6753,136 @@ class R2RegressionTests(unittest.TestCase):
         self.assertIn("采样时间：0.25、0.5、2、6、24、96 和192 h", metadata_rows)
         self.assertNotIn("nd=未检出", metadata_rows)
 
+    def test_page81_example_and_format_label_render_once_in_physical_order(self) -> None:
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        prior_heading = "2.6.5.3 药代动力学：单次给药后的吸收 供试品：曲醇钠"
+        page81_heading = "#### 2.6.5.5 药代动力学：器官分布 供试品：曲醇钠"
+        prior_heading_index = review_markdown.index(prior_heading)
+        page81_heading_index = review_markdown.index(page81_heading, prior_heading_index)
+        format_index = review_markdown.rindex("\n格式A\n", prior_heading_index, page81_heading_index)
+        example_index = review_markdown.rindex("\n示例\n", prior_heading_index, format_index)
+        prelude_region = review_markdown[example_index + 1 : page81_heading_index]
+
+        self.assertEqual(prelude_region, "示例\n\n格式A\n\n")
+
+    def test_pages81_to_82_organ_distribution_pre_table_parent_headers_project_as_spans(self) -> None:
+        page81_table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 81
+            and table.get("semantic_role") == "business_table"
+        )
+        page81_groups = page81_table.get("header_column_groups") or []
+        self.assertTrue(
+            any(
+                group.get("text") == "浓度(µg/ml)"
+                and group.get("start_col") == 1
+                and group.get("end_col") == 6
+                and group.get("colspan") == 6
+                for group in page81_groups
+            ),
+            msg=page81_groups,
+        )
+        page81_spans = page81_table.get("span_header_cells") or []
+        self.assertTrue(
+            any(
+                span.get("text") == "浓度(µg/ml)"
+                and span.get("col") == 1
+                and span.get("colspan") == 6
+                for span in page81_spans
+            ),
+            msg=page81_spans,
+        )
+        self.assertIn("txt_p81_046", page81_table.get("owned_text_block_ids", []) or [])
+        page81_ast = next(
+            page
+            for page in (self.result.get("document_ast") or {}).get("pages", []) or []
+            if int(page.get("page", 0) or 0) == 81
+        )
+        self.assertFalse(
+            any(
+                block.get("block_id") == "txt_p81_046"
+                for block in page81_ast.get("blocks", []) or []
+            ),
+            msg="table-owned parent header must not leak as a standalone AST text block",
+        )
+        page81_semantic_grid = page81_table.get("semantic_grid") or []
+        self.assertGreaterEqual(len(page81_semantic_grid), 2)
+        self.assertEqual(
+            page81_semantic_grid[0],
+            ["组织/器官", "浓度(µg/ml)", "浓度(µg/ml)", "浓度(µg/ml)", "浓度(µg/ml)", "浓度(µg/ml)", "浓度(µg/ml)"],
+        )
+        self.assertEqual(page81_semantic_grid[1], ["", "0.25", "0.5", "2", "6", "24", "t1/2"])
+
+        page82_table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 82
+            and table.get("semantic_role") == "business_table"
+        )
+        page82_groups = page82_table.get("header_column_groups") or []
+        self.assertTrue(
+            any(
+                group.get("text") == "Ct"
+                and group.get("start_col") == 1
+                and group.get("end_col") == 2
+                and group.get("colspan") == 2
+                for group in page82_groups
+            ),
+            msg=page82_groups,
+        )
+        self.assertTrue(
+            any(
+                group.get("text") == "最后一个时间点"
+                and group.get("start_col") == 3
+                and group.get("end_col") == 5
+                and group.get("colspan") == 3
+                for group in page82_groups
+            ),
+            msg=page82_groups,
+        )
+        page82_semantic_grid = page82_table.get("semantic_grid") or []
+        self.assertGreaterEqual(len(page82_semantic_grid), 2)
+        self.assertEqual(
+            page82_semantic_grid[0],
+            ["组织/器官", "Ct", "Ct", "最后一个时间点", "最后一个时间点", "最后一个时间点", "AUC", "t1/2"],
+        )
+        self.assertEqual(page82_semantic_grid[1], ["", "浓度", "T/P1)", "浓度", "T/P1)", "时间", "", ""])
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        page81_title = "2.6.5.5 药代动力学：器官分布 供试品：曲醇钠"
+        page83_title = "2.6.5.6 药代动力学：血浆蛋白结合率 供试品：曲醇钠"
+        page81_start = review_markdown.index(page81_title)
+        page83_start = review_markdown.index(page83_title, page81_start)
+        organ_region = review_markdown[page81_start:page83_start]
+        self.assertIn(
+            '<th colspan="6">浓度(µg/ml)</th>',
+            organ_region,
+        )
+        self.assertIn(
+            '<th colspan="2">Ct</th>',
+            organ_region,
+        )
+        self.assertIn('<th colspan="3">最后一个时间点</th>', organ_region)
+        for leaf in ("浓度", "T/P1)", "时间"):
+            self.assertIn(f"<th>{leaf}</th>", organ_region)
+
+        page81_template_text = "\n".join(
+            str(row or "")
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 81
+            for row in template.get("row_texts", []) or []
+        )
+        self.assertNotIn("浓度(µg/ml)", page81_template_text)
+        page82_template_text = "\n".join(
+            str(row or "")
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 82
+            for row in template.get("row_texts", []) or []
+        )
+        self.assertNotIn("\nCt\n", f"\n{page82_template_text}\n")
+        self.assertNotIn("最后一个时间点", page82_template_text)
+
     def test_pages82_to_86_study_table_panels_keep_notes_and_metadata_owned(self) -> None:
         page82_templates = [
             template
@@ -2302,8 +6917,22 @@ class R2RegressionTests(unittest.TestCase):
             and table.get("semantic_role") == "business_table"
         )
         page83_header = [cell.get("text") for cell in page83_table.get("header", []) or []]
-        self.assertEqual(page83_header, ["物种", "检测浓度", "%结合率", "编号", "卷", "页码"])
+        self.assertEqual(page83_header, ["物种", "检测浓度", "%结合率", "试验编号", "卷", "页码"])
         self.assertNotIn("组织/器官", page83_header)
+        self.assertTrue(
+            any(
+                group.get("text") == "CTD 中的位置"
+                and group.get("start_col") == 4
+                and group.get("end_col") == 5
+                and group.get("colspan") == 2
+                for group in page83_table.get("header_column_groups", []) or []
+            ),
+            msg=page83_table,
+        )
+        self.assertTrue(
+            {"txt_p83_006", "txt_p83_007"}.issubset(page83_table.get("owned_text_block_ids", []) or []),
+            msg=page83_table,
+        )
         self.assertFalse(page83_table.get("is_continuation"))
         self.assertFalse(page83_table.get("continued_from"))
         self.assertFalse(page82_table.get("continued_to"))
@@ -2407,9 +7036,28 @@ class R2RegressionTests(unittest.TestCase):
         part2_template = next(
             template
             for template in self.result.get("structure_templates", []) or []
-            if str(template.get("structure_template_id") or "") == "structure_template_047_part2"
+            if template.get("is_structure_template_continuation")
+            and str(template.get("continued_from_structure_template_id") or "").strip()
+            and "试验编号：95703" in "\n".join(
+                str(row or "") for row in template.get("row_texts", []) or []
+            )
         )
         self.assertTrue(part2_template.get("is_structure_template_continuation"), msg=part2_template)
+
+        page84_tables = sorted(
+            [
+                table
+                for table in self.result.get("table_asts", []) or []
+                if int(table.get("page", 0) or 0) == 84
+                and table.get("semantic_role") == "business_table"
+            ],
+            key=lambda table: float((table.get("bbox") or [0, 0, 0, 0])[1]),
+        )
+        self.assertEqual(len(page84_tables), 2)
+        first_table, second_table = page84_tables
+        part2_bbox = part2_template.get("bbox") or [0, 0, 0, 0]
+        self.assertGreater(float(part2_bbox[1]), float((first_table.get("bbox") or [0, 0, 0, 0])[3]))
+        self.assertLess(float(part2_bbox[1]), float((second_table.get("bbox") or [0, 0, 0, 0])[1]))
 
         page84_heading = "2.6.5.7 药代动力学：妊娠或哺乳动物研究 供试品：曲醇钠"
         page85_heading = "2.6.5.9 药代动力学：体内代谢 供试品：曲醇钠"
@@ -2422,16 +7070,182 @@ class R2RegressionTests(unittest.TestCase):
         self.assertIn("试验编号：95703", page84_region)
         self.assertIn("| 乳汁： | 0.6 | 0.8 | 1.0 | 1.1 | 1.3 | 0.4 |", page84_region)
         self.assertIn("| 新生胎仔： |", page84_region)
+        first_metadata_index = page84_region.index("试验编号：95702")
+        first_table_index = page84_region.index("| 母体血浆 | 12.4 | 0.32 | 13.9 | 0.32 |")
+        first_note_index = page84_region.index("附加信息： 另外检测了母体血液")
+        second_metadata_index = page84_region.index("试验编号：95703")
+        second_table_index = page84_region.index("| 乳汁： | 0.6 | 0.8 | 1.0 | 1.1 | 1.3 | 0.4 |")
+        cross_page_note_index = page84_region.index("\n附加信息：\n", second_table_index)
+        self.assertLess(first_metadata_index, first_table_index)
+        self.assertLess(first_table_index, first_note_index)
+        self.assertLess(first_note_index, second_metadata_index)
+        self.assertLess(second_metadata_index, second_table_index)
+        self.assertLess(second_table_index, cross_page_note_index)
         self.assertNotIn("| 种属 样品 | 周期 | 量% 原形药物 | M1 |", page84_region)
         self.assertIn(
-            "| 种属 | 样品 | 采样时间或 周期 | 占给药剂 量% | 原形药物 | M1 | M2 | 试验编号 | 卷 | 部分 |",
+            '<th colspan="3">样品中的化合物%</th>',
             page85_region,
         )
         self.assertIn(
-            "| 大鼠 | 血浆 | 0.5 h | - | 87.2 | 6.1 | 3.4 | 95076 | 26 | 101 |",
+            '<th colspan="2">CTD中的位置</th>',
             page85_region,
         )
+        metabolism_row_start = page85_region.index('<td rowspan="4">大鼠</td>')
+        metabolism_row_end = page85_region.index("</tr>", metabolism_row_start)
+        metabolism_row = page85_region[metabolism_row_start:metabolism_row_end]
+        for value in ("血浆", "0.5 h", "-", "87.2", "6.1", "3.4", "95076", "26", "101"):
+            self.assertIn(f"<td>{escape(value)}</td>", metabolism_row)
         self.assertNotIn("| 大鼠 血浆 | 0.5 h | - | 87.2 6.1 |", page85_region)
+
+    def test_page85_visual_study_panel_preserves_example_as_template_prelude(self) -> None:
+        page85_title = "2.6.5.9 药代动力学：体内代谢 供试品：曲醇钠"
+        template = next(
+            item
+            for item in self.result.get("structure_templates", []) or []
+            if int(item.get("page", 0) or 0) == 85
+            and str(item.get("title") or "") == page85_title
+        )
+        prelude_blocks = [
+            block
+            for block in template.get("prelude_blocks", []) or []
+            if isinstance(block, dict)
+        ]
+        self.assertEqual([str(block.get("text") or "") for block in prelude_blocks], ["示例"])
+        self.assertEqual(prelude_blocks[0].get("role"), "object_prelude")
+        self.assertEqual(prelude_blocks[0].get("source_table_id"), "tbl_030")
+        self.assertTrue(str(prelude_blocks[0].get("source_row_ref") or "").strip())
+        self.assertEqual(int(prelude_blocks[0].get("page", 0) or 0), 85)
+        self.assertEqual(len(prelude_blocks[0].get("bbox") or []), 4)
+
+        page85_ast = next(
+            page
+            for page in (self.result.get("document_ast", {}) or {}).get("pages", []) or []
+            if int(page.get("page", 0) or 0) == 85
+        )
+        template_ast = next(
+            block
+            for block in page85_ast.get("blocks", []) or []
+            if block.get("block_type") == "structure_template"
+            and str(block.get("title") or "") == page85_title
+        )
+        self.assertEqual(
+            [str(block.get("text") or "") for block in template_ast.get("prelude_blocks", []) or []],
+            ["示例"],
+        )
+
+        template_evidence = next(
+            evidence
+            for evidence in self.result.get("content_evidence", []) or []
+            if evidence.get("source_type") == "structure_template"
+            and evidence.get("source_id") == template.get("structure_template_id")
+        )
+        self.assertTrue(
+            any(
+                segment.get("role") == "prelude" and segment.get("text") == "示例"
+                for segment in template_evidence.get("segments", []) or []
+            ),
+            msg=template_evidence.get("segments", []),
+        )
+
+        metabolism_table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if table.get("table_id") == "tbl_030"
+        )
+        ownership_plan = [
+            row
+            for row in metabolism_table.get("leading_row_ownership_plan", []) or []
+            if isinstance(row, dict)
+        ]
+        self.assertTrue(
+            any(
+                row.get("role") == "previous_table_note"
+                and row.get("action") == "transfer_to_previous_table_note"
+                and row.get("owner_id") == "tbl_029"
+                for row in ownership_plan
+            ),
+            msg=ownership_plan,
+        )
+        self.assertTrue(
+            any(
+                row.get("role") == "next_object_prelude"
+                and row.get("action") == "transfer_to_next_object_prelude"
+                and row.get("owner_id") == template.get("structure_template_id")
+                for row in ownership_plan
+            ),
+            msg=ownership_plan,
+        )
+        metabolism_grid_text = "\n".join(
+            " | ".join(str(cell or "") for cell in row)
+            for row in metabolism_table.get("display_grid", []) or []
+            if isinstance(row, list)
+        )
+        self.assertNotIn("示例", metabolism_grid_text)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        page84_index = review_markdown.index("2.6.5.7 药代动力学：妊娠或哺乳动物研究")
+        second_table_index = review_markdown.index(
+            "| 乳汁： | 0.6 | 0.8 | 1.0 | 1.1 | 1.3 | 0.4 |",
+            page84_index,
+        )
+        cross_page_note_index = review_markdown.index("\n附加信息：\n", second_table_index)
+        example_index = review_markdown.index("\n示例\n", cross_page_note_index)
+        page85_heading_index = review_markdown.index(f"#### {page85_title}", example_index)
+        self.assertLess(cross_page_note_index, example_index)
+        self.assertLess(example_index, page85_heading_index)
+        self.assertEqual(
+            review_markdown[cross_page_note_index:page85_heading_index].count("\n示例\n"),
+            1,
+        )
+
+    def test_page85_metabolism_table_renders_grouped_header_semantics(self) -> None:
+        metabolism_table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 85
+            and table.get("table_id") == "tbl_030"
+        )
+        projection = (
+            metabolism_table.get("semantic_projection_v2", {}) or {}
+        ).get("grouped_multilevel_borderless_projection", {})
+        groups = projection.get("header_column_groups") or []
+        self.assertTrue(
+            any(
+                group.get("text") == "\u6837\u54c1\u4e2d\u7684\u5316\u5408\u7269%"
+                and group.get("child_headers") == ["\u539f\u5f62\u836f\u7269", "M1", "M2"]
+                for group in groups
+            ),
+            msg=groups,
+        )
+        self.assertTrue(
+            any(
+                group.get("text") == "CTD \u4e2d\u7684\u4f4d\u7f6e"
+                and group.get("child_headers") in (["\u5377", "\u90e8\u5206"], ["\u5377", "\u9875\u7801"])
+                for group in groups
+            ),
+            msg=groups,
+        )
+
+        document = dict(self.result)
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        page85_heading = "2.6.5.9 \u836f\u4ee3\u52a8\u529b\u5b66\uff1a\u4f53\u5185\u4ee3\u8c22 \u4f9b\u8bd5\u54c1\uff1a\u66f2\u9187\u94a0"
+        next_heading = "2.6.5.13 \u836f\u4ee3\u52a8\u529b\u5b66\uff1a\u6392\u6cc4 \u4f9b\u8bd5\u54c1\uff1a\u66f2\u9187\u94a0"
+        page85_region = markdown[markdown.index(page85_heading):markdown.index(next_heading, markdown.index(page85_heading))]
+
+        self.assertIn('<th colspan="3">样品中的化合物%</th>', page85_region)
+        self.assertIn('<th colspan="2">CTD中的位置</th>', page85_region)
+        for leaf in ("原形药物", "M1", "M2", "卷", "部分"):
+            self.assertIn(f"<th>{leaf}</th>", page85_region)
+        self.assertIn('<td rowspan="4">大鼠</td>', page85_region)
+        rat_row_start = page85_region.index('<td rowspan="4">大鼠</td>')
+        rat_row_end = page85_region.index("</tr>", rat_row_start)
+        rat_row_html = page85_region[rat_row_start:rat_row_end]
+        for value in ("血浆", "0.5 h", "-", "87.2", "6.1", "3.4", "95076", "26", "101"):
+            self.assertIn(f"<td>{value}</td>", rat_row_html)
+        self.assertNotIn("\u79cd\u5c5e \u6837\u54c1", page85_region)
+        self.assertNotIn("87.2 6.1", page85_region)
+        self.assertNotIn("\u91c7\u6837\u65f6\u95f4\u6216 \u5468\u671f", page85_region)
+        self.assertNotIn("\u5360\u7ed9\u836f\u5242 \u91cf%", page85_region)
 
     def test_ind_review_markdown_keeps_template_additional_info_before_below_notes(self) -> None:
         document = dict(self.result)
@@ -2446,10 +7260,11 @@ class R2RegressionTests(unittest.TestCase):
         page37_index = markdown.index(page37_heading)
         page38_index = markdown.index(page38_heading, page37_index)
         page37_region = markdown[page37_index:page38_index]
-        self.assertIn("- 附加信息：", page37_region)
+        self.assertIn("\n附加信息：\n", page37_region)
+        self.assertNotIn("\n- 附加信息：", page37_region)
         self.assertNotIn("| 附加信息： |", page37_region)
         self.assertIn(remark, page37_region)
-        self.assertLess(page37_region.index("- 附加信息："), page37_region.index(remark))
+        self.assertLess(page37_region.index("\n附加信息：\n"), page37_region.index(remark))
 
         page38_index = markdown.index(page38_heading, page37_index)
         next_index = markdown.index(next_heading, page38_index)
@@ -2498,6 +7313,348 @@ class R2RegressionTests(unittest.TestCase):
         self.assertNotIn("\n- 备注：(1)国际非专利药品名称(INN)", page45_region)
         self.assertIn("\n备注：(1)国际非专利药品名称(INN)", page49_region)
         self.assertNotIn("\n- 备注：(1)国际非专利药品名称(INN)", page49_region)
+
+    def test_page50_toxicokinetic_overview_template_keeps_dose_header_before_notes(self) -> None:
+        page50_template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 50
+            and "2.6.7.2" in str(template.get("title") or "")
+        )
+        projection = (page50_template.get("semantic_projection_v2") or {}).get(
+            "ruled_multilevel_template_header_projection",
+            {},
+        )
+        self.assertEqual(
+            projection.get("column_layout_mode"),
+            "centered_parent_anchor_over_leaf_slots",
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("logical_columns"),
+            [
+                "试验类型",
+                "试验系统",
+                "给药方法",
+                "剂量(mg/kg)",
+                "GLP依从性",
+                "试验编号",
+                "卷",
+                "页码",
+            ],
+            msg=projection,
+        )
+        self.assertTrue(
+            any(
+                group.get("text") == "位置"
+                and group.get("start_col") == 6
+                and group.get("end_col") == 7
+                and group.get("colspan") == 2
+                for group in projection.get("header_column_groups", []) or []
+            ),
+            msg=projection,
+        )
+        row_texts = [
+            str(row or "")
+            for row in page50_template.get("row_texts", []) or []
+            if str(row or "").strip()
+        ]
+        fields = [
+            str(field.get("text") or field.get("label") or "")
+            for field in page50_template.get("fields", []) or []
+            if isinstance(field, dict)
+        ]
+        self.assertIn("剂量(mg/kg)", row_texts, msg=row_texts)
+        self.assertIn("剂量(mg/kg)", fields, msg=fields)
+        self.assertIn("txt_p50_004", page50_template.get("owned_text_block_ids") or [])
+
+        page50_ast = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 50)
+        dose_block = next(
+            block
+            for block in page50_ast.get("blocks", []) or []
+            if str(block.get("block_id") or "") == "txt_p50_004"
+        )
+        self.assertEqual(dose_block.get("semantic_role"), "structure_template_entry")
+        self.assertEqual(dose_block.get("unit_role"), "metadata")
+
+        document = dict(self.result)
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        title = "2.6.7.2 毒代动力学 毒代动力学试验概述 供试品：（1）"
+        next_title = "2.6.7.3 毒代动力学 毒代动力学数据概述 供试品：（1）"
+        start = markdown.index(title)
+        end = markdown.index(next_title, start + 1)
+        page50_region = markdown[start:end]
+
+        ordered_tokens = [
+            "试验类型",
+            "试验系统",
+            "给药方法",
+            "剂量(mg/kg)",
+            "GLP依从性",
+            "试验编号",
+            "卷",
+            "页码",
+        ]
+        previous = -1
+        for token in ordered_tokens:
+            current = page50_region.find(token)
+            self.assertGreater(current, previous, msg=page50_region)
+            previous = current
+        self.assertLess(page50_region.index("剂量(mg/kg)"), page50_region.index("备注：(1)"))
+        self.assertEqual(page50_region.count("剂量(mg/kg)"), 1, msg=page50_region)
+
+    def test_pages53_54_blank_toxicology_templates_project_multiline_header_grid(self) -> None:
+        single_dose_template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 53
+            and "2.6.7.5" in str(template.get("title") or "")
+        )
+        repeat_dose_template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 54
+            and "2.6.7.6" in str(template.get("title") or "")
+        )
+
+        single_projection = (
+            single_dose_template.get("semantic_projection_v2", {}) or {}
+        ).get("blank_template_header_grid_projection", {})
+        repeat_projection = (
+            repeat_dose_template.get("semantic_projection_v2", {}) or {}
+        ).get("blank_template_header_grid_projection", {})
+        self.assertEqual(
+            single_projection.get("logical_columns"),
+            [
+                "种属/品系",
+                "给药方法(溶媒/剂型)",
+                "剂量(mg/kg)",
+                "性别和数量/组",
+                "观察到的最大非致死剂量(mg/kg)",
+                "近似致死剂量(mg/kg)",
+                "值得注意的结果",
+                "试验编号",
+            ],
+            msg=single_projection,
+        )
+        self.assertEqual(
+            repeat_projection.get("logical_columns"),
+            [
+                "种属/品系",
+                "给药方法(溶媒/剂型)",
+                "给药期限",
+                "剂量(mg/kg)",
+                "性别和数量/组",
+                "NOAELa(mg/kg)",
+                "值得注意的结果",
+                "试验编号",
+            ],
+            msg=repeat_projection,
+        )
+
+        document = dict(self.result)
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        single_title = "2.6.7.5 单次给药毒性(1) 供试品：(2)"
+        repeat_title = "2.6.7.6 重复给药毒性 非关键试验(1) 供试品：(2)"
+        next_title = "2.6.7.7 (1)重复给药毒性(2) 报告标题： 供试品：(3)"
+        single_start = markdown.index(single_title)
+        repeat_start = markdown.index(repeat_title, single_start)
+        next_start = markdown.index(next_title, repeat_start)
+        single_region = markdown[single_start:repeat_start]
+        repeat_region = markdown[repeat_start:next_start]
+
+        self.assertIn(
+            "| 种属/品系 | 给药方法(溶媒/剂型) | 剂量(mg/kg) | 性别和数量/组 | 观察到的最大非致死剂量(mg/kg) | 近似致死剂量(mg/kg) | 值得注意的结果 | 试验编号 |",
+            single_region,
+        )
+        self.assertIn(
+            "| 种属/品系 | 给药方法(溶媒/剂型) | 给药期限 | 剂量(mg/kg) | 性别和数量/组 | NOAELa(mg/kg) | 值得注意的结果 | 试验编号 |",
+            repeat_region,
+        )
+        for stale_fragment in (
+            "- 给药方法(溶",
+            "- 媒/剂型)",
+            "性别和数量观察到的最大非近似致死剂量",
+            "/组致死剂量(mg/kg)",
+        ):
+            self.assertNotIn(stale_fragment, single_region, msg=single_region)
+        for stale_fragment in (
+            "- 给药方法(溶",
+            "- 媒/剂型)",
+            "- 剂量\n",
+            "- (mg/kg)",
+            "性别和数量/组 NOAELa(mg/kg)",
+        ):
+            self.assertNotIn(stale_fragment, repeat_region, msg=repeat_region)
+
+    def test_pages54_55_repeat_toxicity_form_preserves_inline_field_rows(self) -> None:
+        page54_template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 54
+            and "2.6.7.7" in str(template.get("title") or "")
+        )
+        page55_template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 55
+            and int(template.get("continued_from_page", 0) or 0) == 54
+        )
+
+        page54_projection = (page54_template.get("semantic_projection_v2") or {}).get(
+            "inline_form_row_projection",
+            {},
+        )
+        page55_projection = (page55_template.get("semantic_projection_v2") or {}).get(
+            "inline_form_row_projection",
+            {},
+        )
+        self.assertEqual(
+            [row.get("display_text") for row in page54_projection.get("rows", []) or []],
+            [
+                "\u79cd\u5c5e/\u54c1\u7cfb\uff1a \u7ed9\u836f\u671f\u9650\uff1a \u8bd5\u9a8c\u7f16\u53f7\uff1a",
+                "\u521d\u59cb\u5e74\u9f84\uff1a \u6062\u590d\u671f\uff1a CTD \u4e2d\u7684\u4f4d\u7f6e\uff1a\u5377\u3001\u9875\u7801",
+            ],
+            msg=page54_projection,
+        )
+        self.assertEqual(
+            [row.get("display_text") for row in page55_projection.get("rows", []) or []],
+            [
+                "\u9996\u6b21\u7ed9\u836f\u65e5\u671f\uff1a \u7ed9\u836f\u65b9\u6cd5\uff1a",
+                "\u6eb6\u5a92/\u5242\u578b\uff1a GLP \u4f9d\u4ece\u6027\uff1a",
+                "日剂量(mg/kg) 0(对照)",
+            ],
+            msg=page55_projection,
+        )
+        self.assertEqual(
+            [[cell.get("column_index") for cell in row.get("cells", []) or []] for row in page54_projection.get("rows", []) or []],
+            [[0, 1, 2], [0, 1, 2]],
+        )
+        self.assertEqual(
+            [[cell.get("column_index") for cell in row.get("cells", []) or []] for row in page55_projection.get("rows", []) or []],
+            [[0, 1], [1, 2], [0, 1]],
+        )
+        for projection in (page54_projection, page55_projection):
+            self.assertTrue(
+                all(
+                    cell.get("source_block_id") and len(cell.get("bbox", []) or []) == 4
+                    for row in projection.get("rows", []) or []
+                    for cell in row.get("cells", []) or []
+                ),
+                msg=projection,
+            )
+        self.assertFalse(
+            {"txt_p55_010", "txt_p55_011"}.intersection(page55_projection.get("consumed_source_block_ids", []) or []),
+            msg=page55_projection,
+        )
+
+        document = dict(self.result)
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        heading = str(page54_template.get("title") or "")
+        next_heading = "2.6.7.7 (1)\u91cd\u590d\u7ed9\u836f\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7(\u7eed)"
+        start = markdown.index(heading)
+        end = markdown.index(next_heading, start)
+        region = markdown[start:end]
+        expected_bullets = [
+            "- \u79cd\u5c5e/\u54c1\u7cfb\uff1a \u7ed9\u836f\u671f\u9650\uff1a \u8bd5\u9a8c\u7f16\u53f7\uff1a",
+            "- \u521d\u59cb\u5e74\u9f84\uff1a \u6062\u590d\u671f\uff1a CTD \u4e2d\u7684\u4f4d\u7f6e\uff1a\u5377\u3001\u9875\u7801",
+            "- \u9996\u6b21\u7ed9\u836f\u65e5\u671f\uff1a \u7ed9\u836f\u65b9\u6cd5\uff1a",
+            "- \u6eb6\u5a92/\u5242\u578b\uff1a GLP \u4f9d\u4ece\u6027\uff1a",
+            "- \u7279\u6b8a\u60c5\u51b5\uff1a",
+            "- \u672a\u89c1\u4e0d\u826f\u53cd\u5e94\u5242\u91cf\uff1a",
+        ]
+        for bullet in expected_bullets:
+            self.assertIn(bullet, region, msg=region)
+        for stale_bullet in (
+            "- \u79cd\u5c5e/\u54c1\u7cfb\uff1a\n",
+            "- \u7ed9\u836f\u671f\u9650\uff1a\n",
+            "- \u8bd5\u9a8c\u7f16\u53f7\uff1a\n",
+            "- \u9996\u6b21\u7ed9\u836f\u65e5\u671f\uff1a\n",
+            "- \u7ed9\u836f\u65b9\u6cd5\uff1a\n",
+        ):
+            self.assertNotIn(stale_bullet, region, msg=region)
+
+    def test_page55_blank_repeat_toxicity_template_restores_repeated_mf_animal_count_row(self) -> None:
+        page55_template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 55
+            and "动物数量" in " ".join(str(row or "") for row in template.get("row_texts", []) or [])
+        )
+        expected_row = "动物数量 M: F: M: F: M: F: M: F:"
+        row_texts = [
+            str(row or "")
+            for row in page55_template.get("row_texts", []) or []
+            if str(row or "").strip()
+        ]
+        self.assertIn(expected_row, row_texts, msg=row_texts)
+        self.assertNotIn("M:", row_texts, msg=row_texts)
+        self.assertNotIn("F:", row_texts, msg=row_texts)
+
+        document = dict(self.result)
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        anchor = "M: F: M: F: M: F: M: F:"
+        start = markdown.index(anchor)
+        page55_region = markdown[max(0, start - 1000): start + 1000]
+        self.assertIn(f"- {expected_row}", markdown)
+        self.assertNotIn("\n- M:\n", page55_region, msg=page55_region)
+        self.assertNotIn("\n- F:\n", page55_region, msg=page55_region)
+
+    def test_page57_numbered_table_notes_merge_indented_continuation_lines(self) -> None:
+        page57 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 57)
+        text_by_id = {
+            str(block.get("block_id") or ""): str(block.get("text") or "")
+            for block in page57.get("blocks", []) or []
+            if str(block.get("block_type") or "") == "text"
+        }
+        self.assertIn("M3", text_by_id["txt_p57_004"])
+        self.assertFalse(text_by_id["txt_p57_005"].lstrip().startswith(("（", "(")))
+        self.assertTrue(text_by_id["txt_p57_008"].rstrip().endswith("给药"))
+        self.assertTrue(text_by_id["txt_p57_009"].lstrip().startswith("期结束"))
+
+        document = dict(self.result)
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        note_start = markdown.index("表2.6.7.7 的注释")
+        note_end = markdown.index("2.6.7.8", note_start)
+        region = markdown[note_start:note_end]
+
+        self.assertIn("（2）", region)
+        self.assertIn("M3", region)
+        self.assertIn("关键试验的任何其他重复给药毒性试验", region, msg=region)
+        self.assertNotIn("关键试验的\n\n任何其他重复给药毒性试验", region, msg=region)
+        self.assertIn("给药期结束时的数据", region, msg=region)
+        self.assertNotIn("给药\n\n期结束时的数据", region, msg=region)
+
+    def test_page61_carcinogenicity_continuation_title_precedes_template_body_after_prior_tail_note(self) -> None:
+        page61_template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 61
+            and str(template.get("template_profile") or "") == "blank_study_summary_template_continuation"
+            and any("评价数量" in str(row or "") for row in template.get("row_texts", []) or [])
+        )
+        note_texts = [
+            str(note.get("text") or "")
+            for note in page61_template.get("note_blocks", []) or []
+            if isinstance(note, dict)
+        ]
+        joined_notes = "\n".join(note_texts)
+        self.assertIn("试验编号(续)", str(page61_template.get("title") or ""))
+        self.assertNotIn("a-6 个月时", joined_notes)
+        self.assertNotIn("(6) *-p<0.05 **-p<0.01", joined_notes)
+        self.assertTrue(any("-无值得注意的结果" in text for text in note_texts), msg=note_texts)
+
+        document = dict(self.result)
+        markdown = _build_full_markdown([document], markdown_profile="ind-review")
+        title = "2.6.7.10 (1)致癌性 试验编号(续)"
+        prior_tail_note = "a-6 个月时"
+        body_row = "评价数量 M: F: M: F: M: F: M: F:"
+        current_tail_note = "-无值得注意的结果。"
+        title_index = markdown.index(title)
+        region = markdown[markdown.rfind("2.6.7.10", 0, title_index): markdown.index("表2.6.7.10 的注释", title_index)]
+        self.assertLess(region.index(prior_tail_note), region.index(title), msg=region)
+        self.assertLess(region.index(title), region.index(body_row), msg=region)
+        self.assertLess(region.index(body_row), region.index(current_tail_note), msg=region)
 
     def test_page52_template_numbered_remarks_keep_note_run_order(self) -> None:
         page52_template = next(
@@ -2649,6 +7806,12 @@ class R2RegressionTests(unittest.TestCase):
         self.assertNotIn(f"{legend_note} {stats_note} {marker_note}", region)
         self.assertLess(region.index(legend_note), region.index(stats_note.replace("*", "\\*")))
         self.assertLess(region.index(stats_note.replace("*", "\\*")), region.index(marker_note))
+        trailing_region = region[region.index(marker_note) :]
+        self.assertNotIn("日剂量(mg/kg) 0(对照) 动物数量", trailing_region)
+        self.assertNotIn("毒代动力学：AUC()(4) (5) 值得注意的结果", trailing_region)
+        self.assertNotIn("死亡或濒死处死动物数量体重(%a)", trailing_region)
+        self.assertNotIn("###### 眼底镜检查", trailing_region)
+        self.assertNotIn("\n心电图\n\n(续)\n", trailing_region)
 
     def test_page60_template_title_dedupes_repeated_test_article_label(self) -> None:
         page60_template = next(
@@ -2698,9 +7861,10 @@ class R2RegressionTests(unittest.TestCase):
         self.assertIn("发生肿瘤病变的动物数量：", rows_text)
 
         review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
-        self.assertIn(f"###### {title_text}", review_markdown)
-        heading_index = review_markdown.index(f"###### {title_text}")
-        next_heading_index = review_markdown.find("\n###### ", heading_index + 1)
+        self.assertIn(f"#### {title_text}", review_markdown)
+        self.assertNotIn(f"#### {title_text}（续）", review_markdown)
+        heading_index = review_markdown.index(f"#### {title_text}")
+        next_heading_index = review_markdown.find("\n#### ", heading_index + 1)
         region = review_markdown[heading_index : next_heading_index if next_heading_index > 0 else len(review_markdown)]
         self.assertNotIn(f"- {title_text}", region)
 
@@ -2738,6 +7902,258 @@ class R2RegressionTests(unittest.TestCase):
         self.assertNotIn(f"\n- {note_two}", region)
         self.assertLess(region.index(note_start), region.index(note_continuation))
         self.assertLess(region.index(note_continuation), region.index(note_two))
+
+    def test_page63_non_pivotal_reproductive_template_projects_multiline_header_grid(self) -> None:
+        page63_template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 63
+            and "2.6.7.11" in str(template.get("title") or "")
+        )
+        projection = (
+            page63_template.get("semantic_projection_v2", {}) or {}
+        ).get("blank_template_header_grid_projection", {})
+        self.assertEqual(
+            projection.get("logical_columns"),
+            [
+                "种属/品系",
+                "给药方法(溶媒/剂型)",
+                "给药期限",
+                "剂量(mg/kg)",
+                "数量/组",
+                "值得注意的结果",
+                "试验编号",
+            ],
+            msg=projection,
+        )
+        self.assertEqual(
+            projection.get("template_header_family"),
+            "generic_blank_ctd_header_grid",
+            msg=projection,
+        )
+        self.assertIn("txt_p63_006", projection.get("source_block_ids") or [], msg=projection)
+
+        markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        heading = "2.6.7.11 生殖毒性：非关键试验(1) 供试品：(2)"
+        next_heading = "2.6.7.12"
+        start = markdown.index(heading)
+        end = markdown.index(next_heading, start + 1)
+        region = markdown[start:end]
+        expected_header = (
+            "| 种属/品系 | 给药方法(溶媒/剂型) | 给药期限 | 剂量(mg/kg) | "
+            "数量/组 | 值得注意的结果 | 试验编号 |"
+        )
+        self.assertIn(expected_header, region, msg=region)
+        self.assertNotIn("- 给药方法(溶媒/", region, msg=region)
+        self.assertNotIn("- 剂型)", region, msg=region)
+        self.assertNotIn("- 剂量 mg/kg 数量/组", region, msg=region)
+
+    def test_page64_design_question_and_study_fields_render_as_one_visual_row(self) -> None:
+        template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 64
+        )
+        projection = (
+            template.get("semantic_projection_v2", {}) or {}
+        ).get("inline_form_row_projection", {})
+        expected_text = "设计是否与ICH 4.1.1 相似 给药期限：M： 试验编号："
+        projected_row = next(
+            row
+            for row in projection.get("rows", []) or []
+            if "txt_p64_005" in (row.get("source_block_ids") or [])
+        )
+        self.assertEqual(projected_row.get("display_text"), expected_text)
+        self.assertEqual(
+            projected_row.get("source_block_ids"),
+            ["txt_p64_004", "txt_p64_005", "txt_p64_006"],
+        )
+        self.assertEqual(
+            [cell.get("semantic_cell_role") for cell in projected_row.get("cells", []) or []],
+            ["row_companion", "field", "field"],
+        )
+
+        page64 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 64)
+        design_source = next(
+            block
+            for block in page64.get("blocks", []) or []
+            if str(block.get("block_id") or "") == "txt_p64_004"
+        )
+        self.assertEqual(design_source.get("semantic_role"), "structure_template_entry")
+
+        markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        start = markdown.index("#### 2.6.7.12")
+        end = markdown.index("#### 2.6.7.13", start)
+        region = markdown[start:end]
+        self.assertIn(f"- {expected_text}", region, msg=region)
+        self.assertNotIn("\n- 设计是否与ICH 4.1.1 相似\n", region, msg=region)
+        self.assertNotIn("\n- 给药期限：M： 试验编号：\n", region, msg=region)
+
+    def test_page67_design_question_and_study_fields_render_as_one_visual_row(self) -> None:
+        template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 67
+        )
+        projection = (
+            template.get("semantic_projection_v2", {}) or {}
+        ).get("inline_form_row_projection", {})
+        expected_text = "设计是否与ICH 4.1.3 相似 给药时间： 试验编号："
+        projected_row = next(
+            row
+            for row in projection.get("rows", []) or []
+            if "txt_p67_003" in (row.get("source_block_ids") or [])
+        )
+        self.assertEqual(projected_row.get("display_text"), expected_text)
+        self.assertEqual(
+            projected_row.get("source_block_ids"),
+            ["txt_p67_002", "txt_p67_003", "txt_p67_004"],
+        )
+        self.assertEqual(projected_row.get("row_kind"), "inline_mixed_form_row")
+
+        markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        start = markdown.index("#### 2.6.7.13")
+        end = markdown.index("#### 2.6.7.14", start)
+        region = markdown[start:end]
+        self.assertIn(f"- {expected_text}", region, msg=region)
+        self.assertNotIn("\n- 设计是否与ICH 4.1.3 相似\n", region, msg=region)
+        self.assertNotIn("\n- 给药时间： 试验编号：\n", region, msg=region)
+
+    def test_page69_parent_and_child_keep_distinct_dose_header_instances(self) -> None:
+        templates = [
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 69
+        ]
+        parent = next(
+            template
+            for template in templates
+            if "txt_p69_016" in (template.get("owned_text_block_ids") or [])
+        )
+        child = next(
+            template
+            for template in templates
+            if "txt_p69_036" in (template.get("owned_text_block_ids") or [])
+        )
+
+        self.assertTrue(
+            {"txt_p69_016", "txt_p69_017"}.issubset(parent.get("owned_text_block_ids") or []),
+            msg=parent,
+        )
+        self.assertTrue(
+            {"txt_p69_036", "txt_p69_037"}.issubset(child.get("owned_text_block_ids") or []),
+            msg=child,
+        )
+        self.assertTrue(
+            {"日剂量(mg/kg)", "0(对照)"}.issubset(
+                {str(row or "") for row in parent.get("row_texts", []) or []}
+            ),
+            msg=parent.get("row_texts"),
+        )
+        self.assertTrue(
+            {"日剂量(mg/kg)", "0(对照)"}.issubset(
+                {str(row or "") for row in child.get("row_texts", []) or []}
+            ),
+            msg=child.get("row_texts"),
+        )
+
+        projection = (parent.get("semantic_projection_v2") or {}).get("inline_form_row_projection", {})
+        projected_row = next(
+            row
+            for row in projection.get("rows", []) or []
+            if row.get("row_kind") == "inline_matrix_header_row"
+            and "txt_p69_016" in (row.get("source_block_ids") or [])
+        )
+        self.assertEqual(projected_row.get("display_text"), "日剂量(mg/kg) 0(对照)")
+        self.assertEqual(projected_row.get("source_block_ids"), ["txt_p69_016", "txt_p69_017"])
+
+        markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        f1_index = markdown.index("- F1 雌性：")
+        header_index = markdown.index("- 日剂量(mg/kg) 0(对照)", f1_index)
+        result_index = markdown.index("- F0雌性：毒代动力学：AUC( )(4)", header_index)
+        self.assertLess(f1_index, header_index)
+        self.assertLess(header_index, result_index)
+        self.assertNotIn("\n- 日剂量(mg/kg)\n- 0(对照)\n", markdown[f1_index:result_index])
+
+    def test_pages68_69_page_bottom_template_head_links_to_next_page_body(self) -> None:
+        page68_templates = [
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 68
+        ]
+        fragments = [
+            template
+            for template in page68_templates
+            if "2.6.7.14" in str(template.get("title") or "")
+        ]
+        self.assertEqual(len(fragments), 1, msg=page68_templates)
+        fragment = fragments[0]
+        self.assertEqual(
+            (fragment.get("semantic_signals") or {}).get("detection_source"),
+            "page_bottom_template_header_fragment",
+        )
+        self.assertEqual(fragment.get("title_source_block_id"), "txt_p68_018")
+        self.assertEqual(fragment.get("local_form_title"), "围产期毒性，包括母体功能(3)")
+        self.assertTrue(
+            {"txt_p68_018", "txt_p68_019", "txt_p68_020", "txt_p68_021", "txt_p68_022"}.issubset(
+                set(fragment.get("owned_text_block_ids", []) or [])
+            ),
+            msg=fragment,
+        )
+
+        projection = (
+            fragment.get("semantic_projection_v2", {}) or {}
+        ).get("inline_form_row_projection", {})
+        expected_text = "设计是否与ICH 4.1.2 相似 给药时间： 试验编号："
+        projected_row = next(
+            row
+            for row in projection.get("rows", []) or []
+            if "txt_p68_021" in (row.get("source_block_ids") or [])
+        )
+        self.assertEqual(projected_row.get("display_text"), expected_text)
+        self.assertEqual(
+            projected_row.get("source_block_ids"),
+            ["txt_p68_020", "txt_p68_021", "txt_p68_022"],
+        )
+        self.assertEqual(projected_row.get("row_kind"), "inline_mixed_form_row")
+
+        page69_body = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 69
+            and "交配日：(8)" in [str(row or "") for row in template.get("row_texts", []) or []]
+        )
+        self.assertEqual(
+            page69_body.get("continued_from_structure_template_id"),
+            fragment.get("structure_template_id"),
+        )
+        self.assertEqual(page69_body.get("continued_from_page"), 68)
+        self.assertEqual(page69_body.get("continued_from_title"), fragment.get("title"))
+        self.assertTrue(page69_body.get("is_structure_template_continuation"))
+
+        page68 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 68)
+        source_by_id = {
+            str(block.get("block_id") or ""): block
+            for block in page68.get("blocks", []) or []
+            if str(block.get("block_id") or "")
+        }
+        self.assertEqual(source_by_id["txt_p68_018"].get("semantic_role"), "structure_template_title")
+        for source_id in ("txt_p68_020", "txt_p68_021", "txt_p68_022"):
+            self.assertEqual(source_by_id[source_id].get("semantic_role"), "structure_template_entry")
+
+        markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        start = markdown.index("#### 2.6.7.14")
+        end = markdown.index("#### 2.6.7.16", start)
+        region = markdown[start:end]
+        self.assertEqual(
+            region.splitlines().count("#### 2.6.7.14 (1)生殖毒性- 报告标题： 供试品：(2)"),
+            1,
+        )
+        self.assertIn("#### 2.6.7.14 (1)生殖毒性- 报告标题： 供试品：(2)（续）", region)
+        self.assertIn("##### 围产期毒性，包括母体功能(3)", region, msg=region)
+        self.assertIn(f"- {expected_text}", region, msg=region)
+        self.assertNotIn("围产期毒性，包括母体功能(3) 设计是否与ICH 4.1.2 相似", region, msg=region)
+        self.assertNotIn("\n试验编号：\n", region, msg=region)
 
     def test_page66_top_template_instruction_note_renders_before_bottom_section_heading(self) -> None:
         note_heading = "表2.6.7.12、2.6.7.13 和2.6.7.14 的注释"
@@ -2810,6 +8226,368 @@ class R2RegressionTests(unittest.TestCase):
         self.assertNotIn("\n- - \u65e0\u663e\u8457\u5f02\u5e38", review_markdown)
         self.assertNotIn("\n- \\*-p<0.05 \\*\\*-p<0.01", review_markdown)
 
+    def test_pages55_56_67_literal_legend_hyphens_render_as_notes_not_lists(self) -> None:
+        templates_by_page = {
+            page_number: next(
+                template
+                for template in self.result.get("structure_templates", []) or []
+                if int(template.get("page", 0) or 0) == page_number
+            )
+            for page_number in (55, 56, 67)
+        }
+        page56_note = next(
+            note
+            for note in templates_by_page[56].get("note_blocks", []) or []
+            if str(note.get("source_block_id") or "") == "txt_p56_017"
+        )
+        self.assertEqual(page56_note.get("text"), "- 无显著异常")
+        self.assertTrue(page56_note.get("bbox"), msg=page56_note)
+        page56 = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 56)
+        page56_source = next(
+            block
+            for block in page56.get("blocks", []) or []
+            if str(block.get("block_id") or "") == "txt_p56_017"
+        )
+        self.assertEqual(page56_source.get("semantic_role"), "structure_template_note")
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        self.assertGreaterEqual(review_markdown.count("\n\\- 无显著异常"), 3)
+        self.assertNotIn("\n- 无显著异常", review_markdown)
+
+    def test_pages64_65_template_tail_notes_preserve_physical_source_order(self) -> None:
+        expected_note_source_ids_by_page = {
+            64: ["txt_p64_034", "txt_p64_035", "txt_p64_036"],
+            65: ["txt_p65_025", "txt_p65_026", "txt_p65_027"],
+        }
+        pages_by_number = {
+            int(page.get("page", 0) or 0): page
+            for page in self.result["document_ast"].get("pages", []) or []
+        }
+        source_blocks_by_page: dict[int, dict[str, dict]] = {}
+        templates_by_page: dict[int, dict] = {}
+
+        for page_number, expected_source_ids in expected_note_source_ids_by_page.items():
+            with self.subTest(page=page_number):
+                page = pages_by_number[page_number]
+                source_blocks = {
+                    str(block.get("block_id") or ""): block
+                    for block in page.get("blocks", []) or []
+                    if str(block.get("block_id") or "")
+                }
+                source_blocks_by_page[page_number] = source_blocks
+                source_order = {
+                    source_id: index
+                    for index, source_id in enumerate(
+                        str(block.get("block_id") or "")
+                        for block in sorted(
+                            page.get("blocks", []) or [],
+                            key=lambda block: (
+                                float((block.get("bbox") or [0, 0, 0, 0])[1]),
+                                float((block.get("bbox") or [0, 0, 0, 0])[0]),
+                                str(block.get("block_id") or ""),
+                            ),
+                        )
+                    )
+                    if source_id
+                }
+                expected_physical_order = [source_order[source_id] for source_id in expected_source_ids]
+                self.assertEqual(expected_physical_order, sorted(expected_physical_order))
+
+                template = next(
+                    template
+                    for template in self.result.get("structure_templates", []) or []
+                    if int(template.get("page", 0) or 0) == page_number
+                )
+                templates_by_page[page_number] = template
+                note_blocks = [
+                    note
+                    for note in template.get("note_blocks", []) or []
+                    if isinstance(note, dict)
+                ]
+                note_source_ids = [
+                    str(note.get("source_block_id") or "")
+                    for note in note_blocks
+                ]
+                expected_note_positions = [
+                    note_source_ids.index(source_id)
+                    for source_id in expected_source_ids
+                ]
+                self.assertEqual(expected_note_positions, sorted(expected_note_positions), msg=note_blocks)
+
+                for source_id in expected_source_ids:
+                    note = next(
+                        note
+                        for note in note_blocks
+                        if str(note.get("source_block_id") or "") == source_id
+                    )
+                    self.assertTrue(note.get("bbox"), msg=note)
+                    self.assertEqual(
+                        source_blocks[source_id].get("semantic_role"),
+                        "structure_template_note",
+                        msg=source_blocks[source_id],
+                    )
+                    self.assertEqual(
+                        _normalize_ind_review_visibility_text(str(note.get("text") or "")),
+                        _normalize_ind_review_visibility_text(str(source_blocks[source_id].get("text") or "")),
+                        msg=note,
+                    )
+
+        def visible_order_text(text: str) -> str:
+            normalized = _normalize_ind_review_visibility_text(text).replace("\\", "")
+            return re.sub(r"\s+", "", normalized)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        normalized_markdown = visible_order_text(review_markdown)
+        cursor = normalized_markdown.index(
+            visible_order_text(str(templates_by_page[64].get("title") or ""))
+        )
+        for page_number, expected_source_ids in expected_note_source_ids_by_page.items():
+            for source_id in expected_source_ids:
+                source_text = visible_order_text(
+                    str(source_blocks_by_page[page_number][source_id].get("text") or "")
+                )
+                current = normalized_markdown.find(source_text, cursor)
+                self.assertGreaterEqual(
+                    current,
+                    cursor,
+                    msg=(page_number, source_id, source_text),
+                )
+                cursor = current + len(source_text)
+
+    def test_page67_borderless_template_absorbs_same_row_column_lattice_gaps(self) -> None:
+        page = next(page for page in self.result["document_ast"].get("pages", []) or [] if page["page"] == 67)
+        source_blocks = {
+            str(block.get("block_id") or ""): block
+            for block in page.get("blocks", []) or []
+            if str(block.get("block_id") or "")
+        }
+        first_row_source_ids = ["txt_p67_002", "txt_p67_003", "txt_p67_004"]
+        first_row_blocks = [source_blocks[source_id] for source_id in first_row_source_ids]
+        first_row_bboxes = [block.get("bbox") or [] for block in first_row_blocks]
+        self.assertEqual(
+            first_row_source_ids,
+            [
+                source_id
+                for _x0, source_id in sorted(
+                    (float((source_blocks[source_id].get("bbox") or [0])[0]), source_id)
+                    for source_id in first_row_source_ids
+                )
+            ],
+        )
+        self.assertLess(
+            max(float(bbox[1]) for bbox in first_row_bboxes)
+            - min(float(bbox[1]) for bbox in first_row_bboxes),
+            1.0,
+        )
+
+        template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 67
+        )
+        owned_ids = [str(block_id or "") for block_id in template.get("owned_text_block_ids", []) or []]
+        for source_id in first_row_source_ids:
+            self.assertIn(source_id, owned_ids, msg=template)
+            self.assertEqual(
+                source_blocks[source_id].get("semantic_role"),
+                "structure_template_entry",
+                msg=source_blocks[source_id],
+            )
+            self.assertEqual(source_blocks[source_id].get("unit_role"), "metadata")
+
+        expected_first_row_texts = [
+            _clean_text_for_test(str(source_blocks[source_id].get("text") or ""))
+            for source_id in first_row_source_ids
+        ]
+        template_rows = [
+            _clean_text_for_test(str(row or ""))
+            for row in template.get("row_texts", []) or []
+            if _clean_text_for_test(str(row or ""))
+        ]
+        self.assertEqual(template_rows[:3], expected_first_row_texts, msg=template_rows[:8])
+
+        signals = template.get("semantic_signals") or {}
+        self.assertGreaterEqual(
+            int(signals.get("same_row_column_lattice_gap_absorbed_count", 0) or 0),
+            2,
+            msg=signals,
+        )
+        self.assertNotIn("txt_p67_035", owned_ids, msg=owned_ids)
+        self.assertNotIn("txt_p67_036", owned_ids, msg=owned_ids)
+
+    def test_page70_tail_notes_split_before_same_page_continuation_template(self) -> None:
+        page = next(page for page in self.result["document_ast"].get("pages", []) or [] if page["page"] == 70)
+        source_blocks = {
+            str(block.get("block_id") or ""): block
+            for block in page.get("blocks", []) or []
+            if str(block.get("block_id") or "")
+        }
+        templates = [
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 70
+        ]
+        previous_template = next(
+            template
+            for template in templates
+            if any(
+                str(note.get("source_block_id") or "") == "txt_p70_026"
+                for note in template.get("note_blocks", []) or []
+                if isinstance(note, dict)
+            )
+        )
+        continuation_template = next(
+            template
+            for template in templates
+            if str(template.get("title_source_block_id") or "") == "txt_p70_031"
+        )
+
+        previous_owned_ids = [
+            str(block_id or "")
+            for block_id in previous_template.get("owned_text_block_ids", []) or []
+        ]
+        continuation_owned_ids = [
+            str(block_id or "")
+            for block_id in continuation_template.get("owned_text_block_ids", []) or []
+        ]
+        for source_id in ["txt_p70_031", "txt_p70_032", "txt_p70_033"]:
+            self.assertNotIn(source_id, previous_owned_ids, msg=previous_template)
+            self.assertIn(source_id, continuation_owned_ids, msg=continuation_template)
+
+        self.assertEqual(
+            [note.get("source_block_id") for note in previous_template.get("note_blocks", []) or []],
+            ["txt_p70_026", "txt_p70_027", "txt_p70_028", "txt_p70_029", "txt_p70_030"],
+            msg=previous_template.get("note_blocks", []),
+        )
+        self.assertEqual(continuation_template.get("title_source_block_id"), "txt_p70_031")
+        self.assertEqual(
+            _clean_text_for_test(str(continuation_template.get("title") or "")),
+            _clean_text_for_test(str(source_blocks["txt_p70_031"].get("text") or "")),
+        )
+        continuation_rows = [
+            _clean_text_for_test(str(row or ""))
+            for row in continuation_template.get("row_texts", []) or []
+            if _clean_text_for_test(str(row or ""))
+        ]
+        expected_rows = [
+            _clean_text_for_test(str(source_blocks[source_id].get("text") or ""))
+            for source_id in ["txt_p70_032", "txt_p70_033"]
+        ]
+        self.assertEqual(continuation_rows[:2], expected_rows, msg=continuation_rows)
+        self.assertEqual(
+            source_blocks["txt_p70_031"].get("semantic_role"),
+            "structure_template_title",
+            msg=source_blocks["txt_p70_031"],
+        )
+        for source_id in ["txt_p70_032", "txt_p70_033"]:
+            self.assertEqual(
+                source_blocks[source_id].get("semantic_role"),
+                "structure_template_entry",
+                msg=source_blocks[source_id],
+            )
+
+    def test_page71_page_bottom_continuation_title_splits_from_prior_template_body(self) -> None:
+        page = next(page for page in self.result["document_ast"].get("pages", []) or [] if page["page"] == 71)
+        source_blocks = {
+            str(block.get("block_id") or ""): block
+            for block in page.get("blocks", []) or []
+            if str(block.get("block_id") or "")
+        }
+        templates = [
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if int(template.get("page", 0) or 0) == 71
+        ]
+        previous_template = next(
+            template
+            for template in templates
+            if any(
+                str(note.get("source_block_id") or "") == "txt_p71_028"
+                for note in template.get("note_blocks", []) or []
+                if isinstance(note, dict)
+            )
+        )
+        continuation_template = next(
+            template
+            for template in templates
+            if str(template.get("title_source_block_id") or "") == "txt_p71_032"
+        )
+
+        previous_owned_ids = [
+            str(block_id or "")
+            for block_id in previous_template.get("owned_text_block_ids", []) or []
+        ]
+        continuation_owned_ids = [
+            str(block_id or "")
+            for block_id in continuation_template.get("owned_text_block_ids", []) or []
+        ]
+        self.assertNotIn("txt_p71_032", previous_owned_ids, msg=previous_template)
+        self.assertIn("txt_p71_032", continuation_owned_ids, msg=continuation_template)
+        self.assertEqual(
+            [note.get("source_block_id") for note in previous_template.get("note_blocks", []) or []],
+            ["txt_p71_028", "txt_p71_029", "txt_p71_030", "txt_p71_031"],
+            msg=previous_template.get("note_blocks", []),
+        )
+
+        previous_rows = [
+            _clean_text_for_test(str(row or ""))
+            for row in previous_template.get("row_texts", []) or []
+            if _clean_text_for_test(str(row or ""))
+        ]
+        title_text = _clean_text_for_test(str(source_blocks["txt_p71_032"].get("text") or ""))
+        self.assertNotIn(title_text, previous_rows, msg=previous_rows)
+        self.assertEqual(
+            _clean_text_for_test(str(continuation_template.get("title") or "")),
+            title_text,
+            msg=continuation_template,
+        )
+        self.assertEqual(
+            [
+                _clean_text_for_test(str(row or ""))
+                for row in continuation_template.get("row_texts", []) or []
+                if _clean_text_for_test(str(row or ""))
+            ],
+            [],
+            msg=continuation_template,
+        )
+        signals = continuation_template.get("semantic_signals") or {}
+        self.assertEqual(
+            signals.get("same_page_post_note_continuation_state"),
+            "pending_body_on_next_page",
+            msg=signals,
+        )
+        self.assertEqual(
+            source_blocks["txt_p71_032"].get("semantic_role"),
+            "structure_template_title",
+            msg=source_blocks["txt_p71_032"],
+        )
+        continuation_page_node = source_blocks[
+            str(continuation_template.get("structure_template_id") or "")
+        ]
+        self.assertEqual(
+            continuation_page_node.get("title_source_block_id"),
+            "txt_p71_032",
+            msg=continuation_page_node,
+        )
+
+        markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        terminal_note = (
+            "b-\u4ea4\u914d\u524d\u671f\u6216\u598a\u5a20\u671f\u7ed3\u675f\u65f6\u3002"
+            "\u5bf9\u7167\u7ec4\u7ed9\u51fa\u7ec4\u5e73\u5747\u503c"
+        )
+        continuation_heading = (
+            "#### 2.6.7.14 (1)\u751f\u6b96\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7(\u7eed)"
+        )
+        next_page_first_row = "- \u65e5\u5242\u91cf(mg/kg) 0(\u5bf9\u7167)"
+        note_index = markdown.index(terminal_note)
+        next_page_row_index = markdown.index(next_page_first_row, note_index)
+        between_note_and_body = markdown[note_index:next_page_row_index]
+        self.assertEqual(
+            between_note_and_body.count(continuation_heading),
+            1,
+            msg=between_note_and_body,
+        )
+
     def test_ind_review_markdown_hides_template_type_labels_and_dedupes_template_titles(self) -> None:
         review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
 
@@ -2847,9 +8625,24 @@ class R2RegressionTests(unittest.TestCase):
         page83_index = markdown.index(page83_heading)
         page82_region = markdown[page82_index:page83_index]
 
-        self.assertIn("| 组织/器官 | 浓度 | T/P1) | 浓度 | T/P1) | 时间 | AUC | t1/2 |", page82_region)
-        self.assertNotIn("| 物种 | 检测浓度 | %结合率 | 编号 | 卷 | 页码 |", page82_region)
-        self.assertIn("| 物种 | 检测浓度 | %结合率 | 编号 | 卷 | 页码 |", markdown[page83_index:])
+        self.assertIn(
+            '<th colspan="2">Ct</th>',
+            page82_region,
+        )
+        self.assertIn('<th colspan="3">最后一个时间点</th>', page82_region)
+        self.assertNotIn('<th colspan="2">CTD中的位置</th>', page82_region)
+        page83_region = markdown[page83_index:]
+        self.assertIn("- 研究系统：体外", page83_region)
+        self.assertIn("- 靶向实体、试验系统和方法：血浆、超滤法", page83_region)
+        self.assertNotIn("研究系统：体外靶向实体", page83_region)
+        self.assertIn(
+            '<th colspan="2">CTD中的位置</th>',
+            page83_region,
+        )
+        self.assertIn("<th>卷</th>", page83_region)
+        self.assertIn("<th>页码</th>", page83_region)
+        self.assertNotIn("\n试验\n", page83_region)
+        self.assertNotIn("###### CTD中的位置", page83_region)
 
     def test_pages85_to_86_study_result_tables_split_from_cross_page_notes(self) -> None:
         page85_tables = [
@@ -2937,28 +8730,85 @@ class R2RegressionTests(unittest.TestCase):
                 for row in (table.get("display_grid", []) or table.get("raw_grid", []) or [])
             )
         )
-        note = next(
+        label_note = next(
+            note
+            for note in page85_table.get("note_blocks", []) or []
+            if str(note.get("text", "")).strip() == "附加信息："
+        )
+        star_note = next(
             note
             for note in page85_table.get("note_blocks", []) or []
             if "为了采集胆汁" in str(note.get("text", ""))
         )
+        definition_note = next(
+            note
+            for note in page85_table.get("note_blocks", []) or []
+            if "未检出" in str(note.get("text", ""))
+        )
         page85_table_id = str(page85_table.get("table_id") or page85_table.get("block_id") or "")
 
-        self.assertEqual(note.get("relation"), "cross_page_note_continuation")
-        self.assertEqual(note.get("logical_owner_page"), 85)
-        self.assertEqual(note.get("physical_page"), 86)
-        self.assertEqual(str(note.get("owner_table_id") or ""), page85_table_id)
-        self.assertEqual(str(note.get("continued_from_table_id") or ""), page85_table_id)
-        self.assertEqual(note.get("note_scope"), "previous_table")
+        self.assertEqual(label_note.get("relation"), "below")
+        self.assertEqual(label_note.get("page"), 85)
+        self.assertEqual(star_note.get("marker"), "*")
+        self.assertEqual(definition_note.get("marker"), "n.d.")
+        self.assertEqual(star_note.get("note_group_id"), label_note.get("note_group_id"))
+        self.assertEqual(definition_note.get("note_group_id"), label_note.get("note_group_id"))
+        self.assertEqual(star_note.get("relation"), "cross_page_note_continuation")
+        self.assertEqual(star_note.get("logical_owner_page"), 85)
+        self.assertEqual(star_note.get("physical_page"), 86)
+        self.assertEqual(str(star_note.get("owner_table_id") or ""), page85_table_id)
+        self.assertEqual(str(star_note.get("continued_from_table_id") or ""), page85_table_id)
+        self.assertEqual(star_note.get("note_scope"), "previous_table")
         self.assertEqual(
-            note.get("presentation_boundary"),
+            star_note.get("presentation_boundary"),
             "render_with_owner_table_before_next_page_structure",
         )
-        ownership = note.get("cross_page_ownership") or {}
+        ownership = star_note.get("cross_page_ownership") or {}
         self.assertEqual(ownership.get("owner_type"), "table")
         self.assertEqual(ownership.get("logical_owner_page"), 85)
         self.assertEqual(ownership.get("physical_page"), 86)
         self.assertEqual(str(ownership.get("owner_table_id") or ""), page85_table_id)
+
+        cross_component_refs = [
+            ref
+            for ref in page85_table.get("cross_component_note_refs", []) or []
+            if isinstance(ref, dict)
+        ]
+        star_ref = next(ref for ref in cross_component_refs if ref.get("marker") == "*")
+        self.assertEqual(star_ref.get("anchor_owner_type"), "structure_template")
+        self.assertEqual(star_ref.get("anchor_field_label"), "给药方法")
+        self.assertIn("大鼠：灌胃", star_ref.get("anchor_occurrences", []) or [])
+        self.assertIn("犬：口服胶囊", star_ref.get("anchor_occurrences", []) or [])
+        definition_ref = next(ref for ref in cross_component_refs if ref.get("marker") == "n.d.")
+        self.assertEqual(definition_ref.get("anchor_owner_type"), "table")
+        self.assertGreaterEqual(int(definition_ref.get("anchor_occurrence_count", 0) or 0), 1)
+        composite_refs = (page85_table.get("composite_object") or {}).get("note_anchor_refs", []) or []
+        self.assertTrue(any(ref.get("marker") == "*" for ref in composite_refs), msg=composite_refs)
+        self.assertTrue(any(ref.get("marker") == "n.d." for ref in composite_refs), msg=composite_refs)
+
+        context_template_id = str(page85_table.get("context_structure_template_id") or "")
+        context_template = next(
+            template
+            for template in self.result.get("structure_templates", []) or []
+            if str(template.get("structure_template_id") or "") == context_template_id
+        )
+        self.assertEqual(context_template.get("study_panel_id"), page85_table.get("study_panel_id"))
+        self.assertTrue(
+            any(
+                ref.get("marker") == "*"
+                and ref.get("relation") == "study_panel_template_field_note_marker"
+                for ref in context_template.get("cross_component_note_refs", []) or []
+            ),
+            msg=context_template.get("cross_component_note_refs"),
+        )
+        table_evidence = next(
+            evidence
+            for evidence in self.result.get("content_evidence", []) or []
+            if evidence.get("source_type") == "table" and str(evidence.get("source_id") or "") == page85_table_id
+        )
+        self.assertEqual(table_evidence.get("study_panel_id"), page85_table.get("study_panel_id"))
+
+        self.assertEqual(table_evidence.get("cross_component_note_refs"), cross_component_refs)
 
         page86_structure_text = "\n".join(
             "\n".join(
@@ -2977,19 +8827,24 @@ class R2RegressionTests(unittest.TestCase):
         self.assertNotIn("为了采集胆汁", page86_structure_text)
         self.assertNotIn("n.d.- 未检出", page86_structure_text)
 
-        markdown = _build_full_markdown([dict(self.result)], markdown_profile="ind-review")
-        page85_heading = "2.6.5.9 药代动力学：体内代谢 供试品：曲醇钠"
+    def test_page85_metabolism_note_group_renders_its_own_label_before_cross_page_lines(self) -> None:
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        page84_heading = "2.6.5.7 药代动力学：妊娠或哺乳动物研究 供试品：曲醇钠"
         page86_heading = "2.6.5.13 药代动力学：排泄 供试品：曲醇钠"
-        note_text = "* - 为了采集胆汁，十二指肠给药。 n.d.- 未检出"
-        page85_pos = markdown.index(page85_heading)
-        page86_pos = markdown.index(page86_heading)
-        note_pos = markdown.index(note_text)
-        self.assertGreater(note_pos, page85_pos)
-        self.assertLess(note_pos, page86_pos)
-        next_heading_pos = markdown.find("\n#### ", page86_pos + 1)
-        page86_region = markdown[page86_pos:] if next_heading_pos < 0 else markdown[page86_pos:next_heading_pos]
-        self.assertNotIn("为了采集胆汁", page86_region)
-        self.assertNotIn("n.d.- 未检出", page86_region)
+        region_start = review_markdown.index(page84_heading)
+        region_end = review_markdown.index(page86_heading, region_start)
+        region = review_markdown[region_start:region_end]
+
+        metabolism_row = '<td rowspan="4">大鼠</td>'
+        metabolism_index = region.index(metabolism_row)
+        label_index = region.index("\n附加信息：\n", metabolism_index)
+        route_note_index = region.index("\\* - 为了采集胆汁，十二指肠给药。", label_index)
+        definition_index = region.index("n.d.- 未检出", route_note_index)
+
+        self.assertEqual(region.count("\n附加信息：\n"), 2)
+        self.assertLess(metabolism_index, label_index)
+        self.assertLess(label_index, route_note_index)
+        self.assertLess(route_note_index, definition_index)
 
     def test_page85_visual_study_table_releases_header_and_metadata_ownership(self) -> None:
         page85_tables = [
@@ -3157,6 +9012,71 @@ class R2RegressionTests(unittest.TestCase):
             self.assertGreaterEqual(int(group.get("rowspan", 0) or 0), 3)
             self.assertIn("leading_stub", str(group.get("source", "")))
 
+    def test_page86_cross_page_note_tail_preserves_example_as_next_study_prelude(self) -> None:
+        page86_title = "2.6.5.13 药代动力学：排泄 供试品：曲醇钠"
+        template = next(
+            item
+            for item in self.result.get("structure_templates", []) or []
+            if int(item.get("page", 0) or 0) == 86
+            and str(item.get("title") or "") == page86_title
+        )
+        prelude_blocks = [
+            block
+            for block in template.get("prelude_blocks", []) or []
+            if isinstance(block, dict)
+        ]
+        self.assertEqual([str(block.get("text") or "") for block in prelude_blocks], ["示例"])
+        self.assertEqual(prelude_blocks[0].get("role"), "object_prelude")
+        self.assertEqual(prelude_blocks[0].get("source_table_id"), "tbl_031")
+        self.assertTrue(str(prelude_blocks[0].get("source_row_ref") or "").strip())
+        self.assertEqual(len(prelude_blocks[0].get("bbox") or []), 4)
+
+        page86_ast = next(
+            page
+            for page in (self.result.get("document_ast", {}) or {}).get("pages", []) or []
+            if int(page.get("page", 0) or 0) == 86
+        )
+        template_ast = next(
+            block
+            for block in page86_ast.get("blocks", []) or []
+            if block.get("block_type") == "structure_template"
+            and str(block.get("title") or "") == page86_title
+        )
+        self.assertEqual(
+            [str(block.get("text") or "") for block in template_ast.get("prelude_blocks", []) or []],
+            ["示例"],
+        )
+
+        excretion_table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if str(table.get("table_id") or "") == "tbl_031"
+        )
+        ownership_plan = [
+            row
+            for row in excretion_table.get("leading_row_ownership_plan", []) or []
+            if isinstance(row, dict)
+        ]
+        self.assertTrue(
+            any(
+                row.get("text") == "示例"
+                and row.get("role") == "next_object_prelude"
+                and row.get("action") == "transfer_to_next_object_prelude"
+                and row.get("owner_id") == template.get("structure_template_id")
+                for row in ownership_plan
+            ),
+            msg=ownership_plan,
+        )
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        route_note_index = review_markdown.index("\\* - 为了采集胆汁，十二指肠给药。")
+        definition_index = review_markdown.index("n.d.- 未检出", route_note_index)
+        example_index = review_markdown.index("\n示例\n", definition_index)
+        heading_index = review_markdown.index(f"#### {page86_title}", example_index)
+        self.assertLess(route_note_index, definition_index)
+        self.assertLess(definition_index, example_index)
+        self.assertLess(example_index, heading_index)
+
     def test_page86_wide_study_metadata_panel_is_recovered_before_result_matrix(self) -> None:
         page86_templates = [
             template
@@ -3227,6 +9147,23 @@ class R2RegressionTests(unittest.TestCase):
         self.assertEqual(projection.get("condition_group_count"), 4)
         self.assertEqual(projection.get("leaf_count_per_group"), 3)
         self.assertEqual(projection.get("logical_leaf_column_count"), 13)
+        self.assertEqual(
+            projection.get("matrix_header_rows"),
+            [
+                {
+                    "role": "matrix_leaf_header",
+                    "stub": "排泄途径(4)",
+                    "cells": ["尿液", "粪便", "合计"] * 4,
+                    "source": "source_visual_row_geometry",
+                },
+                {
+                    "role": "matrix_row_axis",
+                    "stub": "时间",
+                    "cells": [""] * 12,
+                    "source": "source_visual_row_geometry",
+                },
+            ],
+        )
         semantic_grid = page86_table.get("semantic_grid") or []
         expected_leaf_headers = list(binding.get("leaf_headers") or [])
         self.assertEqual(len(semantic_grid[0]), 13)
@@ -3234,6 +9171,34 @@ class R2RegressionTests(unittest.TestCase):
         self.assertEqual(
             semantic_grid[1],
             ["0-24 h", "26", "57", "83", "22", "63", "85", "20", "29", "49", "23", "42", "65"],
+        )
+        self.assertFalse(
+            any(str(row[0] or "") == "附加信息：" for row in semantic_grid if isinstance(row, list) and row),
+            msg=semantic_grid,
+        )
+        page86_notes = [
+            note
+            for note in page86_table.get("note_blocks", []) or []
+            if isinstance(note, dict)
+        ]
+        self.assertTrue(
+            any(
+                note.get("text") == "附加信息："
+                and note.get("relation") == "below"
+                and note.get("source") == "study_condition_result_matrix_note_row"
+                for note in page86_notes
+            ),
+            msg=page86_notes,
+        )
+        self.assertTrue(
+            any(
+                note.get("text") == "a-总放射性；回收率，14C"
+                and note.get("logical_owner_page") == 86
+                and note.get("physical_page") == 87
+                and note.get("note_scope") == "previous_table"
+                for note in page86_notes
+            ),
+            msg=page86_notes,
         )
         self.assertEqual(
             [group.get("label") for group in binding.get("study_groups", [])],
@@ -3243,9 +9208,14 @@ class R2RegressionTests(unittest.TestCase):
             self.assertEqual(
                 [leaf.get("text") for leaf in group.get("leaf_headers", [])],
                 ["尿液", "粪便", "合计"],
-            )
+        )
 
         trailing_spans = binding.get("trailing_colspan_rows") or []
+        self.assertEqual(
+            [row.get("label") for row in trailing_spans],
+            ["试验编号", "CTD中的位置"],
+            msg=trailing_spans,
+        )
         trial_spans = next(row for row in trailing_spans if row.get("label") == "试验编号")
         self.assertEqual(
             [(span.get("text"), span.get("start_leaf_col"), span.get("end_leaf_col")) for span in trial_spans.get("spans", [])],
@@ -3258,6 +9228,42 @@ class R2RegressionTests(unittest.TestCase):
             [(span.get("start_leaf_col"), span.get("end_leaf_col")) for span in ctd_spans.get("spans", [])],
             [(1, 6), (7, 12)],
         )
+        self.assertTrue(
+            any(
+                isinstance(row, list)
+                and row
+                and row[0] == "试验编号"
+                and "95102" in row
+                and "95156" in row
+                for row in semantic_grid
+            ),
+            msg=semantic_grid,
+        )
+        self.assertTrue(
+            any(
+                isinstance(row, list)
+                and row
+                and row[0] == "CTD中的位置"
+                and "第20卷，第75页" in [str(cell or "").replace(" ", "") for cell in row]
+                and "第20卷，第150页" in [str(cell or "").replace(" ", "") for cell in row]
+                for row in semantic_grid
+            ),
+            msg=semantic_grid,
+        )
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        heading = "2.6.5.13 药代动力学：排泄 供试品：曲醇钠"
+        next_heading = "2.6.5.14 药代动力学：胆汁排泄 供试品：曲醇钠"
+        region_start = review_markdown.index(heading)
+        region_end = review_markdown.index(next_heading, region_start)
+        region = review_markdown[region_start:region_end]
+        last_data_index = region.index("0-96 h")
+        trial_index = region.index("试验编号", last_data_index)
+        ctd_index = region.index("CTD中的位置", trial_index)
+        additional_info_index = region.index("附加信息：", ctd_index)
+        self.assertLess(last_data_index, trial_index)
+        self.assertLess(trial_index, ctd_index)
+        self.assertLess(ctd_index, additional_info_index)
 
         page85_table = next(
             table
@@ -3322,13 +9328,161 @@ class R2RegressionTests(unittest.TestCase):
         end = markdown.index("2.6.5.14 药代动力学：胆汁排泄", start)
         page86_region = markdown[start:end]
 
-        self.assertIn("大鼠-经口给药-10mgkg 尿液", page86_region)
-        self.assertIn("大鼠-静脉注射-5mgkg 粪便", page86_region)
-        self.assertIn("犬-经口给药-10mgkg 合计", page86_region)
-        self.assertIn("犬-静脉注射-5mgkg 合计", page86_region)
-        self.assertNotIn("| 时间 | 尿液 | 粪便 | 合计 | 尿液 | 粪便 | 合计 |", page86_region)
+        species_row = "| 种属 | 大鼠 | 大鼠 | 大鼠 | 大鼠 | 大鼠 | 大鼠 | 犬 | 犬 | 犬 | 犬 | 犬 | 犬 |"
+        leaf_header_row = "| 排泄途径(4) | 尿液 | 粪便 | 合计 | 尿液 | 粪便 | 合计 | 尿液 | 粪便 | 合计 | 尿液 | 粪便 | 合计 |"
+        time_axis_row = "| 时间 |  |  |  |  |  |  |  |  |  |  |  |  |"
+        self.assertIn(species_row, page86_region)
+        self.assertIn(leaf_header_row, page86_region)
+        self.assertIn(time_axis_row, page86_region)
+        self.assertLess(page86_region.index(species_row), page86_region.index(leaf_header_row))
+        self.assertLess(page86_region.index(leaf_header_row), page86_region.index(time_axis_row))
+        self.assertNotIn("条件/时间", page86_region)
+        self.assertIn(
+            "| 给药方法 | 经口给药 | 经口给药 | 经口给药 | 静脉注射 | 静脉注射 | 静脉注射 | 经口给药 | 经口给药 | 经口给药 | 静脉注射 | 静脉注射 | 静脉注射 |",
+            page86_region,
+        )
+        self.assertIn(
+            "| 溶媒/剂型 | 溶液 / 水 | 溶液 / 水 | 溶液 / 水 | 溶液 / 生理盐水 | 溶液 / 生理盐水 | 溶液 / 生理盐水 | 溶液 / 生理盐水 | 溶液 / 生理盐水 | 溶液 / 生理盐水 | 胶囊 | 胶囊 | 胶囊 |",
+            page86_region,
+        )
+        self.assertNotIn("大鼠-经口给药-10mgkg 尿液", page86_region)
+        self.assertNotIn("犬-静脉注射-5mgkg 合计", page86_region)
         self.assertNotIn("- 种属 大鼠 大鼠 犬 犬", page86_region)
         self.assertNotIn("- 给药方法 经口给药 静脉注射 经口给药 静脉注射", page86_region)
+
+    def test_page87_cross_page_note_and_example_label_keep_physical_order(self) -> None:
+        markdown = _build_full_markdown([dict(self.result)], markdown_profile="ind-review")
+        page86_heading = "2.6.5.13 药代动力学：排泄 供试品：曲醇钠"
+        page87_heading = "2.6.5.14 药代动力学：胆汁排泄 供试品：曲醇钠"
+        note_text = "a-总放射性；回收率，14C"
+        example_label = "示例"
+
+        page86_pos = markdown.index(page86_heading)
+        page87_pos = markdown.index(page87_heading, page86_pos)
+        next_heading_pos = markdown.index("2.6.7.1 毒理学概述", page87_pos)
+        bridge_region = markdown[page86_pos:page87_pos]
+        page87_region = markdown[page87_pos:next_heading_pos]
+        prelude_region = markdown[page86_pos:page87_pos]
+
+        additional_info = "附加信息："
+        self.assertEqual(bridge_region.count(note_text), 1, msg=bridge_region)
+        self.assertEqual(page87_region.count(note_text), 1, msg=page87_region)
+        self.assertIn(f"\n{additional_info}\n", bridge_region)
+        self.assertNotIn(f"| {additional_info} |", bridge_region)
+        self.assertLess(bridge_region.index(additional_info), bridge_region.index(note_text))
+        self.assertIn(example_label, prelude_region)
+        self.assertLess(bridge_region.index(note_text), bridge_region.rindex(example_label))
+        self.assertLess(markdown.rindex(example_label, page86_pos, page87_pos), page87_pos)
+        page87_species_row = "| 种属 | 大鼠 | 大鼠 | 大鼠 | 大鼠 | 大鼠 | 大鼠 |"
+        page87_leaf_header_row = "| 排泄途径(4) | 胆汁 | 尿液 | 合计 | 胆汁 | 尿液 | 合计 |"
+        page87_time_axis_row = "| 时间 |  |  |  |  |  |  |"
+        self.assertIn(page87_species_row, page87_region)
+        self.assertIn(page87_leaf_header_row, page87_region)
+        self.assertIn(page87_time_axis_row, page87_region)
+        self.assertLess(page87_region.index(page87_species_row), page87_region.index(page87_leaf_header_row))
+        self.assertLess(page87_region.index(page87_leaf_header_row), page87_region.index(page87_time_axis_row))
+        self.assertNotIn("条件/时间", page87_region)
+        self.assertIn(
+            page87_species_row,
+            page87_region,
+        )
+        self.assertIn(
+            "| 给药方法 | 经口给药 | 经口给药 | 经口给药 | 静脉注射 | 静脉注射 | 静脉注射 |",
+            page87_region,
+        )
+        self.assertIn(
+            "| 溶媒/剂型 | 溶液 / 水 | 溶液 / 水 | 溶液 / 水 | 溶液 / 生理盐水 | 溶液 / 生理盐水 | 溶液 / 生理盐水 |",
+            page87_region,
+        )
+        self.assertIn(
+            "| 试验编号 | 95106 |  |  |  |  |  |",
+            page87_region,
+        )
+        self.assertIn(
+            "| CTD中的位置 | 第20 卷，第150 页 |  |  |  |  |  |",
+            page87_region,
+        )
+        self.assertLess(
+            page87_region.index("| 0-48 h | 83 | 10 | 93 | 88 | 11 | 99 |"),
+            page87_region.index("| 试验编号 | 95106 |  |  |  |  |  |"),
+        )
+        self.assertLess(
+            page87_region.index("| 试验编号 | 95106 |  |  |  |  |  |"),
+            page87_region.index("| CTD中的位置 | 第20 卷，第150 页 |  |  |  |  |  |"),
+        )
+        self.assertNotIn("大鼠-经口给药-10mgkg 胆汁", page87_region)
+        self.assertNotIn("大鼠-静脉注射-5mgkg 合计", page87_region)
+        self.assertNotIn("- 种属：大鼠", page87_region)
+
+        page87_table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 87
+            and table.get("semantic_role") == "business_table"
+        )
+        self.assertFalse(
+            any(
+                "总放射性" in str(ref.get("note_text") or "")
+                for ref in page87_table.get("cell_note_refs", []) or []
+                if isinstance(ref, dict)
+                and int(ref.get("physical_page") or ref.get("page") or 0) == 87
+            ),
+            msg=page87_table.get("cell_note_refs", []),
+        )
+
+    def test_page88_repeated_cross_page_note_is_owned_by_page87_table_as_a_distinct_occurrence(self) -> None:
+        note_text = "a-总放射性；回收率，14C"
+        page86_table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 86
+            and table.get("semantic_role") == "business_table"
+            and "排泄途径" in "\n".join(
+                " | ".join(str(cell or "") for cell in row)
+                for row in (table.get("display_grid", []) or table.get("raw_grid", []) or [])
+            )
+        )
+        page87_table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 87
+            and table.get("semantic_role") == "business_table"
+        )
+
+        page86_occurrences = [
+            note
+            for note in page86_table.get("note_blocks", []) or []
+            if isinstance(note, dict) and note.get("text") == note_text
+        ]
+        page87_occurrences = [
+            note
+            for note in page87_table.get("note_blocks", []) or []
+            if isinstance(note, dict) and note.get("text") == note_text
+        ]
+        self.assertEqual(len(page86_occurrences), 1, msg=page86_occurrences)
+        self.assertEqual(len(page87_occurrences), 1, msg=page87_table.get("note_blocks", []))
+        self.assertEqual(page86_occurrences[0].get("logical_owner_page"), 86)
+        self.assertEqual(page86_occurrences[0].get("physical_page"), 87)
+        self.assertEqual(page87_occurrences[0].get("logical_owner_page"), 87)
+        self.assertEqual(page87_occurrences[0].get("physical_page"), 88)
+        self.assertNotEqual(
+            page86_occurrences[0].get("owner_table_id"),
+            page87_occurrences[0].get("owner_table_id"),
+        )
+
+        markdown = _build_full_markdown([dict(self.result)], markdown_profile="ind-review")
+        page86_heading = "2.6.5.13 药代动力学：排泄 供试品：曲醇钠"
+        page87_heading = "2.6.5.14 药代动力学：胆汁排泄 供试品：曲醇钠"
+        toxicology_heading = "2.6.7.1 毒理学概述"
+        page86_start = markdown.index(page86_heading)
+        page87_start = markdown.index(page87_heading, page86_start)
+        toxicology_start = markdown.index(toxicology_heading, page87_start)
+        first_region = markdown[page86_start:page87_start]
+        second_region = markdown[page87_start:toxicology_start]
+        self.assertEqual(first_region.count(note_text), 1, msg=first_region)
+        self.assertEqual(second_region.count(note_text), 1, msg=second_region)
+        self.assertLess(second_region.index("CTD中的位置"), second_region.index(note_text))
+        self.assertLess(second_region.index(note_text), second_region.rindex("示例"))
 
     def test_page89_toxicology_overview_continuation_links_to_page88_table(self) -> None:
         page88_table = next(
@@ -3360,18 +9514,121 @@ class R2RegressionTests(unittest.TestCase):
         self.assertEqual(len(page88_semantic_grid[0]), 10)
         self.assertEqual(len(page89_semantic_grid[0]), 10)
         self.assertEqual(page89_semantic_grid[0], page88_semantic_grid[0])
-        self.assertIn("CD-1", str(page88_semantic_grid[1][1]))
-        self.assertEqual(page88_semantic_grid[1][6], "Sponsor Inc.")
-        self.assertEqual(page88_semantic_grid[1][7], "96046")
-        self.assertIn("CD-1", str(page89_semantic_grid[1][1]))
-        self.assertEqual(page89_semantic_grid[1][3], "21 月")
-        self.assertEqual(page89_semantic_grid[1][6], "CRO Co.")
-        self.assertEqual(page89_semantic_grid[1][7], "95012")
+        self.assertEqual(page88_semantic_grid[0][-2:], ["位置", "位置"])
+        self.assertEqual(page88_semantic_grid[1], ["", "", "", "", "", "", "", "", "卷", "页码"])
+        self.assertEqual(page89_semantic_grid[1], page88_semantic_grid[1])
+        self.assertIn("CD-1", str(page88_semantic_grid[2][1]))
+        self.assertEqual(page88_semantic_grid[2][6], "Sponsor Inc.")
+        self.assertEqual(page88_semantic_grid[2][7], "96046")
+        self.assertIn("CD-1", str(page89_semantic_grid[2][1]))
+        self.assertEqual(page89_semantic_grid[2][3], "21 月")
+        self.assertEqual(page89_semantic_grid[2][6], "CRO Co.")
+        self.assertEqual(page89_semantic_grid[2][7], "95012")
+        page88_projection = (
+            page88_table.get("semantic_projection_v2", {}) or {}
+        ).get("overview_inventory_schema_projection", {})
         projection = (
             page89_table.get("semantic_projection_v2", {}) or {}
         ).get("overview_inventory_schema_projection", {})
         self.assertEqual(projection.get("semantic_profile"), "nonclinical_overview_inventory_table")
         self.assertTrue(projection.get("continuation_schema_inherited"))
+        self.assertEqual(projection.get("leaf_columns"), page88_projection.get("leaf_columns"))
+        self.assertEqual(
+            [
+                (
+                    group.get("text"),
+                    group.get("start_leaf_col"),
+                    group.get("end_leaf_col"),
+                    group.get("colspan"),
+                    group.get("child_headers"),
+                )
+                for group in projection.get("header_column_groups", []) or []
+            ],
+            [
+                (
+                    group.get("text"),
+                    group.get("start_leaf_col"),
+                    group.get("end_leaf_col"),
+                    group.get("colspan"),
+                    group.get("child_headers"),
+                )
+                for group in page88_projection.get("header_column_groups", []) or []
+            ],
+        )
+
+    def test_page91_toxicokinetic_overview_projects_dynamic_location_parent_header(self) -> None:
+        table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 91
+            and table.get("semantic_role") == "business_table"
+            and "94018" in "\n".join(
+                " | ".join(str(cell or "") for cell in row)
+                for row in (table.get("display_grid", []) or table.get("raw_grid", []) or [])
+            )
+        )
+        projection = (
+            table.get("semantic_projection_v2", {}) or {}
+        ).get("overview_inventory_schema_projection", {})
+        self.assertEqual(
+            projection.get("semantic_profile"),
+            "toxicokinetic_overview_inventory_table",
+            msg=table.get("semantic_projection_v2"),
+        )
+        self.assertEqual(
+            projection.get("leaf_columns"),
+            ["试验类型", "试验系统", "给药方法", "剂量(mg/kg)", "GLP依从性", "试验编号", "卷", "页码"],
+        )
+
+        semantic_grid = table.get("semantic_grid") or []
+        self.assertGreaterEqual(len(semantic_grid), 4, msg=semantic_grid)
+        self.assertEqual(semantic_grid[0], ["试验类型", "试验系统", "给药方法", "剂量(mg/kg)", "GLP依从性", "试验编号", "位置", "位置"])
+        self.assertEqual(semantic_grid[1], ["", "", "", "", "", "", "卷", "页码"])
+        self.assertEqual(len(semantic_grid[2]), 8)
+        self.assertIn("3个月剂量范围探索试验", str(semantic_grid[2][0]).replace(" ", ""))
+        self.assertEqual(semantic_grid[2][1:], ["小鼠", "掺食", "62.5、250、1000、4000、7000", "是", "94018", "2", ""])
+
+        location_group = next(
+            (
+                group
+                for group in projection.get("header_column_groups", []) or []
+                if str(group.get("text") or "").replace(" ", "") == "位置"
+            ),
+            None,
+        )
+        self.assertIsNotNone(location_group, msg=projection.get("header_column_groups", []))
+        self.assertEqual(
+            (
+                location_group.get("start_leaf_col"),
+                location_group.get("end_leaf_col"),
+                location_group.get("colspan"),
+                location_group.get("child_headers"),
+            ),
+            (6, 7, 2, ["卷", "页码"]),
+        )
+        self.assertTrue(
+            any(
+                span.get("text") == "位置"
+                and span.get("col") == 6
+                and span.get("colspan") == 2
+                for span in table.get("span_header_cells", []) or []
+                if isinstance(span, dict)
+            ),
+            msg=table.get("span_header_cells", []),
+        )
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        section_index = review_markdown.index(
+            "2.6.7.2 毒代动力学 毒代动力学研究概述 供试品：曲醇钠"
+        )
+        data_index = review_markdown.index("94018", section_index)
+        header_region = review_markdown[max(0, data_index - 1000):data_index]
+        self.assertIn(
+            '<th colspan="2">位置</th>',
+            header_region,
+        )
+        self.assertIn("<th>卷</th>", header_region)
+        self.assertIn("<th>页码</th>", header_region)
 
     def test_page92_auc_data_table_keeps_header_rows_and_does_not_emit_blank_template(self) -> None:
         page92_blank_templates = [
@@ -3471,6 +9728,7 @@ class R2RegressionTests(unittest.TestCase):
         grouped_projection = projection.get("study_metric_grouped_matrix_projection", {})
         self.assertEqual(grouped_projection.get("semantic_profile"), "study_metric_grouped_matrix")
         self.assertEqual(grouped_projection.get("logical_column_count"), 8)
+        self.assertNotIn("semantic_row_groups", auc_table)
         self.assertEqual(
             (auc_table.get("semantic_grid") or [])[0],
             ["日剂量（mg/kg）", "M", "F", "M", "F", "犬c", "雌兔b", "人f"],
@@ -3529,6 +9787,43 @@ class R2RegressionTests(unittest.TestCase):
         self.assertNotIn("a - 掺食", body_text)
         self.assertNotIn("f –方案147-007", body_text)
 
+        markdown = _build_full_markdown([dict(self.result)], markdown_profile="ind-review")
+        title = "2.6.7.3 毒代动力学 毒代动力学数据概述 供试品：曲醇钠"
+        start = markdown.index(title, markdown.index("###### 2.6.7.2 毒代动力学"))
+        end = markdown.index("示例", start)
+        table_region = markdown[start:end]
+        self.assertIn(
+            '<th colspan="4">稳态AUC (µg-h/ml)</th>',
+            table_region,
+        )
+        self.assertIn(
+            '<th colspan="2">小鼠a</th>',
+            table_region,
+        )
+        self.assertIn('<th colspan="2">大鼠b</th>', table_region)
+        self.assertEqual(table_region.count("<th>M</th>"), 2, msg=table_region)
+        self.assertEqual(table_region.count("<th>F</th>"), 2, msg=table_region)
+        expected_notes = [
+            "a - 掺食",
+            "b - 灌胃",
+            "c –胶囊，雌性和雄性动物合并",
+            "d – 6 个月毒性试验",
+            "e –致癌性试验",
+            "f –方案147-007",
+        ]
+        for expected in expected_notes:
+            self.assertEqual(table_region.count(f"\n{expected}\n"), 1, msg=table_region)
+        self.assertNotIn("e –致癌性试验 f –方案147-007", table_region)
+        self.assertEqual(table_region.count("f –方案147-007"), 1, msg=table_region)
+        for earlier, later in zip(expected_notes, expected_notes[1:]):
+            self.assertLess(table_region.index(earlier), table_region.index(later))
+
+        page93_label = "示例"
+        image_start = markdown.index("![Figure 2]", start)
+        page93_prelude = markdown[markdown.index(page93_label, start):image_start]
+        self.assertIn(f"\n{title}\n", page93_prelude)
+        self.assertEqual(markdown.count(title), 2)
+
     def test_page94_raw_material_table_reclaims_quality_and_batch_header_rows(self) -> None:
         table = next(
             table
@@ -3586,6 +9881,57 @@ class R2RegressionTests(unittest.TestCase):
             and str(block.get("unit_role") or "body") == "body"
         )
         self.assertNotIn("a –面积百分比", body_text)
+
+        markdown = _build_full_markdown([dict(self.result)], markdown_profile="ind-review")
+        expected_batch_rowspans = {
+            "LN125": 3,
+            "94NA103": 5,
+            "95NA215": 5,
+            "95NB003": 2,
+            "96NB101": 7,
+        }
+        canonical_body_spans = [
+            span
+            for span in table.get("cell_spans", []) or []
+            if span.get("role") == "body"
+        ]
+        self.assertEqual(
+            {
+                str(span.get("text") or ""): int(span.get("rowspan", 1) or 1)
+                for span in canonical_body_spans
+                if int(span.get("col", -1)) == 0
+            },
+            expected_batch_rowspans,
+        )
+        for group in table.get("semantic_row_groups", []) or []:
+            start_row = int(group.get("start_semantic_row", -1))
+            rowspan = int(group.get("rowspan", 0) or 0)
+            self.assertEqual(group.get("static_cols"), [0, 1, 2, 3, 4])
+            self.assertEqual(group.get("detail_cols"), [5, 6])
+            self.assertEqual(
+                {
+                    int(span.get("col", -1))
+                    for span in canonical_body_spans
+                    if int(span.get("row", -1)) == start_row
+                    and int(span.get("rowspan", 0) or 0) == rowspan
+                },
+                {0, 1, 2, 3, 4},
+            )
+
+        title = "2.6.7.4 \u6bd2\u7406\u5b66 \u539f\u6599\u836f \u4f9b\u8bd5\u54c1\uff1a\u66f2\u9187\u94a0"
+        next_title = "2.6.7.5 \u5355\u6b21\u7ed9\u836f\u6bd2\u6027 \u4f9b\u8bd5\u54c1\uff1a\u66f2\u9187\u94a0"
+        start = markdown.index(title)
+        end = markdown.index(next_title, start)
+        table_region = markdown[start:end]
+        self.assertIn('<th colspan="3">特定杂质a</th>', table_region)
+        for leaf in ("A", "B", "C"):
+            self.assertIn(f"<th>{leaf}</th>", table_region)
+        for batch, rowspan in expected_batch_rowspans.items():
+            self.assertIn(f'<td rowspan="{rowspan}">{batch}</td>', table_region)
+            self.assertNotIn(f'<th rowspan="{rowspan}">{batch}</th>', table_region)
+        note = "a \u2013\u9762\u79ef\u767e\u5206\u6bd4"
+        self.assertEqual(table_region.count(f"\n{note}\n"), 1, msg=table_region)
+        self.assertLess(table_region.rindex("<td>95015</td>"), table_region.index(note))
 
     def test_page95_single_dose_toxicity_table_reclaims_header_and_keeps_iv_vehicle_row(self) -> None:
         table = next(
@@ -3686,11 +10032,36 @@ class R2RegressionTests(unittest.TestCase):
         )
         self.assertEqual(rat_oral_vehicle_row[2], "5000")
         review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
-        self.assertIn("CD-1 小鼠 | 灌胃 | 0、1000、2000、 | 10M | ≥5000 | >5000 | ≥2000：一过性体重下降 | 96046", review_markdown)
+        species_anchor = '<td rowspan="4">CD-1 小鼠</td>'
+        self.assertIn(species_anchor, review_markdown)
+        species_row_start = review_markdown.index(species_anchor)
+        species_row_end = review_markdown.index("</tr>", species_row_start)
+        species_row_html = review_markdown[species_row_start:species_row_end]
+        for value in ("灌胃", "0、1000、2000、", "10M", "≥5000", ">5000", "≥2000：一过性体重下降", "96046"):
+            self.assertIn(f"<td>{escape(value)}</td>", species_row_html)
         self.assertNotIn("给药方法(溶媒/剂型) |  |  |", review_markdown)
         note_text = " ".join(str(note.get("text") or "") for note in table.get("note_blocks", []) or [] if isinstance(note, dict))
         self.assertNotIn("(5%\u8461\u8404\u7cd6) 500", note_text)
+        self.assertNotIn("NOAELa(mg/kg)", note_text)
+        self.assertFalse(
+            any(
+                isinstance(note, dict)
+                and note.get("relation") == "next_page_top"
+                and int(note.get("page", 0) or 0) == 96
+                and "NOAEL" in str(note.get("text") or "")
+                for note in table.get("note_blocks", []) or []
+            ),
+            msg=table.get("note_blocks", []),
+        )
         self.assertEqual(semantic_grid.index(rat_iv_vehicle_row), semantic_grid.index(rat_iv_row) + 1)
+
+        title = "2.6.7.5 \u5355\u6b21\u7ed9\u836f\u6bd2\u6027 \u4f9b\u8bd5\u54c1\uff1a\u66f2\u9187\u94a0"
+        next_title = "2.6.7.6 \u91cd\u590d\u7ed9\u836f\u6bd2\u6027 \u975e\u5173\u952e\u8bd5\u9a8c \u4f9b\u8bd5\u54c1\uff1a\u66f2\u9187\u94a0"
+        page95_region = review_markdown[
+            review_markdown.index(title) : review_markdown.index(next_title, review_markdown.index(title))
+        ]
+        self.assertNotIn("NOAELa(mg/kg)", page95_region)
+        self.assertNotIn("\u7ed9\u836f\u671f\u9650 \u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c \u8bd5\u9a8c\u7f16\u53f7", page95_region)
 
     def test_page96_repeated_dose_toxicity_summary_uses_8_column_schema(self) -> None:
         table = next(
@@ -3878,8 +10249,17 @@ class R2RegressionTests(unittest.TestCase):
         title_index = review_markdown.index("**2.6.7.7A \u91cd\u590d\u7ed9\u836f\u6bd2\u6027")
         next_title_index = review_markdown.index("**2.6.7.7A \u91cd\u590d\u7ed9\u836f\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7", title_index + 1)
         page97_markdown = review_markdown[title_index:next_title_index]
-        self.assertIn("-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c", page97_markdown)
-        self.assertIn("Dunnett \u6c0f\u68c0\u9a8c\uff1a*-p<0.05 **-p<0.01", page97_markdown)
+        legend_note = "-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c +\u8f7b\u5ea6 ++\u4e2d\u5ea6 +++\u663e\u8457"
+        stats_note = "Dunnett \u6c0f\u68c0\u9a8c\uff1a*-p<0.05 **-p<0.01"
+        definition_note = (
+            "a-\u7ed9\u836f\u7ed3\u675f\u65f6\u3002\u5bf9\u7167\u7ec4\u7ed9\u51fa\u7ec4\u5e73\u5747\u503c\uff0c\u7ed9\u836f\u7ec4\u7ed9\u51fa\u4e0e\u5bf9\u7167\u7ec4\u7684\u5dee\u5f02\u767e\u5206\u6bd4\u3002"
+            "\u7edf\u8ba1\u5b66\u663e\u8457\u6027\u662f\u57fa\u4e8e\u5b9e\u9645\u6570\u636e\uff08\u800c\u975e\u5dee\u5f02\u767e\u5206\u6bd4\uff09\u3002"
+        )
+        markdown_lines = page97_markdown.splitlines()
+        for expected in (legend_note, stats_note, definition_note):
+            self.assertIn(expected, markdown_lines, msg=page97_markdown)
+        self.assertLess(markdown_lines.index(legend_note), markdown_lines.index(stats_note))
+        self.assertLess(markdown_lines.index(stats_note), markdown_lines.index(definition_note))
         self.assertEqual(page97_markdown.count("\u6709\u8272\u9f3b\u6db2\u6ea2\u3001\u76ae\u6bdb\u7ea2\u67d3\u3001\u5927\u4fbf\u53d1\u767d"), 1)
         self.assertEqual(page97_markdown.count("-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c"), 1)
         self.assertNotIn("| -\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c", page97_markdown)
@@ -3946,6 +10326,12 @@ class R2RegressionTests(unittest.TestCase):
         )
 
     def test_page100_new_panel_breaks_page99_continuation_and_keeps_page99_notes(self) -> None:
+        page98_table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 98
+            and "2.6.7.7A" in str(table.get("title") or "")
+        )
         page99_table = next(
             table
             for table in self.result.get("table_asts", []) or []
@@ -3966,6 +10352,12 @@ class R2RegressionTests(unittest.TestCase):
         self.assertFalse(
             str(page100_table.get("continued_from_table_id") or page100_table.get("continued_from") or "").strip()
         )
+        page98_projection = (page98_table.get("semantic_projection_v2") or {}).get(
+            "dose_response_result_panel_projection",
+            {},
+        )
+        self.assertTrue(page98_projection.get("has_sex_leaf_columns"))
+        self.assertFalse(page98_projection.get("source_has_explicit_sex_header_row"))
 
         page99_notes = " ".join(
             str(note.get("text") or "")
@@ -3984,17 +10376,50 @@ class R2RegressionTests(unittest.TestCase):
         self.assertNotIn("\u7edd\u5bf9\u5668\u5b98\u91cd\u91cf", page100_notes)
 
         review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        page99_title = "2.6.7.7A \u91cd\u590d\u7ed9\u836f\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7\uff1a94214(\u7eed)"
+        page100_title = "2.6.7.7B \u91cd\u590d\u7ed9\u836f\u6bd2\u6027 \u62a5\u544a\u6807\u9898\uff1aMM-180801"
+        title_index = review_markdown.index(page99_title)
+        next_title_index = review_markdown.index(page100_title, title_index)
+        page98_99_markdown = review_markdown[title_index:next_title_index]
+        self.assertEqual(page98_99_markdown.count(page99_title), 2, msg=page98_99_markdown)
+        self.assertNotIn("<th>\u6027\u522b</th>", page98_99_markdown)
+        additional_cell_index = page98_99_markdown.index("<td>\u9644\u52a0\u68c0\u67e5</td>")
+        additional_row_start = page98_99_markdown.rindex("<tr>", 0, additional_cell_index)
+        additional_row_end = page98_99_markdown.index("</tr>", additional_cell_index)
+        additional_row = page98_99_markdown[additional_row_start:additional_row_end]
+        self.assertEqual(additional_row.count("<td>-</td>"), 8, msg=additional_row)
+        self.assertIn("<td>\u7ed9\u836f\u540e\u8bc4\u4ef7\uff1a</td>", page98_99_markdown)
+        second_title_index = page98_99_markdown.index(page99_title, page98_99_markdown.index(page99_title) + 1)
+        self.assertLess(second_title_index, page98_99_markdown.index("\u5668\u5b98\u91cd\u91cfb(%)"))
+        expected_page99_notes = [
+            "-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c",
+            "Dunnett \u6c0f\u68c0\u9a8c\uff1a*-p<0.05 **-p<0.01",
+            "a - \u7ed9\u836f\u540e\u6062\u590d\u671f\u7ed3\u675f\u65f6\u3002",
+            "b - \u7ed9\u51fa\u4e86\u4e0e\u5bf9\u7167\u7ec4\u76f8\u6bd4\u7684\u7edd\u5bf9\u548c\u76f8\u5bf9\u91cd\u91cf\u5dee\u5f02\u3002",
+        ]
+        for expected_note in expected_page99_notes:
+            self.assertIn(expected_note, page98_99_markdown)
+        for earlier, later in zip(expected_page99_notes, expected_page99_notes[1:]):
+            self.assertLess(page98_99_markdown.index(earlier), page98_99_markdown.index(later))
+        self.assertNotIn("Dunnett \u6c0f\u68c0\u9a8c\uff1a*-p<0.05 **-p<0.01 a -", page98_99_markdown)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
         title_index = review_markdown.index("**2.6.7.7B \u91cd\u590d\u7ed9\u836f\u6bd2\u6027")
         next_title_index = review_markdown.index("2.6.7.8A", title_index)
         page100_markdown = review_markdown[title_index:next_title_index]
-        self.assertIn(
+        self.assertIn('<th rowspan="2">\u65e5\u5242\u91cf(mg/kg)</th>', page100_markdown)
+        for dose in ("0", "10", "40", "100"):
+            self.assertIn(f'<th colspan="2">{dose}</th>', page100_markdown)
+        self.assertNotIn("<th>\u6027\u522b</th>", page100_markdown)
+        self.assertNotIn(
             "| \u65e5\u5242\u91cf(mg/kg) | 0 M | 0 F | 10 M | 10 F | 40 M | 40 F | 100 M | 100 F |",
             page100_markdown,
         )
-        self.assertIn(
-            "| \u52a8\u7269\u6570\u91cf | M:3 | F:3 | M:3 | F:3 | M:3 | F:3 | M:3 | F:3 |",
-            page100_markdown,
-        )
+        first_table_start = page100_markdown.index("<table>")
+        first_table_end = page100_markdown.index("</table>", first_table_start)
+        first_table = page100_markdown[first_table_start:first_table_end]
+        self.assertEqual(first_table.count("<td>M:3</td>"), 4, msg=first_table)
+        self.assertEqual(first_table.count("<td>F:3</td>"), 4, msg=first_table)
 
     def test_repeated_dose_template_labels_are_owned_not_rendered_as_body(self) -> None:
         label_texts_by_page = {
@@ -4109,7 +10534,24 @@ class R2RegressionTests(unittest.TestCase):
         title_index = review_markdown.index("**2.6.7.7B")
         next_title_index = review_markdown.index("2.6.7.8A", title_index)
         page101_markdown = review_markdown[title_index:next_title_index]
-        self.assertIn("| \u65e5\u5242\u91cf(mg/kg) | 0 M | 0 F | 10 M | 10 F | 40 M | 40 F | 100 M | 100 F |", page101_markdown)
+        continuation_title_index = page101_markdown.index(
+            "**2.6.7.7B \u91cd\u590d\u7ed9\u836f\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7\uff1a94020(\u7eed)**"
+        )
+        continuation_table_start = page101_markdown.index("<table>", continuation_title_index)
+        continuation_table_end = page101_markdown.index("</table>", continuation_table_start)
+        continuation_table = page101_markdown[continuation_table_start:continuation_table_end]
+        self.assertIn('<th rowspan="2">\u65e5\u5242\u91cf(mg/kg)</th>', continuation_table)
+        for dose in ("0", "10", "40", "100"):
+            self.assertIn(f'<th colspan="2">{dose}</th>', continuation_table)
+        self.assertFalse(
+            (table.get("semantic_projection_v2") or {})
+            .get("dose_response_result_panel_projection", {})
+            .get("source_has_explicit_sex_header_row")
+        )
+        self.assertNotIn("<th>\u6027\u522b</th>", continuation_table)
+        self.assertEqual(continuation_table.count("<td>M:3</td>"), 4, msg=continuation_table)
+        self.assertEqual(continuation_table.count("<td>F:3</td>"), 4, msg=continuation_table)
+        self.assertNotIn("| \u65e5\u5242\u91cf(mg/kg) | 0 M | 0 F | 10 M | 10 F | 40 M | 40 F | 100 M | 100 F |", page101_markdown)
         self.assertNotIn("2.6.7.7B \u91cd\u590d\u7ed9\u836f\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7\uff1a94020(\u7eed) \u65e5\u5242\u91cf", page101_markdown)
 
     def test_pages102_to_104_genotoxicity_result_matrices_stitch_cross_page_continuations(self) -> None:
@@ -4147,13 +10589,67 @@ class R2RegressionTests(unittest.TestCase):
             [
                 "\u4ee3\u8c22\u6d3b\u5316",
                 "\u4f9b\u8bd5\u54c1",
-                "\u5242\u91cf\u6c34\u5e73",
+                "\u5242\u91cf\u6c34\u5e73(\u00b5g/\u76bf)",
                 "TA98",
                 "TA100",
                 "TA1535",
                 "TA1537",
                 "WP2uvrA",
             ],
+        )
+        header_spans102 = parent102.get("span_header_cells") or []
+        self.assertTrue(
+            any(
+                span.get("text") == "\u5b9e\u9a8c#1 \u56de\u590d\u7a81\u53d8\u4f53\u83cc\u843d\u8ba1\u6570(\u5e73\u5747\u503c\u00b1SD)"
+                and span.get("col") == 3
+                and span.get("colspan") == 5
+                for span in header_spans102
+                if isinstance(span, dict)
+            ),
+            msg=header_spans102,
+        )
+        self.assertTrue(
+            any(
+                span.get("text") == "\u5242\u91cf\u6c34\u5e73(\u00b5g/\u76bf)"
+                and span.get("col") == 2
+                and span.get("rowspan") == 2
+                for span in header_spans102
+                if isinstance(span, dict)
+            ),
+            msg=header_spans102,
+        )
+        canonical_header_spans102 = {
+            (
+                int(span.get("row", -1)),
+                int(span.get("col", -1)),
+                int(span.get("rowspan", 1)),
+                int(span.get("colspan", 1)),
+            )
+            for span in parent102.get("cell_spans", []) or []
+            if isinstance(span, dict) and span.get("role") == "header"
+        }
+        self.assertEqual(
+            canonical_header_spans102,
+            {(0, 0, 2, 1), (0, 1, 2, 1), (0, 2, 2, 1), (0, 3, 1, 5)},
+        )
+        canonical_body_spans102 = {
+            (
+                int(span.get("row", -1)),
+                int(span.get("col", -1)),
+                int(span.get("rowspan", 1)),
+                str(span.get("text") or ""),
+            )
+            for span in parent102.get("cell_spans", []) or []
+            if isinstance(span, dict) and span.get("role") == "body"
+        }
+        self.assertEqual(
+            canonical_body_spans102,
+            {
+                (1, 0, 10, "\u65e0\u4ee3\u8c22\u6d3b\u5316"),
+                (2, 1, 5, "MM-180801"),
+                (11, 0, 3, "\u6709\u4ee3\u8c22\u6d3b\u5316"),
+                (12, 1, 2, "MM-180801"),
+            },
         )
         semantic102_text = "\n".join(
             " | ".join(str(cell or "") for cell in row)
@@ -4192,6 +10688,16 @@ class R2RegressionTests(unittest.TestCase):
         self.assertEqual(continuation103.get("continued_from_table_id"), parent102.get("table_id"))
         note103 = " ".join(str(note.get("text", "")) for note in continuation103.get("note_blocks", []) or [])
         self.assertIn("\u6c89\u6dc0", note103)
+        self.assertTrue(
+            any(
+                ref.get("marker") == "a"
+                and "\u6c89\u6dc0" in str(ref.get("note_text") or "")
+                and "5000a" in str(ref.get("cell_text") or "")
+                for ref in continuation103.get("cell_note_refs", []) or []
+                if isinstance(ref, dict)
+            ),
+            msg=continuation103.get("cell_note_refs", []),
+        )
 
         parent103 = next(
             (
@@ -4206,6 +10712,32 @@ class R2RegressionTests(unittest.TestCase):
         )
         self.assertIsNotNone(parent103, msg=page103_texts)
         self.assertFalse(parent103.get("is_continuation"))
+        self.assertFalse(
+            any(
+                isinstance(span, dict) and span.get("role") == "header"
+                for span in parent103.get("cell_spans", []) or []
+            ),
+            msg=parent103.get("cell_spans", []),
+        )
+        canonical_body_spans103 = {
+            (
+                int(span.get("row", -1)),
+                int(span.get("col", -1)),
+                int(span.get("rowspan", 1)),
+                str(span.get("text") or ""),
+            )
+            for span in parent103.get("cell_spans", []) or []
+            if isinstance(span, dict) and span.get("role") == "body"
+        }
+        self.assertEqual(
+            canonical_body_spans103,
+            {
+                (1, 0, 6, "\u65e0\u4ee3\u8c22\u6d3b\u5316"),
+                (2, 1, 4, "MM-180801"),
+                (7, 0, 4, "\u6709\u4ee3\u8c22\u6d3b\u5316"),
+                (8, 1, 3, "MM-180801"),
+            },
+        )
 
         page104_tables = [
             table
@@ -4236,6 +10768,19 @@ class R2RegressionTests(unittest.TestCase):
         note104 = " ".join(str(note.get("text", "")) for note in continuation104.get("note_blocks", []) or [])
         self.assertIn("Dunnett", note104)
         self.assertIn("\u7ec6\u80de\u6709\u4e1d\u5206\u88c2\u6307\u6570", note104)
+        header_note_refs104 = list(parent103.get("header_note_refs", []) or []) + list(
+            continuation104.get("header_note_refs", []) or []
+        )
+        self.assertTrue(
+            any(
+                isinstance(ref, dict)
+                and ref.get("marker") == "a"
+                and "\u7ec6\u80de\u6bd2\u6027a(%\u5bf9\u7167)" in str(ref.get("header_text") or "")
+                and "\u7ec6\u80de\u6709\u4e1d\u5206\u88c2\u6307\u6570" in str(ref.get("note_text") or "")
+                for ref in header_note_refs104
+            ),
+            msg=header_note_refs104,
+        )
 
         new_page104_table = next(
             (
@@ -4249,6 +10794,44 @@ class R2RegressionTests(unittest.TestCase):
         )
         self.assertIsNotNone(new_page104_table, msg=page104_texts)
         self.assertFalse(new_page104_table.get("is_continuation"))
+        self.assertFalse(
+            any(
+                isinstance(span, dict) and span.get("role") == "header"
+                for span in new_page104_table.get("cell_spans", []) or []
+            ),
+            msg=new_page104_table.get("cell_spans", []),
+        )
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        title8a_index = review_markdown.index("**2.6.7.8A")
+        title8b_index = review_markdown.index("**2.6.7.8B", title8a_index)
+        page102_markdown = review_markdown[title8a_index:title8b_index]
+        self.assertIn("\u5b9e\u9a8c#1 \u56de\u590d\u7a81\u53d8\u4f53\u83cc\u843d\u8ba1\u6570(\u5e73\u5747\u503c\u00b1SD)", page102_markdown, msg=page102_markdown)
+        self.assertIn("\u5242\u91cf\u6c34\u5e73(\u00b5g/\u76bf)", page102_markdown, msg=page102_markdown)
+        self.assertIn('<th rowspan="2">\u4ee3\u8c22\u6d3b\u5316</th>', page102_markdown, msg=page102_markdown)
+        self.assertIn('<th rowspan="2">\u4f9b\u8bd5\u54c1</th>', page102_markdown, msg=page102_markdown)
+        self.assertIn('<th rowspan="2">\u5242\u91cf\u6c34\u5e73(\u00b5g/\u76bf)</th>', page102_markdown, msg=page102_markdown)
+        self.assertIn(
+            '<th colspan="5">\u5b9e\u9a8c#1 \u56de\u590d\u7a81\u53d8\u4f53\u83cc\u843d\u8ba1\u6570(\u5e73\u5747\u503c\u00b1SD)</th>',
+            page102_markdown,
+            msg=page102_markdown,
+        )
+        self.assertIn('<td rowspan="5">MM-180801</td>', page102_markdown, msg=page102_markdown)
+        self.assertIn("5000a", page102_markdown, msg=page102_markdown)
+        self.assertIn("a \u2013\u6c89\u6dc0", page102_markdown, msg=page102_markdown)
+        self.assertLess(
+            page102_markdown.index("5000a"),
+            page102_markdown.index("a \u2013\u6c89\u6dc0"),
+            msg=page102_markdown,
+        )
+        next_section_index = review_markdown.index("2.6.7.9", title8b_index)
+        page103_markdown = review_markdown[title8b_index:next_section_index]
+        stats_note = "Dunnett \u6c0f\u68c0\u9a8c\uff1a*-p<0.05 **-p<0.01"
+        marker_note = "a \u2013\u57fa\u4e8e\u7ec6\u80de\u6709\u4e1d\u5206\u88c2\u6307\u6570"
+        self.assertIn(stats_note, page103_markdown, msg=page103_markdown)
+        self.assertIn(marker_note, page103_markdown, msg=page103_markdown)
+        self.assertLess(page103_markdown.index(stats_note), page103_markdown.index(marker_note))
+        self.assertNotIn(f"{stats_note} {marker_note}", page103_markdown, msg=page103_markdown)
 
     def test_page103_genotoxicity_continuation_title_and_chromosomal_aberration_schema(self) -> None:
         page102_parent = next(
@@ -4332,6 +10915,18 @@ class R2RegressionTests(unittest.TestCase):
             {},
         )
         self.assertEqual(chromosomal_projection.get("logical_column_count"), 7)
+        chromosomal_spans = chromosomal.get("span_header_cells") or []
+        self.assertFalse(
+            any(
+                isinstance(span, dict)
+                and span.get("text") == "细胞毒性a"
+                and span.get("col") == 3
+                and span.get("colspan") == 4
+                for span in chromosomal_spans
+            ),
+            msg=chromosomal_spans,
+        )
+        self.assertFalse(chromosomal_projection.get("has_multilevel_header_spans"))
         chromosomal_grid = chromosomal.get("semantic_grid") or []
         self.assertEqual(
             chromosomal_grid[0],
@@ -4370,7 +10965,8 @@ class R2RegressionTests(unittest.TestCase):
         page102_markdown = review_markdown[title8a_index:title_index]
         self.assertIn("独立试验次数：2", page102_markdown, msg=page102_markdown)
         self.assertNotIn("示例#1", page102_markdown, msg=page102_markdown)
-        self.assertNotIn("实验#1", page102_markdown, msg=page102_markdown)
+        self.assertIn("实验#1 回复突变体菌落计数(平均值±SD)", page102_markdown, msg=page102_markdown)
+        self.assertNotIn("- 实验#1", page102_markdown, msg=page102_markdown)
         self.assertNotIn("示例#2", page102_markdown, msg=page102_markdown)
         next_title_index = review_markdown.index("2.6.7.9", title_index)
         page103_markdown = review_markdown[title_index:next_title_index]
@@ -4381,22 +10977,22 @@ class R2RegressionTests(unittest.TestCase):
             "试验编号：96668",
             "GLP 依从性：是",
         ]
-        table_header = (
-            "| 代谢活化 | 供试品 | 浓度(µg/ml) | 细胞毒性a(%对照) | "
-            "平均细胞畸变率% | Abs/细胞 | 多倍体细胞总数 |"
-        )
-        table_header_index = page103_markdown.index(table_header)
+        table_header_index = page103_markdown.index("<table>")
         metadata_region = page103_markdown[:table_header_index]
         for field in expected_context_fields:
             self.assertIn(field, metadata_region, msg=page103_markdown)
             if field != "GLP 依从性：是":
                 self.assertNotIn(field, preceding_title_window, msg=preceding_title_window)
             self.assertEqual(page103_markdown.count(field), 1, msg=page103_markdown)
-        self.assertIn(
-            table_header,
-            page103_markdown,
-        )
-        self.assertNotIn("| \u4ee3\u8c22\u6d3b\u5316 | \u4f9b\u8bd5\u54c1 | \u6d53\u5ea6 | \u7ec6\u80de\u6bd2\u6027a | \u5e73\u5747\u7ec6\u80de\u7578\u53d8\u7387 |  |  |  |  |", page103_markdown)
+        table_end_index = page103_markdown.index("</table>", table_header_index) + len("</table>")
+        table_region = page103_markdown[table_header_index:table_end_index]
+        self.assertNotIn('<th colspan="4">细胞毒性a</th>', table_region)
+        for leaf in ("细胞毒性a(%对照)", "平均细胞畸变率%", "Abs/细胞", "多倍体细胞总数"):
+            self.assertIn(f"<th>{leaf}</th>", table_region)
+        self.assertIn('<td rowspan="6">无代谢活化</td>', table_region)
+        self.assertIn('<td rowspan="6">有代谢活化</td>', table_region)
+        self.assertIn('<td rowspan="4">MM-180801</td>', table_region)
+        self.assertNotIn("| 代谢活化 | 供试品 |", table_region)
 
     def test_pages104_to_105_genotoxicity_assay_continuations_inherit_logical_schemas(self) -> None:
         chromosomal_parent = next(
@@ -4425,6 +11021,17 @@ class R2RegressionTests(unittest.TestCase):
         self.assertEqual(chromosomal_projection.get("assay_kind"), "chromosomal_aberration_matrix")
         self.assertTrue(chromosomal_projection.get("continuation_schema_inherited"))
         self.assertEqual(chromosomal_projection.get("logical_column_count"), 7)
+        continuation_spans = chromosomal_continuation.get("span_header_cells") or []
+        self.assertFalse(
+            any(
+                isinstance(span, dict)
+                and span.get("text") == "细胞毒性a"
+                and span.get("col") == 3
+                and span.get("colspan") == 4
+                for span in continuation_spans
+            ),
+            msg=continuation_spans,
+        )
         self.assertIn(
             chromosomal_continuation.get("table_id"),
             [str(item or "") for item in chromosomal_parent.get("continued_to", []) or []],
@@ -4491,7 +11098,14 @@ class R2RegressionTests(unittest.TestCase):
         )
         self.assertIn("\u73af\u78f7\u9170\u80fa | 7 | 5M | 51\u00b12.3 | 2.49\u00b10.30**", micronucleus_text)
         review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
-        self.assertIn("| \u4f9b\u8bd5\u54c1 | \u5242\u91cf(mg/kg) | \u52a8\u7269\u6570\u91cf | \u5e73\u5747%PCE (\u00b1SD) | \u5e73\u5747%MN-PCE (\u00b1SD) |", review_markdown)
+        title9a_index = review_markdown.index("**2.6.7.9A")
+        table9a_start = review_markdown.index("<table>", title9a_index)
+        table9a_end = review_markdown.index("</table>", table9a_start) + len("</table>")
+        table9a_region = review_markdown[table9a_start:table9a_end]
+        for header in ("供试品", "剂量(mg/kg)", "动物数量", "平均%PCE (±SD)", "平均%MN-PCE (±SD)"):
+            self.assertIn(f"<th>{header}</th>", table9a_region)
+        self.assertIn('<td rowspan="4">MM-180801</td>', table9a_region)
+        self.assertNotIn("colspan=", table9a_region)
 
     def test_page105_genotoxicity_tables_are_single_rendering_owners_not_structure_templates(self) -> None:
         page105_templates = [
@@ -4552,17 +11166,20 @@ class R2RegressionTests(unittest.TestCase):
             "\u62a5\u544a\u6807\u9898\uff1aMM-180801"
         )
         title_index = review_markdown.index(title_marker)
-        row_marker = (
-            "| \u73af\u78f7\u9170\u80fa | 7 | 5M | 51\u00b12.3 | "
-            "2.49\u00b10.30** |"
-        )
-        row_index = review_markdown.index(row_marker)
+        row_marker = "<td>环磷酰胺</td>"
+        micronucleus_title_index = review_markdown.index("**2.6.7.9A")
+        row_index = review_markdown.index(row_marker, micronucleus_title_index)
         self.assertLess(row_index, title_index)
         next_section_index = review_markdown.index("2.6.7.10", title_index)
-        page105_markdown = review_markdown[row_index:next_section_index]
+        page105_markdown = review_markdown[micronucleus_title_index:next_section_index]
 
-        self.assertEqual(page105_markdown.count("\u62a5\u544a\u6807\u9898\uff1aMM-180801"), 1, msg=page105_markdown)
+        self.assertEqual(page105_markdown.count(title_marker), 1, msg=page105_markdown)
         self.assertEqual(page105_markdown.count(row_marker), 1, msg=page105_markdown)
+        row_start = page105_markdown.rfind("<tr>", 0, page105_markdown.index(row_marker))
+        row_end = page105_markdown.index("</tr>", page105_markdown.index(row_marker))
+        row_html = page105_markdown[row_start:row_end]
+        for value in ("7", "5M", "51±2.3", "2.49±0.30**"):
+            self.assertIn(f"<td>{value}</td>", row_html)
         self.assertNotIn("\u7ed3\u6784\u6a21\u677f", page105_markdown)
 
     def test_page106_dmn_genotoxicity_continuation_renders_inside_page105_logical_table(self) -> None:
@@ -4575,21 +11192,18 @@ class R2RegressionTests(unittest.TestCase):
         next_section_index = review_markdown.index("2.6.7.10", title_index)
         region = review_markdown[title_index:next_section_index]
 
-        header_marker = (
-            "| \u4f9b\u8bd5\u54c1 | \u5242\u91cf(mg/kg) | \u52a8\u7269\u6570\u91cf | "
-            "\u65f6\u95f4(h) | \u7ec6\u80de\u6838 \u5e73\u5747\u503c\u00b1SD | "
-            "\u7ec6\u80de\u8d28 \u5e73\u5747\u503c\u00b1SD | NG \u5e73\u5747\u503c\u00b1SD | "
-            "%IR \u5e73\u5747\u503c\u00b1SD | NGIR"
-        )
-        dmn_row = (
-            "| DMN | 10 | 3M | 2 | 10.7\u00b13.0 | 5.8\u00b11.0 | "
-            "4.9\u00b12.1 | 41\u00b115 | 11.4\u00b10.4 |"
-        )
-        last_parent_row = "|  | 2000 | 3M | 16 | 2.7\u00b10.1 | 4.8\u00b10.3 | -2.1\u00b10.3 | 0\u00b10 | - |"
+        header_marker = "<th>供试品</th>"
+        dmn_row = "<td>DMN</td>"
+        last_parent_row = "<td>2.7±0.1</td>"
 
         self.assertEqual(region.count(dmn_row), 1, msg=region)
         self.assertEqual(region.count(header_marker), 1, msg=region)
         self.assertLess(region.index(last_parent_row), region.index(dmn_row), msg=region)
+        dmn_row_start = region.rfind("<tr>", 0, region.index(dmn_row))
+        dmn_row_end = region.index("</tr>", region.index(dmn_row))
+        dmn_row_html = region[dmn_row_start:dmn_row_end]
+        for value in ("10", "3M", "2", "10.7±3.0", "5.8±1.0", "4.9±2.1", "41±15", "11.4±0.4"):
+            self.assertIn(f"<td>{value}</td>", dmn_row_html)
         between_last_parent_row_and_dmn = region[region.index(last_parent_row) : region.index(dmn_row)]
         self.assertNotIn(header_marker, between_last_parent_row_and_dmn, msg=region)
 
@@ -4602,7 +11216,7 @@ class R2RegressionTests(unittest.TestCase):
         title_index = review_markdown.index(title_marker)
         next_section_index = review_markdown.index("2.6.7.10", title_index)
         region = review_markdown[title_index:next_section_index]
-        table_header = "| \u4f9b\u8bd5\u54c1 | \u5242\u91cf(mg/kg) | \u52a8\u7269\u6570\u91cf | \u65f6\u95f4(h) |"
+        table_header = "<th>供试品</th>"
 
         expected_fields = [
             "\u68c0\u6d4b\u7684\u8bf1\u5bfc\u4f5c\u7528\uff1a\u7a0b\u5e8f\u5916DNA \u5408\u6210",
@@ -4630,7 +11244,7 @@ class R2RegressionTests(unittest.TestCase):
         title_index = review_markdown.index(title_marker)
         next_title_index = review_markdown.index("**2.6.7.9B", title_index)
         region = review_markdown[title_index:next_title_index]
-        table_header = "| 供试品 | 剂量(mg/kg) | 动物数量 | 平均%PCE (±SD) | 平均%MN-PCE (±SD) |"
+        table_header = "<th>供试品</th>"
         table_index = region.index(table_header)
         metadata_region = region[:table_index]
 
@@ -4638,7 +11252,13 @@ class R2RegressionTests(unittest.TestCase):
         self.assertNotIn("- 2.6.7.9A 遗传毒性：体内", region, msg=region)
         self.assertIn("检测的诱导作用：骨髓微核", metadata_region, msg=region)
         self.assertIn("试验编号：96683", metadata_region, msg=region)
-        self.assertIn("| 环磷酰胺 | 7 | 5M | 51±2.3 | 2.49±0.30** |", region, msg=region)
+        positive_control = "<td>环磷酰胺</td>"
+        self.assertIn(positive_control, region, msg=region)
+        positive_row_start = region.rfind("<tr>", 0, region.index(positive_control))
+        positive_row_end = region.index("</tr>", region.index(positive_control))
+        positive_row_html = region[positive_row_start:positive_row_end]
+        for value in ("7", "5M", "51±2.3", "2.49±0.30**"):
+            self.assertIn(f"<td>{value}</td>", positive_row_html)
         self.assertNotIn("结构模板", metadata_region, msg=region)
 
     def test_pages105_to_109_result_matrix_continuations_split_new_study_contexts(self) -> None:
@@ -4823,6 +11443,98 @@ class R2RegressionTests(unittest.TestCase):
             markdown,
         )
 
+    def test_page106_carcinogenicity_dose_response_renders_sex_as_multilevel_header(self) -> None:
+        page106_carcinogenicity = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 106
+            and (table.get("semantic_projection_v2") or {}).get("dose_response_result_panel_projection")
+        )
+        raw_text = "\n".join(
+            " | ".join(str(cell or "") for cell in row)
+            for row in page106_carcinogenicity.get("raw_grid", []) or []
+            if isinstance(row, list)
+        )
+        self.assertIn("\u6027\u522b", raw_text)
+        self.assertIn("M | F | M | F", raw_text)
+
+        semantic_header = page106_carcinogenicity.get("semantic_grid", [])[0]
+        self.assertEqual(
+            semantic_header,
+            [
+                "\u65e5\u5242\u91cf(mg/kg)",
+                "0 M",
+                "0 F",
+                "25 M",
+                "25 F",
+                "100 M",
+                "100 F",
+                "400 M",
+                "400 F",
+            ],
+        )
+        projection = (page106_carcinogenicity.get("semantic_projection_v2") or {}).get(
+            "dose_response_result_panel_projection",
+            {},
+        )
+        self.assertTrue(projection.get("has_multilevel_header_spans"), msg=projection)
+        semantic_grid = page106_carcinogenicity.get("semantic_grid", []) or []
+        semantic_lineage = page106_carcinogenicity.get("semantic_row_provenance", []) or []
+        self.assertEqual(len(semantic_lineage), len(semantic_grid))
+        toxicokinetics_index = next(
+            index
+            for index, row in enumerate(semantic_grid)
+            if isinstance(row, list) and str(row[0] or "").strip() == "毒代动力学："
+        )
+        auc_index = next(
+            index
+            for index, row in enumerate(semantic_grid)
+            if isinstance(row, list) and "第28 天AUC" in str(row[0] or "")
+        )
+        structural_ref = next(
+            str(item.get("source_row_ref") or "")
+            for item in page106_carcinogenicity.get("merged_rows", []) or []
+            if isinstance(item, dict) and item.get("kind") == "table_note_title"
+        )
+        self.assertIn(structural_ref, semantic_lineage[toxicokinetics_index]["source_row_refs"])
+        self.assertNotIn(structural_ref, semantic_lineage[auc_index]["source_row_refs"])
+        context_text = "\n".join(
+            block["text"]
+            for block in page106_carcinogenicity.get("study_context_blocks", []) or []
+            if isinstance(block, dict)
+        )
+        self.assertEqual(context_text.count("首次给药日期：1995 年9 月20 日"), 1)
+        self.assertEqual(context_text.count("高剂量选择依据：根据毒性终点"), 1)
+        context_audits = page106_carcinogenicity.get("study_context_transfer_audits", []) or []
+        self.assertTrue(context_audits)
+        self.assertGreater(context_audits[-1]["already_covered_fact_count"], 0)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        title = "2.6.7.10 \u81f4\u764c\u6027 \u62a5\u544a\u6807\u9898\uff1aMM-180801"
+        start = review_markdown.index(title)
+        end = review_markdown.index("2.6.7.11", start)
+        region = review_markdown[start:end]
+        dose_header = '<th rowspan="2">\u65e5\u5242\u91cf(mg/kg)</th>'
+        sex_header = "<th>M</th>\n    <th>F</th>"
+        flattened_header = (
+            "| \u65e5\u5242\u91cf(mg/kg) | 0 M | 0 F | 25 M | 25 F | 100 M | 100 F | 400 M | 400 F |"
+        )
+        self.assertIn(dose_header, region, msg=region)
+        self.assertIn(sex_header, region, msg=region)
+        self.assertLess(region.index(dose_header), region.index(sex_header), msg=region)
+        for dose in ("0", "25", "100", "400"):
+            self.assertIn(f'<th colspan="2">{dose}</th>', region, msg=region)
+        self.assertNotIn(flattened_header, region, msg=region)
+        auc_cell_index = region.index("<td>第28 天AUC(µg-h/mla)</td>")
+        auc_row_start = region.rindex("<tr>", 0, auc_cell_index)
+        auc_row_end = region.index("</tr>", auc_cell_index)
+        auc_row = region[auc_row_start:auc_row_end]
+        for value in ("10", "12", "40", "48", "815", "570"):
+            self.assertIn(f"<td>{value}</td>", auc_row, msg=auc_row)
+        self.assertEqual(auc_row.count("<td>-</td>"), 2, msg=auc_row)
+        self.assertEqual(region.count("<td>毒代动力学：</td>"), 1, msg=region)
+        self.assertNotIn("| 毒代动力学： |", region, msg=region)
+
     def test_pages107_to_113_table_owned_statistical_notes_do_not_leak_to_body(self) -> None:
         pages_by_number = {
             int(page.get("page", 0) or 0): page
@@ -4934,6 +11646,51 @@ class R2RegressionTests(unittest.TestCase):
         self.assertIn("94201", page109_markdown)
         self.assertIn("97020", page109_markdown)
         self.assertEqual(page109_markdown.count("2.6.7.11"), 1, msg=page109_markdown)
+
+    def test_page109_reproductive_summary_preserves_wrapped_method_header_and_vehicles(self) -> None:
+        table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 109
+            and (table.get("semantic_projection_v2") or {})
+            .get("toxicology_summary_schema_projection", {})
+            .get("schema_variant")
+            == "other_toxicity_summary"
+        )
+        semantic_grid = table.get("semantic_grid") or []
+        self.assertEqual(
+            semantic_grid[0],
+            [
+                "种属/品系",
+                "给药方法(溶媒/剂型)",
+                "给药期限",
+                "剂量(mg/kg)",
+                "性别和数量/组",
+                "值得注意的结果",
+                "试验编号",
+            ],
+        )
+        wistar_row = next(row for row in semantic_grid if row[0] == "Wistar 大鼠")
+        rabbit_row = next(row for row in semantic_grid if row[0] == "新西兰兔")
+        self.assertEqual(wistar_row[1], "灌胃(水)")
+        self.assertEqual(wistar_row[2], "G6~G15")
+        self.assertEqual(rabbit_row[1], "灌胃(CMC 混悬剂)")
+        self.assertEqual(rabbit_row[2], "13 天")
+        self.assertNotIn("CMC 混悬剂", rabbit_row[5])
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        page109_start = review_markdown.index(
+            "2.6.7.11 生殖毒性 非关键试验 供试品：曲醇钠"
+        )
+        page110_start = review_markdown.index("2.6.7.12", page109_start)
+        region = review_markdown[page109_start:page110_start]
+        self.assertIn(
+            "| 种属/品系 | 给药方法(溶媒/剂型) | 给药期限 | 剂量(mg/kg) | "
+            "性别和数量/组 | 值得注意的结果 | 试验编号 |",
+            region,
+        )
+        self.assertIn("| Wistar 大鼠 | 灌胃(水) | G6~G15 |", region)
+        self.assertIn("| 新西兰兔 | 灌胃(CMC 混悬剂) | 13 天 |", region)
 
     def test_page108_carcinogenicity_sparse_male_pathology_row_is_preserved(self) -> None:
         table = next(
@@ -5227,10 +11984,29 @@ class R2RegressionTests(unittest.TestCase):
             "continuation_chain::tbl_recovered_103_01",
             components_by_type["result_tables"].get("continuation_chain_ids", []) or [],
         )
-        self.assertIn(
-            "structure_template_053",
-            components_by_type["suppressed_sources"].get("source_object_ids", []) or [],
-        )
+        suppressed_component = components_by_type["suppressed_sources"]
+        suppressed_source_ids = suppressed_component.get("source_object_ids", []) or []
+        self.assertTrue(suppressed_source_ids, msg=suppressed_component)
+        templates_by_id = {
+            str(template.get("structure_template_id") or ""): template
+            for template in self.result.get("structure_templates", []) or []
+            if str(template.get("structure_template_id") or "")
+        }
+        for source_id in suppressed_source_ids:
+            source_template = templates_by_id.get(str(source_id))
+            self.assertIsNotNone(source_template, msg=source_id)
+            self.assertEqual(
+                source_template.get("ownership_domain"),
+                "absorbed_by_business_table",
+            )
+            self.assertIn(
+                source_template.get("absorbed_by_table_id"),
+                suppressed_component.get("owner_table_ids", []) or [],
+            )
+            self.assertIn(
+                source_template.get("page"),
+                suppressed_component.get("source_pages", []) or [],
+            )
 
     def test_ind_architecture_study_titles_bind_to_source_objects_when_text_block_is_absent(self) -> None:
         architecture = self.result.get("ind_architecture")
@@ -5253,12 +12029,31 @@ class R2RegressionTests(unittest.TestCase):
             self.assertTrue(component.get("source_object_ids"), msg=component)
             return component
 
+        def assert_sources_are_absorbed_by_title_owner(component: dict) -> None:
+            owner_table_ids = component.get("owner_table_ids", []) or []
+            templates_by_id = {
+                str(template.get("structure_template_id") or ""): template
+                for template in self.result.get("structure_templates", []) or []
+                if str(template.get("structure_template_id") or "")
+            }
+            for source_id in component.get("source_object_ids", []) or []:
+                source_template = templates_by_id.get(str(source_id))
+                self.assertIsNotNone(source_template, msg=source_id)
+                self.assertEqual(
+                    source_template.get("ownership_domain"),
+                    "absorbed_by_business_table",
+                )
+                self.assertIn(
+                    source_template.get("absorbed_by_table_id"),
+                    owner_table_ids,
+                )
+
         dna_title = title_component("2.6.7.9B")
-        self.assertIn("structure_template_054", dna_title.get("source_object_ids", []) or [])
+        assert_sources_are_absorbed_by_title_owner(dna_title)
         self.assertIn("preceding_ctd_study_title_bound_to_genotoxicity_table", dna_title.get("source_reasons", []) or [])
 
         fertility_title = title_component("2.6.7.12")
-        self.assertIn("structure_template_057", fertility_title.get("source_object_ids", []) or [])
+        assert_sources_are_absorbed_by_title_owner(fertility_title)
         self.assertIn("absorbed_structure_template_ids", fertility_title.get("source_reasons", []) or [])
 
     def test_ind_architecture_exposes_render_consumption_audit(self) -> None:
@@ -5346,13 +12141,39 @@ class R2RegressionTests(unittest.TestCase):
         self.assertTrue(
             any(
                 item.get("reason") == "guidance_template_example_continuation_heading"
-                and "2.6.7.14" in str(item.get("title") or "")
+                and "2.6.7.7A" in str(item.get("title") or "")
                 and item.get("document_kind") == "guidance_template_example"
                 and item.get("allowance_basis") == "guidance_template_example_document"
                 for item in allowed_heading_duplicates
                 if isinstance(item, dict)
             ),
             msg=audit,
+        )
+        table_image_duplicate = next(
+            item
+            for item in allowed_heading_duplicates
+            if item.get("reason") == "table_image_title_repetition"
+            and "2.6.7.3 毒代动力学" in str(item.get("title") or "")
+        )
+        self.assertEqual(table_image_duplicate.get("pages"), [92, 93], msg=table_image_duplicate)
+        self.assertEqual(
+            table_image_duplicate.get("template_profiles"),
+            ["table_title", "image_above_title"],
+            msg=table_image_duplicate,
+        )
+        self.assertEqual(
+            table_image_duplicate.get("ownership_domains"),
+            ["business_table", "figure"],
+            msg=table_image_duplicate,
+        )
+        table_image_sources = table_image_duplicate.get("source_objects") or []
+        self.assertTrue(
+            any(str(source.get("source_object_id") or "") == "tbl_037" for source in table_image_sources),
+            msg=table_image_duplicate,
+        )
+        self.assertTrue(
+            any(str(source.get("source_object_id") or "") == "img_p93_001" for source in table_image_sources),
+            msg=table_image_duplicate,
         )
         self.assertEqual(
             _normalize_ind_review_visibility_text(review_markdown).count(
@@ -5483,6 +12304,50 @@ class R2RegressionTests(unittest.TestCase):
         self.assertEqual(page110_context_markdown.count("F0 \u96c4\u6027\uff1a100 mg/kg"), 1, msg=page110_context_markdown)
         self.assertEqual(review_markdown.count(title_marker), 1, msg=page110_context_markdown)
 
+    def test_page110_dose_response_note_subsegments_do_not_render_twice(self) -> None:
+        table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 110
+            and "2.6.7.12" in str(table.get("title") or "")
+            and (table.get("semantic_projection_v2") or {})
+            .get("dose_response_result_panel_projection", {})
+            .get("semantic_profile")
+            == "dose_response_result_panel"
+        )
+        note_texts = [
+            str(note.get("text") or "")
+            for note in table.get("note_blocks", []) or []
+            if isinstance(note, dict)
+        ]
+        self.assertTrue(
+            any(
+                "\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c" in text
+                and "Dunnett \u6c0f\u68c0\u9a8c" in text
+                and "\u8bd5\u9a8c\u7f16\u53f794220" in text
+                for text in note_texts
+            ),
+            msg=note_texts,
+        )
+        self.assertTrue(
+            any(text == "Dunnett \u6c0f\u68c0\u9a8c\uff1a*-p<0.05 **-p<0.01" for text in note_texts),
+            msg=note_texts,
+        )
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        title_marker = "**2.6.7.12 \u751f\u6b96\u6bd2\u6027- \u62a5\u544a\u6807\u9898\uff1aMM-180801"
+        title_index = review_markdown.index(title_marker)
+        next_title_index = review_markdown.index("**2.6.7.12 \u751f\u6b96\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7\uff1a97072", title_index)
+        page110_region = review_markdown[title_index:next_title_index]
+        legend_prefix = (
+            "-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c +\u8f7b\u5ea6 ++\u4e2d\u5ea6 +++\u663e\u8457 "
+            "Dunnett \u6c0f\u68c0\u9a8c\uff1a*-p<0.05 **-p<0.01"
+        )
+        stats_note = "Dunnett \u6c0f\u68c0\u9a8c\uff1a*-p<0.05 **-p<0.01"
+        self.assertEqual(page110_region.count(legend_prefix), 1, msg=page110_region)
+        self.assertEqual(page110_region.count(stats_note), 1, msg=page110_region)
+        self.assertNotIn(f"\n{stats_note}\n", page110_region, msg=page110_region)
+
     def test_page114_perinatal_panel_absorbs_populated_metadata_template(self) -> None:
         page114_templates = [
             template
@@ -5532,6 +12397,40 @@ class R2RegressionTests(unittest.TestCase):
         self.assertIn("| \u65e5\u5242\u91cf(mg/kg) | 0(\u5bf9\u7167) | 7.5 | 75 | 750 |", page114_markdown)
         self.assertIn("F0\u96cc\u6027\uff1a\u6bd2\u4ee3\u52a8\u529b\u5b66\uff1aAUC", page114_markdown)
 
+    def test_page114_context_facts_do_not_repeat_after_f1_female_result(self) -> None:
+        table = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 114
+            and str(table.get("table_id") or "") == "tbl_059"
+        )
+        context_text = "\n".join(
+            str(block.get("text") or "")
+            for block in table.get("study_context_blocks", []) or []
+            if isinstance(block, dict)
+        )
+        combined_row = (
+            "首次给药日期：1995 年10 月8 日 "
+            "剔除/未剔除的仔鼠：淘汰到4 只/性别/窝 GLP 依从性：是"
+        )
+        self.assertIn(combined_row, context_text)
+        self.assertEqual(context_text.count("首次给药日期：1995 年10 月8 日"), 1)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        title_marker = "**2.6.7.14 生殖毒性- 报告标题：MM-180801"
+        title_index = review_markdown.index(title_marker)
+        next_title_index = review_markdown.index(
+            "**2.6.7.14 生殖毒性 试验编号",
+            title_index + 1,
+        )
+        page114_markdown = review_markdown[title_index:next_title_index]
+        self.assertEqual(page114_markdown.count("首次给药日期：1995 年10 月8 日"), 1)
+        f1_female_index = page114_markdown.index("F1 雌性：75 mg/kg")
+        self.assertNotIn(
+            "- 首次给药日期：1995 年10 月8 日",
+            page114_markdown[f1_female_index:],
+        )
+
     def test_page114_coverage_audit_ignores_headers_and_statistical_notes(self) -> None:
         table = next(
             table
@@ -5556,6 +12455,98 @@ class R2RegressionTests(unittest.TestCase):
         self.assertNotIn("Dunnett", unprojected_text)
         self.assertNotIn("Kruskal-Wallis", unprojected_text)
         self.assertNotIn("Column 2", unprojected_text)
+
+    def test_pages111_to_116_table_notes_render_in_physical_order_without_duplicate_fragments(self) -> None:
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        headings = [
+            "**2.6.7.12 \u751f\u6b96\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7\uff1a97072(\u7eed)",
+            "**2.6.7.13 (1)\u751f\u6b96\u6bd2\u6027- \u62a5\u544a\u6807\u9898\uff1aMM-180801",
+            "**2.6.7.13 \u751f\u6b96\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7\uff1a97028(\u7eed)",
+            "**2.6.7.14 \u751f\u6b96\u6bd2\u6027- \u62a5\u544a\u6807\u9898\uff1aMM-180801",
+            "**2.6.7.14 \u751f\u6b96\u6bd2\u6027 \u8bd5\u9a8c\u7f16\u53f7\uff1a95201(\u7eed)",
+            "**2.6.7.17 \u5176\u4ed6\u6bd2\u6027\u8bd5\u9a8c",
+        ]
+        starts = []
+        search_from = 0
+        for heading in headings:
+            start = review_markdown.index(heading, search_from)
+            starts.append(start)
+            search_from = start + len(heading)
+        regions = [
+            review_markdown[starts[index] : starts[index + 1]]
+            for index in range(len(starts) - 1)
+        ]
+        page115_116_region = regions[4]
+        split_anchor = "| F1 \u96cc\u6027\uff1a\u79bb\u4e73\u540e\u8bc4\u4ef7\u52a8\u7269\u6570 |"
+        self.assertIn(split_anchor, page115_116_region)
+        page115_region, page116_region = page115_116_region.split(split_anchor, 1)
+        page116_region = f"{split_anchor}{page116_region}"
+        regions = [*regions[:4], page115_region, page116_region]
+        expected_note_runs = [
+            [
+                "-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c +\u8f7b\u5ea6 ++\u4e2d\u5ea6 +++\u663e\u8457",
+                "Dunnett \u6c0f\u68c0\u9a8c\uff1a*-p<0.05 **-p<0.01",
+                "a \u2013\u4ea4\u914d\u524d\u6216\u598a\u5a20\u671f\u7ed3\u675f\u65f6",
+                "b \u2013\u6765\u81ea\u8bd5\u9a8c\u7f16\u53f794220",
+            ],
+            [
+                "-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c +\u8f7b\u5ea6 ++\u4e2d\u5ea6 +++\u663e\u8457G=\u598a\u5a20\u65e5",
+                "Dunnett \u6c0f\u68c0\u9a8c\uff1a*-p<0.05 **-p<0.01",
+                "a-\u7ed9\u836f\u7ed3\u675f\u65f6",
+                "b \u2013\u6765\u81ea\u8bd5\u9a8c\u7f16\u53f797231",
+            ],
+            [
+                "-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c",
+                "Fisher \u7cbe\u786e\u68c0\u9a8c *-p<0.05 **-p<0.01",
+            ],
+            [
+                "-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c +\u8f7b\u5ea6 ++\u4e2d\u5ea6 +++\u663e\u8457G=\u598a\u5a20\u65e5",
+                "Dunnett \u6c0f\u68c0\u9a8c*-p<0.05 **-p<0.01 L=\u54fa\u4e73\u65e5",
+                "a-\u598a\u5a20\u671f\u6216\u54fa\u4e73\u671f\u7ed3\u675f\u65f6",
+                "b \u2013\u6765\u81ea\u8bd5\u9a8c\u7f16\u53f797227",
+            ],
+            [
+                "-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c +\u8f7b\u5ea6 ++\u4e2d\u5ea6 +++\u663e\u8457",
+                "Dunnett \u6c0f\u68c0\u9a8c *-p<0.05 **-p<0.01",
+                "Kruskal-Wallis \u52a0Dunn \u6c0f\u68c0\u9a8c+ - p<0.05 ++ -p<0.01",
+                "a-\u4ece\u51fa\u751f\u5230\u79bb\u4e73",
+                "b-\u4ece\u79bb\u4e73\u5230\u4ea4\u914d",
+            ],
+            [
+                "-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c +\u8f7b\u5ea6 ++\u4e2d\u5ea6 +++\u663e\u8457",
+                "Dunnett \u6c0f\u68c0\u9a8c *-p<0.05 **-p<0.01",
+                "a-\u4ece\u79bb\u4e73\u5230\u4ea4\u914d",
+                "b\u2013\u79bb\u4e73\u540e\u671f\u95f4",
+            ],
+        ]
+        for region, expected_tokens in zip(regions, expected_note_runs, strict=True):
+            previous = -1
+            for token in expected_tokens:
+                current = region.find(token)
+                self.assertGreater(current, previous, msg=region)
+                previous = current
+            for line in region.splitlines():
+                if any(
+                    token in line
+                    for token in (
+                        "Dunnett \u6c0f\u68c0\u9a8c",
+                        "Fisher \u7cbe\u786e\u68c0\u9a8c",
+                        "Kruskal-Wallis",
+                        "-\u65e0\u503c\u5f97\u6ce8\u610f\u7684\u7ed3\u679c",
+                    )
+                ):
+                    self.assertFalse(line.startswith("|"), msg=line)
+        duplicate_checks = [
+            (regions[1], "a-\u7ed9\u836f\u7ed3\u675f\u65f6"),
+            (regions[1], "b \u2013\u6765\u81ea\u8bd5\u9a8c\u7f16\u53f797231"),
+            (regions[2], "Fisher \u7cbe\u786e\u68c0\u9a8c"),
+            (regions[3], "a-\u598a\u5a20\u671f\u6216\u54fa\u4e73\u671f\u7ed3\u675f\u65f6"),
+            (regions[3], "b \u2013\u6765\u81ea\u8bd5\u9a8c\u7f16\u53f797227"),
+            (regions[4], "b-\u4ece\u79bb\u4e73\u5230\u4ea4\u914d"),
+            (regions[5], "b\u2013\u79bb\u4e73\u540e\u671f\u95f4"),
+        ]
+        for region, token in duplicate_checks:
+            self.assertEqual(region.count(token), 1, msg=region)
 
     def test_page104_genotoxicity_audit_matches_carry_forward_semantic_rows(self) -> None:
         table = next(
@@ -5761,6 +12752,121 @@ class R2RegressionTests(unittest.TestCase):
         self.assertIn("2.6.7.9B", title_text)
         self.assertIn("DNA", title_text)
         self.assertIn("\u635f\u4f24\u4fee\u590d\u8bd5\u9a8c", title_text)
+        body_spans = [
+            span
+            for span in dna_table.get("cell_spans", []) or []
+            if isinstance(span, dict) and span.get("role") == "body"
+        ]
+        self.assertEqual(
+            [
+                (
+                    span.get("row"),
+                    span.get("col"),
+                    span.get("rowspan"),
+                    span.get("colspan"),
+                    span.get("text"),
+                )
+                for span in body_spans
+            ],
+            [(2, 0, 8, 1, "MM-180801")],
+        )
+        self.assertEqual(body_spans[0].get("source_pages"), [105])
+        self.assertEqual(body_spans[0].get("source_table_ids"), [dna_table.get("table_id")])
+
+        lines: list[str] = []
+        api_main._append_markdown_table(
+            lines,
+            dna_table,
+            table_export_mode="evidence_markdown",
+        )
+        self.assertIn('<td rowspan="8">MM-180801</td>', "\n".join(lines))
+
+    def test_pages105_to_106_dna_repair_definition_notes_render_and_link_to_headers(self) -> None:
+        dna_parent = next(
+            table
+            for table in self.result.get("table_asts", []) or []
+            if int(table.get("page", 0) or 0) == 105
+            and (table.get("semantic_projection_v2") or {})
+            .get("genotoxicity_assay_matrix_projection", {})
+            .get("assay_kind")
+            == "dna_repair_matrix"
+        )
+        dna_continuation = next(
+            (
+                table
+                for table in self.result.get("table_asts", []) or []
+                if int(table.get("page", 0) or 0) == 106
+                and table.get("continued_from_table_id") == dna_parent.get("table_id")
+            ),
+            None,
+        )
+        self.assertIsNotNone(dna_continuation)
+
+        expected_definitions = {
+            "\u7ec6\u80de\u6838": "\u7ec6\u80de\u6838=\u6838\u7c92\u6570\uff0c\u7ec6\u80de\u6838\u4e0a\u7684\u9897\u7c92\u6570",
+            "\u7ec6\u80de\u8d28": "\u7ec6\u80de\u8d28=\u80de\u8d28\u7c92\u6570\uff0c\u90bb\u8fd1\u7ec6\u80de\u6838\u7684\u4e24\u4e2a\u7ec6\u80de\u6838\u9762\u79ef\u5927\u5c0f\u7684\u6700\u9ad8\u7c92\u6570\u3002",
+            "NG": "NG=\u51c0\u7c92\u6570/\u6838\u6570\uff1b\u6838\u6570-\u7ec6\u80de\u8d28\u6570\u3002",
+            "%IR": "%IR=\u81f3\u5c11\u4e3a5 NG \u7684\u7ec6\u80de\u767e\u5206\u6bd4\u3002",
+            "NGIR": "NGIR=\u4fee\u590d\u7ec6\u80de\u7684\u5e73\u5747\u51c0\u7c92\u6570/\u6838\u6570",
+        }
+        notes_by_text = {
+            str(note.get("text") or ""): note
+            for note in dna_continuation.get("note_blocks", []) or []
+            if isinstance(note, dict)
+        }
+        for term, note_text in expected_definitions.items():
+            note = notes_by_text.get(note_text)
+            self.assertIsNotNone(note, msg=notes_by_text)
+            profile = note.get("note_profile") or {}
+            self.assertEqual(profile.get("profile_type"), "definition_note", msg=note)
+            self.assertEqual(profile.get("term"), term, msg=note)
+            self.assertEqual(profile.get("definition"), note_text.split("=", 1)[1], msg=note)
+
+        definition_refs = [
+            ref
+            for table in (dna_parent, dna_continuation)
+            for ref in table.get("header_definition_refs", []) or []
+            if isinstance(ref, dict)
+        ]
+        for term, note_text in expected_definitions.items():
+            matches = [
+                ref
+                for ref in definition_refs
+                if ref.get("term") == term
+                and ref.get("definition") == note_text.split("=", 1)[1]
+                and term in str(ref.get("header_text") or "")
+            ]
+            self.assertTrue(matches, msg=(term, definition_refs))
+
+        false_marker_refs = [
+            ref
+            for table in (dna_parent, dna_continuation)
+            for ref in (table.get("header_note_refs", []) or []) + (table.get("cell_note_refs", []) or [])
+            if isinstance(ref, dict)
+            and ref.get("marker") == "N"
+            and str(ref.get("note_text") or "").startswith(("NG=", "NGIR="))
+            and "DMN" in str(ref.get("header_text") or ref.get("cell_text") or "")
+        ]
+        self.assertEqual(false_marker_refs, [])
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        title_marker = (
+            "**2.6.7.9B \u9057\u4f20\u6bd2\u6027\uff1a\u4f53\u5185 "
+            "\u62a5\u544a\u6807\u9898\uff1aMM-180801"
+        )
+        title_index = review_markdown.index(title_marker)
+        next_section_index = review_markdown.index("2.6.7.10", title_index)
+        region = review_markdown[title_index:next_section_index]
+
+        previous_index = -1
+        for note_text in expected_definitions.values():
+            rendered_line = f"\n{note_text}\n"
+            self.assertIn(rendered_line, region, msg=region)
+            current_index = region.index(note_text)
+            self.assertGreater(current_index, previous_index, msg=region)
+            previous_index = current_index
+        joined_paragraph = " ".join(expected_definitions.values())
+        self.assertNotIn(joined_paragraph, region, msg=region)
 
     def test_pages106_to_116_dose_response_panels_project_logical_schema_and_inherit_continuations(self) -> None:
         def page_tables(page: int) -> list[dict]:
@@ -5940,6 +13046,22 @@ class R2RegressionTests(unittest.TestCase):
         )
         self.assertIn("与ICH 4.1.3", study_context_text)
         self.assertIn("剖腹产日", study_context_text)
+        context_lines = [
+            str(block.get("text") or "")
+            for block in table.get("study_context_blocks", []) or []
+            if isinstance(block, dict) and str(block.get("text") or "").strip()
+        ]
+        self.assertEqual(
+            sum("种属/品系：新西兰兔" in line for line in context_lines),
+            1,
+            msg=context_lines,
+        )
+        self.assertEqual(
+            sum("剖腹产日：G29" in line for line in context_lines),
+            1,
+            msg=context_lines,
+        )
+        self.assertEqual(context_lines[-1], "F1 仔畜：5 mg/kg", msg=context_lines)
 
         page112_templates = [
             template
@@ -6158,7 +13280,7 @@ class R2RegressionTests(unittest.TestCase):
                     )
         self.assertEqual(violations, [])
 
-    def test_page87_bile_excretion_study_panel_owns_metadata_and_top_note(self) -> None:
+    def test_page87_bile_excretion_study_panel_excludes_prior_occurrence_and_owns_page88_note(self) -> None:
         page87_templates = [
             template
             for template in self.result.get("structure_templates", []) or []
@@ -6192,9 +13314,15 @@ class R2RegressionTests(unittest.TestCase):
         )
         for expected in ("排泄途径(4)", "胆汁", "尿液", "合计", "0-48 h", "83", "99"):
             self.assertIn(expected, grid_text)
-        note_text = " ".join(str(note.get("text", "")) for note in page87_table.get("note_blocks", []) or [])
-        self.assertIn("总放射性", note_text)
-        self.assertIn("14C", note_text)
+        radioactivity_notes = [
+            note
+            for note in page87_table.get("note_blocks", []) or []
+            if isinstance(note, dict) and "总放射性" in str(note.get("text") or "")
+        ]
+        self.assertEqual(len(radioactivity_notes), 1, msg=page87_table.get("note_blocks", []))
+        self.assertEqual(radioactivity_notes[0].get("logical_owner_page"), 87)
+        self.assertEqual(radioactivity_notes[0].get("physical_page"), 88)
+        self.assertEqual(radioactivity_notes[0].get("note_scope"), "previous_table")
         projection = (
             page87_table.get("semantic_projection_v2", {}) or {}
         ).get("study_condition_grouped_result_matrix_projection", {})
@@ -6216,14 +13344,14 @@ class R2RegressionTests(unittest.TestCase):
             page87_table.get("semantic_grid", [])[1],
             ["0-2 h", "37", "-", "37", "75", "-", "75"],
         )
+        anchor_groups = projection.get("condition_groups", []) or []
         self.assertTrue(
             any(
-                ref.get("marker") == "a"
-                and "TRA" in str(ref.get("cell_text") or ref.get("anchor_text") or "")
-                and "总放射性" in str(ref.get("note_text", ""))
-                for ref in (page87_table.get("cell_note_refs", []) or []) + (page87_table.get("header_note_refs", []) or [])
+                str((group.get("descriptors") or {}).get("分析物") or "") == "TRAa"
+                for group in anchor_groups
+                if isinstance(group, dict)
             ),
-            msg=f"missing page87 TRA marker ref in {page87_table.get('cell_note_refs', [])!r} / {page87_table.get('header_note_refs', [])!r}",
+            msg=anchor_groups,
         )
 
         page87_ast = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 87)
@@ -6265,17 +13393,62 @@ class R2RegressionTests(unittest.TestCase):
         )
         semantic_grid = page88_table.get("semantic_grid") or []
         self.assertEqual(len(semantic_grid[0]), 10)
-        self.assertEqual(semantic_grid[1][6], "Sponsor Inc.")
-        self.assertEqual(semantic_grid[2][6], "CRO Co.")
+        self.assertEqual(semantic_grid[0][-2:], ["位置", "位置"])
+        self.assertEqual(semantic_grid[1], ["", "", "", "", "", "", "", "", "卷", "页码"])
+        self.assertEqual(semantic_grid[2][6], "Sponsor Inc.")
+        self.assertEqual(semantic_grid[3][6], "CRO Co.")
         projection = (
             page88_table.get("semantic_projection_v2", {}) or {}
         ).get("overview_inventory_schema_projection", {})
         self.assertEqual(projection.get("semantic_profile"), "nonclinical_overview_inventory_table")
         self.assertEqual(projection.get("logical_column_count"), 10)
+        self.assertEqual(
+            projection.get("leaf_columns"),
+            ["试验类型", "种属和品系", "给药方法", "给药期限", "剂量(mg/kga)", "GLP依从性", "试验机构", "试验编号", "卷", "页码"],
+        )
+        location_group = next(
+            (
+                group
+                for group in projection.get("header_column_groups", []) or []
+                if str(group.get("text") or "").replace(" ", "") == "位置"
+            ),
+            None,
+        )
+        self.assertIsNotNone(location_group, msg=projection.get("header_column_groups", []))
+        self.assertEqual(
+            (
+                location_group.get("start_leaf_col"),
+                location_group.get("end_leaf_col"),
+                location_group.get("colspan"),
+                location_group.get("child_headers"),
+            ),
+            (8, 9, 2, ["卷", "页码"]),
+        )
+        self.assertTrue(
+            any(
+                span.get("text") == "位置"
+                and span.get("col") == 8
+                and span.get("colspan") == 2
+                for span in page88_table.get("span_header_cells", []) or []
+                if isinstance(span, dict)
+            ),
+            msg=page88_table.get("span_header_cells", []),
+        )
         self.assertIn("0、62.5、250、1000、 4000、7000", semantic_text)
         self.assertIn("鼠伤寒沙门氏 菌和大肠杆菌", semantic_text)
         self.assertIn("0、500、1000、2500 和/或5000 µg/皿", semantic_text)
         self.assertIn("0、2.5、5、10、20 和 40 µg/皿", semantic_text)
+
+        review_markdown = _build_full_markdown([self.result], markdown_profile="ind-review")
+        data_anchor = '<td rowspan="4">单次给药毒性</td>'
+        data_index = review_markdown.index(data_anchor)
+        header_region = review_markdown[max(0, data_index - 1200):data_index]
+        self.assertIn('<th colspan="2">位置</th>', header_region)
+        self.assertIn("<th>卷</th>", header_region)
+        self.assertIn("<th>页码</th>", header_region)
+        first_row_end = review_markdown.index("</tr>", data_index)
+        first_row_html = review_markdown[data_index:first_row_end]
+        self.assertIn('<td rowspan="2">CD-1 小鼠</td>', first_row_html)
 
         page88_ast = next(page for page in self.result["document_ast"]["pages"] if page["page"] == 88)
         body_text = "\n".join(

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ind-compliance-ai.local/schemas/ectd/ectd-path-naming-contract.schema.json",
+  "title": "eCTD Path and Name Contract",
+  "type": "object",
+  "required": ["schema_version", "source", "allowed_characters", "path_character_pattern", "max_sequence_relative_path_length", "max_name_segment_length", "xml_skeleton_reference_required", "unknown_name_action"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "ectd-path-naming-contract-v1" },
+    "source": {
+      "type": "object",
+      "required": ["regulation_id", "clause", "table", "source_path"],
+      "properties": {
+        "regulation_id": { "type": "string", "const": "cn_ectd_technical_specification" },
+        "clause": { "type": "string", "const": "3.3.2" },
+        "table": { "type": "string", "const": "5" },
+        "source_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "allowed_characters": { "type": "string", "const": "a-z0-9-_" },
+    "path_character_pattern": { "type": "string" },
+    "max_sequence_relative_path_length": { "type": "integer", "const": 180 },
+    "max_name_segment_length": { "type": "integer", "const": 64 },
+    "xml_skeleton_reference_required": { "type": "boolean", "const": true },
+    "unknown_name_action": { "type": "string", "const": "fail" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal eCTD backbone placeholder. Populate sequence metadata and leaf references for a real submission. -->
+<ectd xmlns="http://www.ich.org/ectd" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <submission>
+    <application-number>x202112345</application-number>
+    <sequence>0000</sequence>
+  </submission>
+</ectd>

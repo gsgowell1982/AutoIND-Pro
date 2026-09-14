@@ -74,10 +74,20 @@ export function resolveWorkbenchReviewScope(workbench) {
   const demoSample = workbench.demo_sample ?? null
   const isControlledDemo = demoSample?.synthetic === true
   const pdfDocument = workbench.pdf_document ?? null
+  const packageInventory = workbench.package_inventory ?? null
+  const declaredReviewScope = String(workbench.review_scope ?? '').trim().toLowerCase()
   const uploadOverview = getUploadOverview(workbench)
   const overviewFileCount = asNumber(uploadOverview?.file_count)
+  const inventoryFileCount = asArray(packageInventory?.file_paths).length
   const hasSinglePdf = Boolean(pdfDocument?.filename)
-  const fileCount = overviewFileCount > 0 ? overviewFileCount : hasSinglePdf ? 1 : 0
+  const fileCount = overviewFileCount > 0
+    ? overviewFileCount
+    : inventoryFileCount > 0
+      ? inventoryFileCount
+      : hasSinglePdf
+        ? 1
+        : 0
+  const isProjectReview = Boolean(packageInventory) || declaredReviewScope === 'sequence' || declaredReviewScope === 'application'
 
   if (isControlledDemo) {
     return {
@@ -90,7 +100,7 @@ export function resolveWorkbenchReviewScope(workbench) {
     }
   }
 
-  if (hasSinglePdf && fileCount <= 1) {
+  if (!isProjectReview && hasSinglePdf && fileCount <= 1) {
     return {
       mode: 'single_file',
       filename: pdfDocument.filename,
@@ -102,12 +112,12 @@ export function resolveWorkbenchReviewScope(workbench) {
   }
 
   return {
-    mode: fileCount > 1 ? 'project' : 'unknown',
+    mode: isProjectReview || fileCount > 1 ? 'project' : 'unknown',
     filename: pdfDocument?.filename ?? null,
     fileCount,
     isControlledDemo: false,
     isSingleFile: false,
-    isProjectReview: fileCount > 1,
+    isProjectReview: isProjectReview || fileCount > 1,
   }
 }
 
