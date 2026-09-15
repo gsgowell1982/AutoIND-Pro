@@ -48,6 +48,7 @@ import {
   getRuleCheckStatusFilterOptions,
   type RuleCheckStatusFilter,
 } from '../ruleCheckFilters.js'
+import { EctdMetadataViolationDetails } from './EctdMetadataViolationDetails'
 import {
   buildEndToEndNavigationAuditChain,
   resolveEndToEndRuleNavigationVerification,
@@ -80,6 +81,7 @@ import type {
 import { ProjectPackageTree } from './ProjectPackageTree'
 import { ProjectFindingLayersPanel } from './ProjectFindingLayersPanel'
 import { PdfPresentationContract } from './PdfPresentationContract'
+import { ForeignReferenceContract } from './ForeignReferenceContract'
 
 interface AuditWorkbenchProps {
   workbench: WorkbenchPayload | null
@@ -674,7 +676,12 @@ function renderRuleDetails(
           ) : null}
         </div>
       ) : null}
+      {/* eCTD元数据生命周期耦合和跨模块一致性规则的专门展示 */}
+      {(rule.rule_id === 'HR-ECTD-200' || rule.rule_id === 'HR-ECTD-201') && rule.status === 'fail' ? (
+        <EctdMetadataViolationDetails rule={rule} />
+      ) : null}
       <PdfPresentationContract contract={details.pdf_presentation_contract ?? null} />
+      <ForeignReferenceContract contract={details.foreign_reference_contract ?? null} />
       {(details.matched_documents ?? []).length > 0 ? (
         <div className="rule-detail-block">
           <Typography.Text strong>原文件定位</Typography.Text>

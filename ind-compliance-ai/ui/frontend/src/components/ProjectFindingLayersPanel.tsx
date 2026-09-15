@@ -5,6 +5,7 @@ import { buildProjectFindingLayers } from '../projectFindingLayers.js'
 import type { ProjectFindingLayer } from '../projectFindingLayers.js'
 import type { WorkbenchPayload } from '../types'
 import { PdfPresentationContract } from './PdfPresentationContract'
+import { ForeignReferenceContract } from './ForeignReferenceContract'
 
 interface ProjectFindingLayersPanelProps {
   workbench: WorkbenchPayload
@@ -132,6 +133,13 @@ function FindingList({
                 contract={
                   finding.details && typeof finding.details === 'object'
                     ? ((finding.details as FindingRecord).pdf_presentation_contract as Record<string, unknown> | undefined)
+                    : null
+                }
+              />
+              <ForeignReferenceContract
+                contract={
+                  finding.details && typeof finding.details === 'object'
+                    ? ((finding.details as FindingRecord).foreign_reference_contract as Record<string, unknown> | undefined)
                     : null
                 }
               />

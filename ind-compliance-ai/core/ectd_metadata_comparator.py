@@ -232,35 +232,16 @@ class ECTDMetadataComparator:
             section_lifecycle_tracking=section_lifecycle_tracking
         )
 
-        # 使用第一个leaf分析作为代表（简化处理）
-        # 在实际场景中，可能需要汇总所有leaf的分析结果
-        from core.ectd_leaf_operation_analyzer import LeafOperationAnalysis
-        if leaf_analyses:
-            leaf_analysis = leaf_analyses[0]
-        else:
-            # 如果没有leaf操作但有元数据变更，这是违规
-            placeholder_leaf = LeafOperation(
-                leaf_id="placeholder",
-                operation_type=LeafOperationType.NEW,
-                checksum="",
-                file_path="",
-                section_path=curr_section.section_path
-            )
-
-            # 检查是否有元数据变更但没有leaf操作
-            if has_metadata_change:
-                # 违规：元数据变更但没有任何leaf操作
-                leaf_analysis = LeafOperationAnalysis(
-                    leaf_operation=placeholder_leaf,
-                    is_compliant=False,
-                    violation_reason="Metadata changed but no leaf operations present"
-                )
-            else:
-                # 合规：没有元数据变更，也没有leaf操作
-                leaf_analysis = LeafOperationAnalysis(
-                    leaf_operation=placeholder_leaf,
-                    is_compliant=True
-                )
+        # Stage 3 增强：检查部分更新违规
+        # 当元数据变更时，验证所有前序列的leaf是否都被处理了
+        leaf_analysis = self._validate_leaf_completeness(
+            prev_section=prev_section,
+            curr_section=curr_section,
+            has_metadata_change=has_metadata_change,
+            leaf_analyses=leaf_analyses,
+            prev_leaf_ops=prev_leaf_ops,
+            current_leaf_ops=current_leaf_ops
+        )
 
         return SectionUpdateAnalysis(
             section_identifier=curr_section.identifier,
@@ -271,6 +252,161 @@ class ECTDMetadataComparator:
             leaf_analysis=leaf_analysis,
             is_updated_section=True
         )
+
+    def _validate_leaf_completeness(
+        self,
+        prev_section: SectionMetadataSnapshot,
+        curr_section: SectionMetadataSnapshot,
+        has_metadata_change: bool,
+        leaf_analyses: List,
+        prev_leaf_ops: List,
+        current_leaf_ops: List
+    ):
+        """
+        验证leaf更新的完整性（Stage 3 增强）
+
+        当元数据变更时，检查前序列的所有leaf是否都被正确处理：
+        - 必须被删除（delete操作）
+        - 或被替换（replace操作）
+
+        如果有leaf既没有被删除也没有被替换，则为"部分更新"违规
+
+        Args:
+            prev_section: 前序列section
+            curr_section: 当前序列section
+            has_metadata_change: 是否有元数据变更
+            leaf_analyses: leaf操作分析结果
+            prev_leaf_ops: 前序列leaf操作列表
+            current_leaf_ops: 当前序列leaf操作列表
+
+        Returns:
+            LeafOperationAnalysis: 汇总的分析结果
+        """
+        from core.ectd_leaf_operation_analyzer import (
+            LeafOperationAnalysis,
+            LeafOperation,
+            LeafOperationType
+        )
+
+        # 如果没有元数据变更，使用原有逻辑
+        if not has_metadata_change:
+            if leaf_analyses:
+                return leaf_analyses[0]
+            else:
+                placeholder_leaf = LeafOperation(
+                    leaf_id="placeholder",
+                    operation_type=LeafOperationType.NEW,
+                    checksum="",
+                    file_path="",
+                    section_path=curr_section.section_path
+                )
+                return LeafOperationAnalysis(
+                    leaf_operation=placeholder_leaf,
+                    is_compliant=True
+                )
+
+        # 元数据变更时，检查完整性
+        if not current_leaf_ops:
+            # 元数据变更但没有任何leaf操作 - 违规
+            placeholder_leaf = LeafOperation(
+                leaf_id="placeholder",
+                operation_type=LeafOperationType.NEW,
+                checksum="",
+                file_path="",
+                section_path=curr_section.section_path
+            )
+            return LeafOperationAnalysis(
+                leaf_operation=placeholder_leaf,
+                is_compliant=False,
+                violation_reason="Metadata changed but no leaf operations present"
+            )
+
+        # 构建当前序列的操作映射
+        current_ops_by_id = {op.leaf_id: op for op in current_leaf_ops}
+
+        # 构建modified_file映射：哪些前序列leaf被replace/delete/append操作引用了
+        # 需要从curr_section的LeafMetadata中获取modified_file信息
+        modified_file_targets = set()
+        for leaf_meta in curr_section.leaf_metadata:
+            if leaf_meta.modified_file:
+                modified_file_targets.add(leaf_meta.modified_file)
+
+        # 检查前序列的每个leaf是否都被处理了
+        unprocessed_leafs = []
+        for prev_leaf in prev_leaf_ops:
+            # 情况1：前序列leaf通过modified_file被引用（replace/delete/append）
+            if prev_leaf.leaf_id in modified_file_targets:
+                continue
+
+            # 情况2：前序列leaf ID在当前序列中有对应操作
+            curr_op = current_ops_by_id.get(prev_leaf.leaf_id)
+            if curr_op:
+                # 检查操作类型
+                if curr_op.operation_type in (LeafOperationType.REPLACE, LeafOperationType.DELETE):
+                    # 正确处理：replace或delete
+                    continue
+                else:
+                    # 其他操作类型（理论上不应该出现在这里）
+                    continue
+
+            # 情况3：检查leaf分析结果中是否有delete操作引用了这个leaf
+            has_delete = any(
+                op.leaf_operation.operation_type == LeafOperationType.DELETE
+                for op in leaf_analyses
+                if hasattr(op, 'leaf_operation') and op.leaf_operation.leaf_id == prev_leaf.leaf_id
+            )
+
+            if not has_delete:
+                unprocessed_leafs.append(prev_leaf.leaf_id)
+
+        # 如果有未处理的leaf，则为部分更新违规
+        if unprocessed_leafs:
+            # 创建违规分析结果
+            representative_leaf = current_leaf_ops[0] if current_leaf_ops else LeafOperation(
+                leaf_id="placeholder",
+                operation_type=LeafOperationType.NEW,
+                checksum="",
+                file_path="",
+                section_path=curr_section.section_path
+            )
+
+            violation_msg = (
+                f"Partial update violation: Metadata changed but {len(unprocessed_leafs)} "
+                f"leaf(s) from previous sequence were not deleted or replaced. "
+                f"Unprocessed leafs: {', '.join(unprocessed_leafs[:5])}"
+            )
+            if len(unprocessed_leafs) > 5:
+                violation_msg += f" (and {len(unprocessed_leafs) - 5} more)"
+
+            return LeafOperationAnalysis(
+                leaf_operation=representative_leaf,
+                is_compliant=False,
+                violation_reason=violation_msg
+            )
+
+        # 没有部分更新问题，返回原有分析结果
+        if leaf_analyses:
+            # 汇总所有leaf的合规性
+            all_compliant = all(analysis.is_compliant for analysis in leaf_analyses)
+            if not all_compliant:
+                # 返回第一个不合规的分析
+                for analysis in leaf_analyses:
+                    if not analysis.is_compliant:
+                        return analysis
+            return leaf_analyses[0]
+        else:
+            # 理论上不应该到这里，但提供默认返回
+            placeholder_leaf = LeafOperation(
+                leaf_id="placeholder",
+                operation_type=LeafOperationType.NEW,
+                checksum="",
+                file_path="",
+                section_path=curr_section.section_path
+            )
+            return LeafOperationAnalysis(
+                leaf_operation=placeholder_leaf,
+                is_compliant=True
+            )
 
     def _create_new_section_analysis(
         self,

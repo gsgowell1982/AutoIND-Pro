@@ -536,6 +536,7 @@ export interface RuleCheckDetails {
   extension_issue_bundles?: RuleExtensionIssueBundle[]
   remediation_guidance?: RuleRemediationGuidanceItem[]
   pdf_presentation_contract?: Record<string, unknown>
+  foreign_reference_contract?: Record<string, unknown>
 }
 
 export interface RuleCheckItem {

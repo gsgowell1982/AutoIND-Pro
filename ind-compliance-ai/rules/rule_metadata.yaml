@@ -556,6 +556,12 @@ rules:
     source_regulation: cn_ectd_technical_specification
     source_version: regulation-requirement-matrix-v1
     description: 当section的元数据属性（如manufacturer、substance等）发生变更时，其下的所有leaf文件内容必须完整更新（通过delete+new或replace操作实现checksum变更）
+  - rule_id: HR-ECTD-201
+    category: hard
+    title: eCTD跨模块section属性必须保持一致
+    source_regulation: cn_ectd_technical_specification
+    source_version: regulation-requirement-matrix-v1
+    description: 同一序列中，不同模块的配对section（如M2.3.S与M3.2.S、M2.3.P与M3.2.P）在描述同一实体时，关键属性（如substance、manufacturer、product-name等）必须保持一致
   - rule_id: SR-ECTD-024
     category: soft
     title: cn-regional.xml leaf titles should not have leading or trailing whitespace

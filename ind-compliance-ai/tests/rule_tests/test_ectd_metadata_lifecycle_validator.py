@@ -19,8 +19,11 @@ from core.ectd_metadata_lifecycle_validator import (
     validate_metadata_lifecycle_coupling,
     validate_sequences_from_paths,
     validate_application_sequences,
+    validate_cross_module_consistency,
     ViolationDetail,
-    ValidationResult
+    ValidationResult,
+    CrossModuleInconsistency,
+    CrossModuleValidationResult
 )
 from core.ectd_metadata_extractor import (
     extract_sequence_metadata_index,
@@ -399,3 +402,102 @@ class TestMockScenariosIntegration:
                 assert isinstance(result, ValidationResult)
             except Exception as e:
                 pytest.fail(f"Scenario {scenario_name} failed: {e}")
+
+
+# ============================================================================
+# Stage 4 测试：跨模块一致性验证
+# ============================================================================
+
+class TestCrossModuleConsistency:
+    """测试跨模块一致性验证（Stage 4）"""
+
+    def test_cross_module_inconsistency_data_structure(self):
+        """测试CrossModuleInconsistency数据结构"""
+        inconsistency = CrossModuleInconsistency(
+            sequence_number="5",
+            module1_section="m2-3-s-drug-substance[substance='API-A']",
+            module2_section="m3-2-s-drug-substance[substance='API-A']",
+            inconsistent_attributes={"manufacturer": ("MFR-X", "MFR-Y")},
+            message="Test inconsistency"
+        )
+
+        assert inconsistency.sequence_number == "5"
+        assert "manufacturer" in inconsistency.inconsistent_attributes
+        assert inconsistency.inconsistent_attributes["manufacturer"] == ("MFR-X", "MFR-Y")
+
+        # 测试get_summary
+        summary = inconsistency.get_summary()
+        assert "Cross-module inconsistency" in summary
+        assert "manufacturer" in summary
+
+    def test_cross_module_validation_result_structure(self):
+        """测试CrossModuleValidationResult数据结构"""
+        result = CrossModuleValidationResult(
+            sequence_number="5",
+            total_pairs_checked=1,
+            inconsistencies=[]
+        )
+
+        assert result.sequence_number == "5"
+        assert result.total_pairs_checked == 1
+        assert result.is_consistent is True
+        assert result.inconsistency_count == 0
+
+        # 添加一个不一致项
+        inconsistency = CrossModuleInconsistency(
+            sequence_number="5",
+            module1_section="m2-3-s",
+            module2_section="m3-2-s",
+            inconsistent_attributes={"manufacturer": ("A", "B")},
+            message="Test"
+        )
+        result.inconsistencies.append(inconsistency)
+
+        assert result.is_consistent is False
+        assert result.inconsistency_count == 1
+
+    def test_validate_cross_module_consistency_with_scenario_4(self):
+        """使用场景4测试跨模块一致性验证"""
+        test_data_root = Path("D:/AutoIND-Pro/test_data/ectd_metadata_lifecycle")
+        scenario_4_path = test_data_root / "scenario_4_cross_module" / "0005"
+
+        if not scenario_4_path.exists():
+            pytest.skip("Scenario 4 test data not available")
+
+        # 提取序列索引
+        index = extract_sequence_metadata_index(str(scenario_4_path))
+
+        # 执行跨模块一致性验证
+        result = validate_cross_module_consistency(index)
+
+        # 场景4应该检测到不一致（M2.3.S和M3.2.S的manufacturer不一致）
+        assert result.sequence_number == "5"
+        assert result.total_pairs_checked >= 1
+        assert result.is_consistent is False
+        assert result.inconsistency_count >= 1
+
+        # 验证不一致详情
+        inconsistency = result.inconsistencies[0]
+        assert "manufacturer" in inconsistency.inconsistent_attributes
+        assert "MFR-Y" in inconsistency.inconsistent_attributes["manufacturer"]
+        assert "MFR-X" in inconsistency.inconsistent_attributes["manufacturer"]
+
+    def test_validate_cross_module_consistency_with_consistent_data(self):
+        """测试没有跨模块不一致的场景"""
+        test_data_root = Path("D:/AutoIND-Pro/test_data/ectd_metadata_lifecycle")
+        scenario_1_path = test_data_root / "scenario_1_compliant" / "0005"
+
+        if not scenario_1_path.exists():
+            pytest.skip("Scenario 1 test data not available")
+
+        # 提取序列索引
+        index = extract_sequence_metadata_index(str(scenario_1_path))
+
+        # 执行跨模块一致性验证
+        result = validate_cross_module_consistency(index)
+
+        # 场景1应该是一致的（或者没有跨模块配对）
+        assert result.sequence_number == "5"
+        assert isinstance(result.total_pairs_checked, int)
+        # 如果有配对，应该一致；如果没有配对，也算一致
+        assert result.is_consistent is True

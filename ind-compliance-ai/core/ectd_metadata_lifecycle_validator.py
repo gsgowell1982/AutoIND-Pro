@@ -29,6 +29,7 @@ from core.ectd_sequence_resolver import (
     resolve_previous_sequence,
     SequenceResolverError
 )
+from core.ectd_section_identifier import find_cross_module_pair
 
 
 # ============================================================================
@@ -449,3 +450,222 @@ def validate_application_sequences(
         validation_results.append(result)
 
     return validation_results
+
+
+# ============================================================================
+# Stage 4: 跨模块一致性验证
+# ============================================================================
+
+@dataclass
+class CrossModuleInconsistency:
+    """
+    跨模块不一致性详情
+
+    当同一序列中的不同模块（如M2.3.S和M3.2.S）描述同一实体时，
+    它们的关键属性应该一致。
+
+    Attributes:
+        sequence_number: 序列号
+        module1_section: 第一个模块的section标识
+        module2_section: 第二个模块的section标识
+        inconsistent_attributes: 不一致的属性字典 {attr_name: (value1, value2)}
+        message: 不一致描述消息
+    """
+    sequence_number: str
+    module1_section: str  # 如 "m2-3-s-drug-substance[substance='API-A']"
+    module2_section: str  # 如 "m3-2-s-drug-substance[substance='API-A']"
+    inconsistent_attributes: Dict[str, tuple]  # {attr_name: (value1, value2)}
+    message: str
+
+    def get_summary(self) -> str:
+        """获取不一致摘要"""
+        attr_details = []
+        for attr, (v1, v2) in self.inconsistent_attributes.items():
+            attr_details.append(f"{attr}: '{v1}' vs '{v2}'")
+
+        attr_text = ", ".join(attr_details)
+        return f"Cross-module inconsistency in sequence {self.sequence_number}: {attr_text}"
+
+
+@dataclass
+class CrossModuleValidationResult:
+    """
+    跨模块一致性验证结果
+
+    Attributes:
+        sequence_number: 被验证的序列号
+        total_pairs_checked: 检查的配对数量
+        inconsistencies: 不一致列表
+        is_consistent: 是否完全一致
+    """
+    sequence_number: str
+    total_pairs_checked: int
+    inconsistencies: List[CrossModuleInconsistency] = field(default_factory=list)
+
+    @property
+    def is_consistent(self) -> bool:
+        """是否完全一致（无不一致项）"""
+        return len(self.inconsistencies) == 0
+
+    @property
+    def inconsistency_count(self) -> int:
+        """不一致数量"""
+        return len(self.inconsistencies)
+
+    def get_summary(self) -> str:
+        """获取验证结果摘要"""
+        if self.is_consistent:
+            return f"Sequence {self.sequence_number}: All {self.total_pairs_checked} cross-module pairs consistent"
+        else:
+            return f"Sequence {self.sequence_number}: {self.inconsistency_count} inconsistencies found in {self.total_pairs_checked} pairs"
+
+
+def validate_cross_module_consistency(
+    index: SequenceMetadataIndex
+) -> CrossModuleValidationResult:
+    """
+    验证单个序列内的跨模块一致性
+
+    检查同一序列中不同模块的配对section（如M2.3.S和M3.2.S）
+    是否具有一致的关键属性。
+
+    根据eCTD规范，以下配对应该保持一致：
+    - M2.3.S ↔ M3.2.S: substance, manufacturer
+    - M2.3.P ↔ M3.2.P: product-name, dosageform, manufacturer
+    - M2.7.3 ↔ M5.3.5: indication
+
+    Args:
+        index: 序列元数据索引
+
+    Returns:
+        CrossModuleValidationResult: 验证结果
+
+    Examples:
+        >>> index = extract_sequence_metadata_index("/path/to/0005")
+        >>> result = validate_cross_module_consistency(index)
+        >>> if not result.is_consistent:
+        ...     for inconsistency in result.inconsistencies:
+        ...         print(inconsistency.get_summary())
+    """
+    all_sections = index.get_all_sections()
+
+    # 构建section标识符列表
+    section_identifiers = [section.identifier for section in all_sections]
+
+    # 存储已检查的配对（避免重复检查）
+    checked_pairs = set()
+    inconsistencies = []
+    pairs_checked = 0
+
+    # 遍历每个section，查找其跨模块配对
+    for section in all_sections:
+        identifier = section.identifier
+
+        # 查找配对
+        pair_identifier = find_cross_module_pair(identifier, section_identifiers)
+
+        if not pair_identifier:
+            continue
+
+        # 创建配对键（确保不重复检查）
+        pair_key = tuple(sorted([
+            identifier.get_matching_key(),
+            pair_identifier.get_matching_key()
+        ]))
+
+        if pair_key in checked_pairs:
+            continue
+
+        checked_pairs.add(pair_key)
+        pairs_checked += 1
+
+        # 比对属性
+        inconsistent_attrs = _compare_cross_module_attributes(
+            identifier,
+            pair_identifier
+        )
+
+        if inconsistent_attrs:
+            # 生成不一致详情
+            inconsistency = CrossModuleInconsistency(
+                sequence_number=index.sequence_number,
+                module1_section=identifier.to_display_path(),
+                module2_section=pair_identifier.to_display_path(),
+                inconsistent_attributes=inconsistent_attrs,
+                message=_build_cross_module_inconsistency_message(
+                    identifier,
+                    pair_identifier,
+                    inconsistent_attrs
+                )
+            )
+            inconsistencies.append(inconsistency)
+
+    return CrossModuleValidationResult(
+        sequence_number=index.sequence_number,
+        total_pairs_checked=pairs_checked,
+        inconsistencies=inconsistencies
+    )
+
+
+def _compare_cross_module_attributes(
+    identifier1,
+    identifier2
+) -> Dict[str, tuple]:
+    """
+    比对两个跨模块section的属性
+
+    只比对它们共有的属性
+
+    Args:
+        identifier1: 第一个section标识符
+        identifier2: 第二个section标识符
+
+    Returns:
+        不一致的属性字典 {attr_name: (value1, value2)}
+    """
+    attrs1 = identifier1.attributes
+    attrs2 = identifier2.attributes
+
+    # 找出共有的属性
+    common_attrs = set(attrs1.keys()) & set(attrs2.keys())
+
+    inconsistent = {}
+    for attr in common_attrs:
+        value1 = attrs1[attr]
+        value2 = attrs2[attr]
+
+        if value1 != value2:
+            inconsistent[attr] = (value1, value2)
+
+    return inconsistent
+
+
+def _build_cross_module_inconsistency_message(
+    identifier1,
+    identifier2,
+    inconsistent_attrs: Dict[str, tuple]
+) -> str:
+    """
+    构建跨模块不一致的详细消息
+
+    Args:
+        identifier1: 第一个section标识符
+        identifier2: 第二个section标识符
+        inconsistent_attrs: 不一致的属性字典
+
+    Returns:
+        详细消息字符串
+    """
+    attr_details = []
+    for attr, (v1, v2) in inconsistent_attrs.items():
+        attr_details.append(f"{attr}: '{v1}' vs '{v2}'")
+
+    attr_text = ", ".join(attr_details)
+
+    message = (
+        f"Cross-module inconsistency detected: "
+        f"{identifier1.element_name} and {identifier2.element_name} "
+        f"should have consistent attributes but differ in: {attr_text}"
+    )
+
+    return message

@@ -187,6 +187,10 @@ _ECTD_METADATA_LIFECYCLE_COUPLING_REQUIREMENT_ID = (
     "cn_ectd_technical_specification:req_metadata_lifecycle_coupling"
 )
 _ECTD_METADATA_LIFECYCLE_COUPLING_CITATION = "cn_ectd_technical_specification#sec_3_6"
+_ECTD_CROSS_MODULE_CONSISTENCY_REQUIREMENT_ID = (
+    "cn_ectd_technical_specification:req_cross_module_consistency"
+)
+_ECTD_CROSS_MODULE_CONSISTENCY_CITATION = "cn_ectd_technical_specification#sec_3_6"
 _ECTD_VALIDATION_STANDARD_INDEX_APPEND_NOT_REPLACED_LEAF_REQUIREMENT_ID = (
     "cn_ectd_validation_standard:req_index_append_must_not_target_replaced_leaf"
 )
@@ -1910,6 +1914,13 @@ def build_default_material_rules() -> list[Rule]:
             category="hard",
             evaluator=_evaluate_ectd_metadata_lifecycle_coupling_requirement,
             citation=_ECTD_METADATA_LIFECYCLE_COUPLING_CITATION,
+            scope="sequence",
+        ),
+        Rule(
+            rule_id="HR-ECTD-201",
+            category="hard",
+            evaluator=_evaluate_ectd_cross_module_consistency_requirement,
+            citation=_ECTD_CROSS_MODULE_CONSISTENCY_CITATION,
             scope="sequence",
         ),
         Rule(
@@ -19073,6 +19084,88 @@ def _evaluate_ectd_metadata_lifecycle_coupling_requirement(
         return (
             "na",
             _ECTD_METADATA_LIFECYCLE_COUPLING_REQUIREMENT_ID,
+            {
+                "reason": "evaluation_error",
+                "error": str(e)
+            }
+        )
+
+
+def _evaluate_ectd_cross_module_consistency_requirement(
+    material_contract: dict[str, Any],
+) -> tuple[str, str, dict[str, Any]]:
+    """
+    评估eCTD跨模块一致性规则（Stage 4）
+
+    规则: 同一序列中，不同模块的配对section（如M2.3.S和M3.2.S）应具有一致的关键属性
+
+    Args:
+        material_contract: 物料契约，包含当前序列信息
+
+    Returns:
+        (status, requirement_id, details) 元组
+    """
+    from core.ectd_metadata_lifecycle_validator import validate_cross_module_consistency
+    from core.ectd_metadata_extractor import extract_sequence_metadata_index
+
+    # 获取当前序列路径
+    current_sequence_path = material_contract.get("sequence_root_path")
+    if not current_sequence_path:
+        return (
+            "na",
+            _ECTD_CROSS_MODULE_CONSISTENCY_REQUIREMENT_ID,
+            {"reason": "sequence_root_path_not_available"}
+        )
+
+    try:
+        # 提取当前序列的元数据索引
+        current_index = extract_sequence_metadata_index(current_sequence_path)
+
+        # 执行跨模块一致性验证
+        validation_result = validate_cross_module_consistency(current_index)
+
+        # 转换为RuleEvaluationResult格式
+        if validation_result.is_consistent:
+            return (
+                "pass",
+                _ECTD_CROSS_MODULE_CONSISTENCY_REQUIREMENT_ID,
+                {
+                    "sequence_number": validation_result.sequence_number,
+                    "pairs_checked": validation_result.total_pairs_checked,
+                    "all_consistent": True
+                }
+            )
+        else:
+            # 构建不一致详情
+            inconsistency_details = [
+                {
+                    "module1_section": inc.module1_section,
+                    "module2_section": inc.module2_section,
+                    "inconsistent_attributes": {
+                        k: {"value1": v[0], "value2": v[1]}
+                        for k, v in inc.inconsistent_attributes.items()
+                    },
+                    "message": inc.message
+                }
+                for inc in validation_result.inconsistencies
+            ]
+
+            return (
+                "fail",
+                _ECTD_CROSS_MODULE_CONSISTENCY_REQUIREMENT_ID,
+                {
+                    "sequence_number": validation_result.sequence_number,
+                    "pairs_checked": validation_result.total_pairs_checked,
+                    "inconsistency_count": validation_result.inconsistency_count,
+                    "inconsistencies": inconsistency_details
+                }
+            )
+
+    except Exception as e:
+        # 处理任何异常情况
+        return (
+            "na",
+            _ECTD_CROSS_MODULE_CONSISTENCY_REQUIREMENT_ID,
             {
                 "reason": "evaluation_error",
                 "error": str(e)
